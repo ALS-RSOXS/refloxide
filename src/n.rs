@@ -1,0 +1,1 @@
+/// Core index of refraction data types.

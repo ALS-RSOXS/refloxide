@@ -1,0 +1,1 @@
+/// Core simulation logic for the 4x4 transfer matrix method.

@@ -1,0 +1,138 @@
+[build-system]
+requires = ["maturin>=1.13.1,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "refloxide"
+version = "0.1.0"
+description = "A blazingly fast 4x4 transfer matrix method for simulating reflection though stratified media"
+readme = "README.md"
+license = "GPL-3.0"
+requires-python = ">=3.13"
+authors = [
+    { name = "Harlan D Heilman", email = "73567020+HarlanHeilman@users.noreply.github.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+keywords = []
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.14",
+    "ty>=0.0.14",
+    "prek>=0.1.0",
+    "pysentry-rs>=0.1.0",
+    "maturin>=1.13.1",
+]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.7.0",
+    "mkdocstrings-python>=2.0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/HarlanHeilman/refloxide"
+Documentation = "https://HarlanHeilman.github.io/refloxide"
+Repository = "https://github.com/HarlanHeilman/refloxide"
+Issues = "https://github.com/HarlanHeilman/refloxide/issues"
+Changelog = "https://github.com/HarlanHeilman/refloxide/blob/main/CHANGELOG.md"
+
+[tool.maturin]
+python-source = "src"
+module-name = "refloxide._core"
+features = ["pyo3/extension-module"]
+
+# =============================================================================
+# Ruff
+# =============================================================================
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate
+    "RUF",    # Ruff-specific rules
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["refloxide"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG001"]
+
+# =============================================================================
+# ty (Astral type checker)
+# =============================================================================
+
+[tool.ty.src]
+include = ["**/*.py"]
+
+# =============================================================================
+# Pytest
+# =============================================================================
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+    "-ra",
+    "-q",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+# =============================================================================
+# Coverage
+# =============================================================================
+
+[tool.coverage.run]
+source = ["src/refloxide"]
+branch = true
+parallel = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+show_missing = true
+
+# =============================================================================
+# git-cliff (Changelog generation)
+# =============================================================================
+
+[tool.git-cliff]
+config = "cliff.toml"
