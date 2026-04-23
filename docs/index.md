@@ -24,6 +24,12 @@ import refloxide
 print(refloxide.__version__)
 ```
 
+## Team and support
+
+- ALS-REIXS team: [RIXS Program at ALS](https://als.lbl.gov/science/photon-science-programs/rixs-program/)
+- Group GitHub: [ALS-RSOXS organization](https://github.com/ALS-RSOXS)
+- Submit issues: [refloxide issue tracker](https://github.com/ALS-RSOXS/refloxide/issues)
+
 ## Development
 
 ### Prerequisites
