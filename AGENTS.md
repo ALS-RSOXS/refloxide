@@ -211,3 +211,12 @@ It is important to note that these notebooks are designed to be robust. These sh
 - Variables should be defined in the cells that use them, and should usually be displayed to the user. Avoid using global variables, or mutable state if possible.
 - When prototping a library, use the `%autoreload 2` magic to ensure that the code is reloaded when it is changed.
 
+## Learned User Preferences
+
+- Prefer no Typer and no user-facing CLI or `[project.scripts]` entrypoints unless the user explicitly requests them.
+- When the user supplies an explicit list of paths to stage or commit, restrict `git add` and the commit to that list only; avoid staging unrelated changes.
+
+## Learned Workspace Facts
+
+- Stratified film stacks are modeled with explicit semi-infinite fronting and backing media, interior film layers, and per-interface roughness with one value per interface boundary (`layers.len() + 1`).
+
