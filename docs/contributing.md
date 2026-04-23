@@ -5,51 +5,39 @@ Thank you for your interest in contributing to refloxide!
 ## Development Setup
 
 1. Fork and clone the repository:
-
-   ```bash
+  ```bash
    git clone https://github.com/HarlanHeilman/refloxide.git
    cd refloxide
-   ```
-
+  ```
 2. Install dependencies using uv:
-
-   ```bash
+  ```bash
    uv sync --group dev
-   ```
-
+  ```
 3. Install prek hooks:
-
-   ```bash
+  ```bash
    prek install
-   ```
+  ```
 
 ## Making Changes
 
 1. Create a new branch for your feature or bugfix:
-
-   ```bash
+  ```bash
    git checkout -b feature/your-feature-name
-   ```
-
+  ```
 2. Make your changes and ensure tests pass:
-
-   ```bash
+  ```bash
    uv run pytest
-   ```
-
+  ```
 3. Ensure code quality:
-
-   ```bash
+  ```bash
    uv run ruff check .
    uv run ruff format .
    uv run ty check
-   ```
-
+  ```
 4. Commit your changes using [conventional commits](https://www.conventionalcommits.org/):
-
-   ```bash
+  ```bash
    git commit -m "feat: add new feature"
-   ```
+  ```
 
 ## Commit Message Format
 
@@ -68,6 +56,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Here are so
 2. Add tests for new functionality
 3. Ensure all tests pass
 4. Submit a pull request with a clear description
+
 ## Dependency Updates
 
 This project uses [Renovate](https://renovateapp.com/) for automated dependency updates. Renovate will automatically open pull requests when new versions are available for:
@@ -89,9 +78,11 @@ The `renovate.json` at the root of this project is pre-configured to manage:
 
 - GitHub Actions workflow dependencies
 - Python dependencies (via `pyproject.toml`)
+
 ## Code Style
 
 - We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting
 - We use [ty](https://docs.astral.sh/ty/) for type checking
 - All code should be properly typed
 - Write docstrings for public functions and classes
+
