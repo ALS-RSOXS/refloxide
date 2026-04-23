@@ -34,10 +34,11 @@ dev = [
     "prek>=0.1.0",
     "pysentry-rs>=0.1.0",
     "maturin>=1.13.1",
+    "numpy>=2.0",
 ]
 docs = [
     "mkdocs>=1.6.0",
-    "mkdocs-material>=9.7.0",
+    "mkdocs-shadcn>=0.10.5",
     "mkdocstrings-python>=2.0.1",
 ]
 
@@ -107,6 +108,9 @@ addopts = [
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "regression: regression tests against analytical or reference data",
+    "reference_matlab: requires Passler MATLAB reference data (Zenodo 601496)",
+    "reference_jeannin: requires Jeannin Python reference data (Zenodo 3417751)",
 ]
 
 # =============================================================================

@@ -83,9 +83,9 @@ $\xi = \sqrt{\varepsilon_{\text{inc}}}\sin\theta$
 is incident from an isotropic, non-absorbing half space $i = 0$ onto
 a stack of $N$ homogeneous layers, each of thickness $d_i$ and
 characterized by a (generally complex, generally anisotropic)
-dielectric tensor $\bar{\varepsilon}*i$. The substrate $i = N+1$ is
+dielectric tensor $\bar{\varepsilon}_i$. The substrate $i = N+1$ is
 a second half space, which may itself be anisotropic and absorbing.
-The observables are the four reflection amplitudes $r*{pp}$,
+The observables are the four reflection amplitudes $r_{pp}$,
 $r_{ss}$, $r_{ps}$, $r_{sp}$, the four transmission amplitudes
 $t_{pp}$, $t_{ss}$, $t_{ps}$, $t_{sp}$, and optionally the full
 $\vec{E}(x, y, z)$ distribution inside every layer.

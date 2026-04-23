@@ -24,9 +24,9 @@ thickness $d_i$. The propagation matrix is
 $$
 P_i =
 \begin{pmatrix}
-e^{-i(\omega/c)q_{i1} d_i} & 0 & 0 & 0 
-0 & e^{-i(\omega/c)q_{i2} d_i} & 0 & 0 
-0 & 0 & e^{-i(\omega/c)q_{i3} d_i} & 0 
+e^{-i(\omega/c)q_{i1} d_i} & 0 & 0 & 0 \\
+0 & e^{-i(\omega/c)q_{i2} d_i} & 0 & 0 \\
+0 & 0 & e^{-i(\omega/c)q_{i3} d_i} & 0 \\
 0 & 0 & 0 & e^{-i(\omega/c)q_{i4} d_i}
 \end{pmatrix}.
 $$
@@ -113,9 +113,9 @@ $s$. A similarity transformation by the permutation matrix
 $$
 \Lambda_{1324} =
 \begin{pmatrix}
-1 & 0 & 0 & 0 
-0 & 0 & 1 & 0 
-0 & 1 & 0 & 0 
+1 & 0 & 0 & 0 \\
+0 & 0 & 1 & 0 \\
+0 & 1 & 0 & 0 \\
 0 & 0 & 0 & 1
 \end{pmatrix}
 $$
@@ -124,19 +124,19 @@ of [[1](#references), Eq. (32)] brings the two layouts into
 agreement. The Yeh-compatible transfer matrix is
 
 $$
-\tilde{\Gamma}*N = \Lambda*{1324}^{-1}\Gamma_N\Lambda_{1324},
+\tilde{\Gamma}_N = \Lambda_{1324}^{-1}\Gamma_N\Lambda_{1324},
 $$
 
 as in [[1](#references), Eq. (31)]. $\Lambda_{1324}$ is its own
 inverse (it is an involution on the four-element basis), so the
 similarity transformation incurs no numerical inversion penalty.
 
-Stages 5 and 6 consume $\tilde{\Gamma}*N$. Every closed-form
+Stages 5 and 6 consume $\tilde{\Gamma}_N$. Every closed-form
 expression for the amplitude coefficients displayed in
 `[reflection_transmission.md](reflection_transmission.md)` reads
-matrix elements of $\tilde{\Gamma}N$, not of the pre-permutation
+matrix elements of $\tilde{\Gamma}_N$, not of the pre-permutation
 $\Gamma_N$. A library that forgets this permutation returns
-$r{pp}$ where $r*{ss}$ is expected, and vice versa, which is a
+$r_{pp}$ where $r_{ss}$ is expected, and vice versa, which is a
 classic failure mode of a naive implementation.
 
 ## The $N = 0$ limit and the Fresnel benchmark
@@ -177,8 +177,8 @@ limitation to be revisited when profiled.
 ## Where the code lives
 
 Stage 4 is the `core::transfer` module. The module consumes
-$(A_i, q_{ij}, d_i)*{i=1}^N$ and the two claddings $A_0$ and
-$A*{N+1}$, and returns $\tilde{\Gamma}*N$. The $\Lambda*{1324}$
+$(A_i, q_{ij}, d_i)_{i=1}^N$ and the two claddings $A_0$ and
+$A_{N+1}$, and returns $\tilde{\Gamma}_N$. The $\Lambda_{1324}$
 permutation is implemented as a constant 4x4 matrix rather than a
 row-shuffle, because the library's matrix primitives are
 consistently 4x4 and a constant multiplication is easier to reason

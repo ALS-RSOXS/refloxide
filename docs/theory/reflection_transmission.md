@@ -3,10 +3,10 @@
 ## Scope of this page
 
 This page treats stage 5 of the pipeline. Given the Yeh-layout
-transfer matrix $\tilde{\Gamma}*N$ from
+transfer matrix $\tilde{\Gamma}_N$ from
 `[propagation_and_assembly.md](propagation_and_assembly.md)`, we
 extract the eight complex amplitude coefficients
-$r*{pp}, r_{ss}, r_{ps}, r_{sp}, t_{pp}, t_{ss}, t_{ps}, t_{sp}$
+$r_{pp}, r_{ss}, r_{ps}, r_{sp}, t_{pp}, t_{ss}, t_{ps}, t_{sp}$
 from rational combinations of its matrix elements, and we document
 the sign and normalization corrections imposed by the
 Passler-Paarmann erratum [[1](#references)]. We also record the
@@ -17,18 +17,23 @@ substrates.
 The closed-form expressions follow Yeh [[2](#references)] and are
 tabulated by Passler and Paarmann [[3](#references), Eqs.
 (33)-(36)], with the sign corrections of [[1](#references), Eqs.
-(33*)-(36*)].
+(34*)-(36*)]. The $t_{pp}$ formula itself is unchanged and carries
+the unstarred Eq. (33) label in the erratum; only $t_{ss}$,
+$t_{ps}$, and $t_{sp}$ required sign flips [[1](#references),
+Sec. 2.B]. The $r_{kl}$ expressions are untouched by the erratum
+and remain those of [[3](#references), Eqs. (33)-(36)].
 
 ## From $\tilde{\Gamma}_N$ to the amplitude coefficients
 
-Let $\tilde{\Gamma}*N$ have matrix elements $\Gamma*{\alpha\beta}$,
+Let $\tilde{\Gamma}_N$ have matrix elements $\Gamma_{\alpha\beta}$,
 where the $(\alpha, \beta)$ indexing uses the Yeh row order
 $(E^p_{\text{trans}}, E^p_{\text{refl}},
   E^s_{\text{trans}}, E^s_{\text{refl}})$ [[3](#references),
 Eq. (30)]. For an incident medium that is isotropic and
 non-absorbing, the reflection and transmission coefficients read,
-using the erratum-corrected sign convention [[1](#references), Eqs.
-(33*)-(36*)],
+with the transmission signs following the erratum-corrected
+convention [[1](#references), Eqs. (34*)-(36*)] and the reflection
+expressions unchanged from [[3](#references), Eqs. (33)-(36)],
 
 $$
 r_{pp} = \frac{\Gamma_{21}\Gamma_{33} - \Gamma_{23}\Gamma_{31}}
@@ -115,7 +120,7 @@ projection on the substrate side, which in turn depends on the
 eigenvalue $q_{i,N+1}$ of the transmitted mode, on the dielectric
 tensor of the substrate, and on the refractive index of the
 incident medium [[1](#references), Sec. 2.B, discussion preceding
-Eqs. (33*)-(36*)]. The correct expression was deferred by Passler
+Eqs. (34*)-(36*)]. The correct expression was deferred by Passler
 and Paarmann to a later publication [[1](#references), Ref. 6 of
 the erratum]. As of the sources we cite here, no general
 closed-form transmittance identity has been published.
@@ -137,7 +142,7 @@ When the substrate is birefringent, the two transmitted modes are
 no longer purely $p$-polarized and $s$-polarized but are the
 ordinary (o) and extraordinary (e) eigenmodes of the substrate's
 dielectric tensor [[1](#references), Sec. 2.B, text following Eqs.
-(33*)-(36*)]. Both eigenmodes carry non-zero $E_x$ and non-zero
+(34*)-(36*)]. Both eigenmodes carry non-zero $E_x$ and non-zero
 $E_y$ in general, so the Jones layout $(p, s)$ on the outgoing side
 is no longer natural.
 
@@ -188,9 +193,11 @@ operation that belongs in the fitting layer.
 Stage 5 is the `core::coefficients` module. It consumes
 $\tilde{\Gamma}_N$ and returns the eight amplitudes as a named
 struct. The rational expressions are written out verbatim from
-[[1](#references), Eqs. (33*)-(36*)] rather than being rederived in
-code, so that a reader comparing the implementation to the erratum
-can trace the mapping line by line. The common denominator is
+[[3](#references), Eqs. (33)-(36)] for the reflection coefficients
+and from [[1](#references), Eqs. (33), (34*)-(36*)] for the
+transmission coefficients, rather than being rederived in code, so
+that a reader comparing the implementation to the erratum can
+trace the mapping line by line. The common denominator is
 computed once per call and shared across the eight returns.
 
 ## Numerical notes

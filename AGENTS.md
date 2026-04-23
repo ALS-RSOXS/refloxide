@@ -219,4 +219,7 @@ It is important to note that these notebooks are designed to be robust. These sh
 ## Learned Workspace Facts
 
 - Stratified film stacks are modeled with explicit semi-infinite fronting and backing media, interior film layers, and per-interface roughness with one value per interface boundary (`layers.len() + 1`).
+- The docs site is MkDocs with the shadcn theme, ALS-oriented CSS in `docs/stylesheets/` (including code-block Pygments sheets used with `pymdownx.highlight` / mkdocstrings), and `theme.custom_dir: overrides` for `overrides/templates/header.html` and `overrides/components/icon.html` when the theme is customized. For the header mark, the shadcn theme uses `theme.icon` (not Material-style `theme.logo`); optional `theme.icon_light` shows a different logo in light mode when a second asset is provided.
+- `docs/theory` is organized in the left nav in grouped subsections aligned with `docs/theory/overview.md` (Narrative context, Core Pipeline, Roughness models).
+- Favicon and brand images for the site live under `docs/assets/`.
 

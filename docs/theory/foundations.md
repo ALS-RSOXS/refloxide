@@ -65,7 +65,7 @@ Elimination of the in-plane derivatives in the curl equations then
 produces a spatial wave equation
 
 $$
-R\vec{g} = -i\omegaM\vec{g},
+R\vec{g} = -i\omega M\vec{g},
 $$
 
 with $\vec{g}$ the spatial part of $\vec{G} = \vec{g}e^{-i\omega
@@ -104,9 +104,9 @@ which we reproduce representative entries,
 
 $$
 \begin{aligned}
-\Delta_{11} &= M_{51} + (M_{53} + \xi)a_{31} + M_{56}a_{61}, 
-\Delta_{21} &= M_{11} + M_{13}a_{31} + M_{16}a_{61}, 
-\Delta_{31} &= -M_{41} - M_{43}a_{31} - M_{46}a_{61}, 
+\Delta_{11} &= M_{51} + (M_{53} + \xi)a_{31} + M_{56}a_{61}, \\
+\Delta_{21} &= M_{11} + M_{13}a_{31} + M_{16}a_{61}, \\
+\Delta_{31} &= -M_{41} - M_{43}a_{31} - M_{46}a_{61}, \\
 \Delta_{41} &= M_{21} + M_{23}a_{31} + (M_{26} - \xi)a_{61}.
 \end{aligned}
 $$

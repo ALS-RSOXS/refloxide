@@ -1,0 +1,32 @@
+{% if config.theme.icon %}
+{% if (config.theme.icon | file_exists) or (config.theme.icon | is_http_url) %}
+{% if config.theme.icon_light
+  and ((config.theme.icon_light | file_exists) or (config.theme.icon_light | is_http_url)) %}
+<img
+  class="als-brand-icon als-brand-icon--light"
+  src="{{ config.theme.icon_light | url }}"
+  alt="{{ config.site_name }}"
+  loading="eager"
+  decoding="async" />
+<img
+  class="als-brand-icon als-brand-icon--dark"
+  src="{{ config.theme.icon | url }}"
+  alt="{{ config.site_name }}"
+  loading="eager"
+  decoding="async" />
+{% else %}
+<img
+  class="als-brand-icon als-brand-icon--only"
+  src="{{ config.theme.icon | url }}"
+  alt="{{ config.site_name }}"
+  loading="eager"
+  decoding="async" />
+{% endif %}
+{% else %}
+{{ config.theme.icon | iconify }}
+{% endif %}
+{% else %}
+{% with override_class="size-5" %}
+{% include "icons/shadcn.svg" %}
+{% endwith %}
+{% endif %}
