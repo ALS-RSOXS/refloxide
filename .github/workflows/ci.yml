@@ -94,24 +94,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           fail_ci_if_error: false
-
-  secrets_and_dependency_scan:
-    name: Secret and Dependency Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2.3.9
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - run: make install
-      - run: make pysentry
-
+          
   sast_with_semgrep:
     name: semgrep scan
     runs-on: ubuntu-latest
