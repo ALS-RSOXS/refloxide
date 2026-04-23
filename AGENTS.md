@@ -54,6 +54,10 @@ This codebase is maintained by contributors with physics PhDs and extensive back
 - Do not substitute templates, pseudocode, or abbreviated implementations when the user asked for working code.
 - If scope is too large for one pass, propose a staged plan and complete the first stage fully rather than leaving partial files full of omissions.
 
+## Git Commit Messages
+
+- Follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification. First word of the commit message should be the type of commit, followed by a colon and the scope of the commit. The scope should be the file or module that is being changed. The commit message should be in the present tense. The commit message should be no more than 72 characters.
+
 # Python
 
 ## Python
