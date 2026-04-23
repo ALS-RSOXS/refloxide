@@ -1,8 +1,8 @@
-site_name: refloxide
+site_name: als-rsoxs: refloxide
 site_description: A blaxingly fast 4x4 transfer matrix method for simulating reflection though stratified media
 site_url: https://als-rsoxs.github.io/refloxide/
-repo_url: https://github.com/ALS-RSOXS/refloxide
-repo_name: ALS-RSOXS/refloxide
+repo_url: https://github.com/als-rsoxs/refloxide
+repo_name: als-rsoxs/refloxide
 edit_uri: edit/main/docs/
 
 theme:
