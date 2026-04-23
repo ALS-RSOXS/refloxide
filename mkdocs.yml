@@ -7,6 +7,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  logo: assets/als-logo.png
+  favicon: assets/als-favicon-32x32.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
