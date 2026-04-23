@@ -20,8 +20,8 @@ method in optics](https://en.wikipedia.org/wiki/Transfer-matrix_method_(optics))
 Abelès represented each homogeneous layer by a 2x2 matrix acting on
 a two-component field and accumulated the stack by matrix product.
 This is the isotropic, scalar-index formalism still used today by
-tools such as [`refnx`](https://github.com/refnx/refnx) and
-[`refl1d`](https://github.com/refl1d/refl1d).
+tools such as `[refnx](https://github.com/refnx/refnx)` and
+`[refl1d](https://github.com/refl1d/refl1d)`.
 
 For grazing-incidence x-ray problems, Parratt [[Parratt
 1954](#references)] recast the same physics as a recursion on complex
@@ -91,44 +91,44 @@ preserved so that in-text citations resolve identically across
 companion files.
 
 1. F. Abelès, "Recherches sur la propagation des ondes
-   électromagnétiques sinusoïdales dans les milieux stratifiés.
+  électromagnétiques sinusoïdales dans les milieux stratifiés.
    Application aux couches minces," Ann. Phys. **12**, 596 (1950).
 2. L. G. Parratt, "Surface studies of solids by total reflection of
-   x-rays," Phys. Rev. **95**, 359 (1954).
+  x-rays," Phys. Rev. **95**, 359 (1954).
    [DOI](https://doi.org/10.1103/PhysRev.95.359).
 3. D. W. Berreman, "Optics in stratified and anisotropic media, 4x4
-   matrix formulation," J. Opt. Soc. Am. **62**, 502 (1972).
+  matrix formulation," J. Opt. Soc. Am. **62**, 502 (1972).
    [DOI](https://doi.org/10.1364/JOSA.62.000502).
 4. P. Yeh, "Electromagnetic propagation in birefringent layered
-   media," J. Opt. Soc. Am. **69**, 742 (1979).
+  media," J. Opt. Soc. Am. **69**, 742 (1979).
    [DOI](https://doi.org/10.1364/JOSA.69.000742).
 5. L. Névot and P. Croce, "Caractérisation des surfaces par
-   réflexion rasante de rayons X," Rev. Phys. Appl. **15**, 761
+  réflexion rasante de rayons X," Rev. Phys. Appl. **15**, 761
    (1980).
    [DOI](https://doi.org/10.1051/rphysap:01980001503076100).
 6. P. J. Lin-Chung and S. Teitler, "4x4 matrix formalisms for optics
-   in stratified anisotropic media," J. Opt. Soc. Am. A **1**, 703
+  in stratified anisotropic media," J. Opt. Soc. Am. A **1**, 703
    (1984).
    [DOI](https://doi.org/10.1364/JOSAA.1.000703).
 7. Z.-M. Li, B. T. Sullivan, and R. R. Parsons, "Use of the 4x4
-   matrix method in the optics of multilayer magneto-optic recording
+  matrix method in the optics of multilayer magneto-optic recording
    media," Appl. Opt. **27**, 1334 (1988).
    [DOI](https://doi.org/10.1364/AO.27.001334).
 8. D. G. Stearns, "The scattering of x rays from nonideal multilayer
-   structures," J. Appl. Phys. **65**, 491 (1989).
+  structures," J. Appl. Phys. **65**, 491 (1989).
    [DOI](https://doi.org/10.1063/1.343131).
 9. W. Xu, L. T. Wood, and T. D. Golding, "Optical degeneracies in
-   anisotropic layered media," Phys. Rev. B **61**, 1740 (2000).
+  anisotropic layered media," Phys. Rev. B **61**, 1740 (2000).
    [DOI](https://doi.org/10.1103/PhysRevB.61.1740).
 10. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-    for light propagation in anisotropic stratified media,"
+  for light propagation in anisotropic stratified media,"
     J. Opt. Soc. Am. B **34**, 2128 (2017).
     [DOI](https://doi.org/10.1364/JOSAB.34.002128).
 11. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-    for light propagation in anisotropic stratified media, erratum,"
+  for light propagation in anisotropic stratified media, erratum,"
     J. Opt. Soc. Am. B **36**, 3246 (2019).
     [DOI](https://doi.org/10.1364/JOSAB.36.003246).
 12. Y. Esashi et al., "Influence of surface and interface roughness
-    on X-ray and extreme ultraviolet reflectance, a comparative
+  on X-ray and extreme ultraviolet reflectance, a comparative
     numerical study," OSA Continuum **4**, 1497 (2021).
     [DOI](https://doi.org/10.1364/OSAC.422924).

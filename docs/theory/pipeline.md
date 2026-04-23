@@ -24,7 +24,7 @@ $\partial_z \Psi = i(\omega/c)\Delta\Psi$,
 where $\Delta$ is the 4x4 Berreman matrix tabulated in [[Passler and
 Paarmann 2017](overview.md#references), Eq. (8)]. This reduction is
 the entry point to the whole formalism. See
-[`foundations.md`](foundations.md).
+`[foundations.md](foundations.md)`.
 
 ## 2. Eigenmode analysis per layer
 
@@ -47,7 +47,7 @@ $C(q_{ij}) = |S_{ij,x}|^2 / (|S_{ij,x}|^2 + |S_{ij,y}|^2)$,
 following [[Li et al. 1988](overview.md#references)]. This ordering
 is the step that guarantees continuity of the solution branches
 when the dielectric tensor varies smoothly across parameter space.
-See [`eigenmode_analysis.md`](eigenmode_analysis.md).
+See `[eigenmode_analysis.md](eigenmode_analysis.md)`.
 
 ## 3. Interface matrices free of singularities
 
@@ -55,23 +55,23 @@ Naive eigenvector extraction from $\Delta_i$ fails when the modes
 degenerate, which happens generically for isotropic media or
 whenever the principal dielectric axes align with the lab frame. We
 therefore use the closed-form electric-field eigenvectors
-$\vec{\gamma}_{ij}$ of [[Xu et al. 2000](overview.md#references)],
-which are piecewise defined for $q_{i1} = q_{i2}$ and $q_{i1} \neq
+$\vec{\gamma}*{ij}$ of [[Xu et al. 2000](overview.md#references)],
+which are piecewise defined for $q*{i1} = q_{i2}$ and $q_{i1} \neq
 q_{i2}$ and remain finite and continuous through these limits. The
 erratum [[Passler and Paarmann 2019](overview.md#references)]
 corrects two components, $\gamma_{i13}$ and $\gamma_{i33}$, that
 were mistyped in the original paper, and it requires that each
-$\vec{\gamma}_{ij}$ be normalized,
-$\hat{\vec{\gamma}}_{ij} = \vec{\gamma}_{ij}/|\vec{\gamma}_{ij}|$,
+$\vec{\gamma}*{ij}$ be normalized,
+$\hat{\vec{\gamma}}*{ij} = \vec{\gamma}*{ij}/|\vec{\gamma}*{ij}|$,
 so that cross-polarization coefficients in birefringent substrates
 come out correctly. The interface matrix $A_i$ is the 4x4 matrix
-whose columns are the four $\hat{\vec{\gamma}}_{ij}$ augmented with
+whose columns are the four $\hat{\vec{\gamma}}*{ij}$ augmented with
 their associated $(H_x, H_y)$ components. The boundary-matching
 step across interface $i$ then reads
-$A_{i-1}\vec{E}_{i-1} = A_i\vec{E}_i$, and
-$L_i = A_{i-1}^{-1} A_i$ is the interface matrix that projects the
+$A*{i-1}\vec{E}_{i-1} = A_i\vec{E}*i$, and
+$L_i = A*{i-1}^{-1} A_i$ is the interface matrix that projects the
 mode basis of layer $i$ onto that of layer $i-1$. See
-[`interface_matrices.md`](interface_matrices.md).
+`[interface_matrices.md](interface_matrices.md)`.
 
 ## 4. Propagation and assembly
 
@@ -98,7 +98,7 @@ E^s_{\text{refl}})$, but Yeh's $r/t$ expressions expect the layout
 $(E^p_{\text{trans}}, E^p_{\text{refl}}, E^s_{\text{trans}},
 E^s_{\text{refl}})$, we apply a permutation $\Lambda_{1324}$ after
 $\Gamma_N$ is built. See
-[`propagation_and_assembly.md`](propagation_and_assembly.md).
+`[propagation_and_assembly.md](propagation_and_assembly.md)`.
 
 ## 5. Reflection and transmission coefficients
 
@@ -117,7 +117,7 @@ $|t_{kl}|^2$. A proper energy-conservation treatment for
 anisotropic substrates was deferred to a later publication
 [[Passler and Paarmann 2019](overview.md#references)] and is
 outside the scope of this initial implementation. See
-[`reflection_transmission.md`](reflection_transmission.md).
+`[reflection_transmission.md](reflection_transmission.md)`.
 
 ## 6. Electric field distribution
 
@@ -127,10 +127,10 @@ additional step per depth. The erratum-corrected procedure
 propagate the amplitude vector through the appropriate sequence of
 $L_i$ and $P_i(z)$ from the substrate backward, and at each $z$
 compose the three-component field by summing each mode's amplitude
-times its normalized eigenvector $\hat{\vec{\gamma}}_{ij}$. The
+times its normalized eigenvector $\hat{\vec{\gamma}}*{ij}$. The
 calculation is performed separately for $p$-polarized and
 $s$-polarized incident light so that birefringent cross-coupling
-is represented correctly. Because $\hat{\vec{\gamma}}_{ij}$
+is represented correctly. Because $\hat{\vec{\gamma}}*{ij}$
 already carries the phase information, no separate
 reflection-phase bookkeeping is needed. See
-[`electric_field_distribution.md`](electric_field_distribution.md).
+`[electric_field_distribution.md](electric_field_distribution.md)`.

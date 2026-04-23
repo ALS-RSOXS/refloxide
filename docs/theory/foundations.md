@@ -17,7 +17,7 @@ Each layer $i$ is homogeneous in its dielectric response, is bounded
 by planar interfaces normal to $\hat{z}$, and has thickness $d_i$.
 The incident beam propagates in the $x$-$z$ plane, so the in-plane
 wave vector component
-$\xi = \sqrt{\varepsilon_{\text{inc}}}\,\sin\theta$
+$\xi = \sqrt{\varepsilon_{\text{inc}}}\sin\theta$
 is real and common to every layer [[2](#references), Eq. (1)]. The
 out-of-plane component is $q_i$, dimensionless, in units of
 $\omega/c$. The incident medium is $i = 0$, the substrate is
@@ -29,7 +29,7 @@ frame as $\operatorname{diag}(\varepsilon_x, \varepsilon_y,
 angles,
 
 $$
-\bar{\varepsilon}' = \Omega \,\bar{\varepsilon}\, \Omega^{-1},
+\bar{\varepsilon}' = \Omega \bar{\varepsilon} \Omega^{-1},
 $$
 
 with $\Omega$ as in [[2](#references), Eq. (2)] and the convention
@@ -51,7 +51,7 @@ but invert the direction of the constitutive closure, writing
 
 $$
 \vec{C} = M\vec{G} \equiv
-\begin{pmatrix} \bar{\varepsilon} & \bar{\rho}_1 \\
+\begin{pmatrix} \bar{\varepsilon} & \bar{\rho}_1 
                 \bar{\rho}_2 & \bar{\mu} \end{pmatrix} \vec{G},
 $$
 
@@ -65,10 +65,10 @@ Elimination of the in-plane derivatives in the curl equations then
 produces a spatial wave equation
 
 $$
-R\,\vec{g} = -i\omega\,M\,\vec{g},
+R\vec{g} = -i\omegaM\vec{g},
 $$
 
-with $\vec{g}$ the spatial part of $\vec{G} = \vec{g}\,e^{-i\omega
+with $\vec{g}$ the spatial part of $\vec{G} = \vec{g}e^{-i\omega
 t}$ and $R$ the 6x6 matrix of $z$-derivatives with the in-plane
 $\xi$ already inserted [[2](#references), Eq. (5)]. The explicit
 form of $R$ is the Berreman block structure in which only $E_z$ and
@@ -84,7 +84,7 @@ $\Psi = (E_x, H_y, E_y, -H_x)^\top$ [[2](#references), Eq. (7)].
 The resulting equation is
 
 $$
-\frac{\partial \Psi}{\partial z} = i\,\frac{\omega}{c}\,\Delta\,\Psi,
+\frac{\partial \Psi}{\partial z} = i\frac{\omega}{c}\Delta\Psi,
 $$
 
 the form that Berreman called the "matrix method" and that every
@@ -104,10 +104,10 @@ which we reproduce representative entries,
 
 $$
 \begin{aligned}
-\Delta_{11} &= M_{51} + (M_{53} + \xi)\,a_{31} + M_{56}\,a_{61}, \\
-\Delta_{21} &= M_{11} + M_{13}\,a_{31} + M_{16}\,a_{61}, \\
-\Delta_{31} &= -M_{41} - M_{43}\,a_{31} - M_{46}\,a_{61}, \\
-\Delta_{41} &= M_{21} + M_{23}\,a_{31} + (M_{26} - \xi)\,a_{61}.
+\Delta_{11} &= M_{51} + (M_{53} + \xi)a_{31} + M_{56}a_{61}, 
+\Delta_{21} &= M_{11} + M_{13}a_{31} + M_{16}a_{61}, 
+\Delta_{31} &= -M_{41} - M_{43}a_{31} - M_{46}a_{61}, 
+\Delta_{41} &= M_{21} + M_{23}a_{31} + (M_{26} - \xi)a_{61}.
 \end{aligned}
 $$
 
@@ -148,7 +148,7 @@ would require the numerical ODE integration sketched by Berreman
 [[1](#references)], which is what `refloxide` avoids by discretizing
 graded interfaces into thin homogeneous sublayers inside the
 roughness pipeline (see
-[`roughness_graded_interface.md`](roughness_graded_interface.md)).
+`[roughness_graded_interface.md](roughness_graded_interface.md)`).
 
 The elimination of $E_z$ and $H_z$ assumes $b \neq 0$. The scalar
 $b$ vanishes only in pathological constitutive relations that we do
@@ -156,21 +156,21 @@ not encounter in ordinary magneto-dielectric media, so no numerical
 safeguard is required at this stage. The guard against singularities
 enters later, at the eigenvector level, through the Xu piecewise
 definitions [[3](#references); [4](#references)] treated in
-[`interface_matrices.md`](interface_matrices.md).
+`[interface_matrices.md](interface_matrices.md)`.
 
 ## References
 
 1. D. W. Berreman, "Optics in stratified and anisotropic media, 4x4
-   matrix formulation," J. Opt. Soc. Am. **62**, 502 (1972).
+  matrix formulation," J. Opt. Soc. Am. **62**, 502 (1972).
    [DOI](https://doi.org/10.1364/JOSA.62.000502).
 2. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-   for light propagation in anisotropic stratified media," J. Opt.
+  for light propagation in anisotropic stratified media," J. Opt.
    Soc. Am. B **34**, 2128 (2017).
    [DOI](https://doi.org/10.1364/JOSAB.34.002128).
 3. W. Xu, L. T. Wood, and T. D. Golding, "Optical degeneracies in
-   anisotropic layered media," Phys. Rev. B **61**, 1740 (2000).
+  anisotropic layered media," Phys. Rev. B **61**, 1740 (2000).
    [DOI](https://doi.org/10.1103/PhysRevB.61.1740).
 4. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-   for light propagation in anisotropic stratified media, erratum,"
+  for light propagation in anisotropic stratified media, erratum,"
    J. Opt. Soc. Am. B **36**, 3246 (2019).
    [DOI](https://doi.org/10.1364/JOSAB.36.003246).

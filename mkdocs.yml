@@ -72,5 +72,10 @@ nav:
       - Overview: theory/overview.md
       - History: theory/history.md
       - Pipeline at a glance: theory/pipeline.md
+      - Foundations: theory/foundations.md
+      - Eigenmode analysis: theory/eigenmode_analysis.md
+      - Interface matrices: theory/interface_matrices.md
+      - Propagation and assembly: theory/propagation_and_assembly.md
+      - Reflection and transmission: theory/reflection_transmission.md
   - API Reference: api.md
   - Contributing: contributing.md

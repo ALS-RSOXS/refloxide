@@ -3,10 +3,10 @@
 ## Scope of this page
 
 This page treats stage 5 of the pipeline. Given the Yeh-layout
-transfer matrix $\tilde{\Gamma}_N$ from
-[`propagation_and_assembly.md`](propagation_and_assembly.md), we
+transfer matrix $\tilde{\Gamma}*N$ from
+`[propagation_and_assembly.md](propagation_and_assembly.md)`, we
 extract the eight complex amplitude coefficients
-$\{r_{pp}, r_{ss}, r_{ps}, r_{sp}, t_{pp}, t_{ss}, t_{ps}, t_{sp}\}$
+$r*{pp}, r_{ss}, r_{ps}, r_{sp}, t_{pp}, t_{ss}, t_{ps}, t_{sp}$
 from rational combinations of its matrix elements, and we document
 the sign and normalization corrections imposed by the
 Passler-Paarmann erratum [[1](#references)]. We also record the
@@ -21,7 +21,7 @@ tabulated by Passler and Paarmann [[3](#references), Eqs.
 
 ## From $\tilde{\Gamma}_N$ to the amplitude coefficients
 
-Let $\tilde{\Gamma}_N$ have matrix elements $\Gamma_{\alpha\beta}$,
+Let $\tilde{\Gamma}*N$ have matrix elements $\Gamma*{\alpha\beta}$,
 where the $(\alpha, \beta)$ indexing uses the Yeh row order
 $(E^p_{\text{trans}}, E^p_{\text{refl}},
   E^s_{\text{trans}}, E^s_{\text{refl}})$ [[3](#references),
@@ -83,7 +83,7 @@ components in birefringent media [[1](#references), Sec. 2.B]. The
 transmittance $T_{kl} = |t_{kl}|^2$ is unchanged, but the phase of
 the transmitted field is not, and the phase matters for the field
 reconstruction of stage 6 (see
-[`electric_field_distribution.md`](electric_field_distribution.md)).
+`[electric_field_distribution.md](electric_field_distribution.md)`).
 `refloxide` implements the erratum-corrected signs. A library that
 implements the 2017 signs verbatim and then uses the 2017 field
 reconstruction recipe produces self-consistent but incorrect
@@ -92,11 +92,11 @@ fields in birefringent stacks.
 ## Reflectance
 
 Because the incident medium is isotropic and non-absorbing (see the
-assumptions in [`overview.md`](overview.md#assumptions)), the
+assumptions in `[overview.md](overview.md#assumptions)`), the
 reflectance is the modulus-squared of the amplitude coefficient,
 
 $$
-R_{kl} = |r_{kl}|^2 \quad \text{for } k, l \in \{s, p\}.
+R_{kl} = |r_{kl}|^2 \quad \text{for } k, l \in s, p.
 $$
 
 This identity follows from the Poynting flux projection in the
@@ -125,7 +125,7 @@ eight $t_{kl}$ amplitudes, which are physically meaningful and
 complete. We do not currently expose $T_{kl}$ as a derived
 observable, and we prefer to leave the conversion to the caller
 (with the caveat that the isotropic-substrate identity
-$T_{kl} = |t_{kl}|^2 \,\operatorname{Re}(n_{N+1}\cos\theta_{N+1})
+$T_{kl} = |t_{kl}|^2 \operatorname{Re}(n_{N+1}\cos\theta_{N+1})
 / \operatorname{Re}(n_0\cos\theta_0)$ is the one classical result
 that we cover in a docstring example). A generalized transmittance
 module will be added once the Passler followup publication is
@@ -172,7 +172,7 @@ The amplitude coefficients feed directly into the standard
 ellipsometric observables. For a single reflected $p$ and $s$ ratio,
 
 $$
-\rho = \tan\Psi \, e^{i\Delta} = \frac{r_{pp}}{r_{ss}},
+\rho = \tan\Psi  e^{i\Delta} = \frac{r_{pp}}{r_{ss}},
 $$
 
 which defines the ellipsometric angles $(\Psi, \Delta)$ consumed by
@@ -211,13 +211,14 @@ the stack is built correctly.
 ## References
 
 1. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-   for light propagation in anisotropic stratified media, erratum,"
+  for light propagation in anisotropic stratified media, erratum,"
    J. Opt. Soc. Am. B **36**, 3246 (2019).
    [DOI](https://doi.org/10.1364/JOSAB.36.003246).
 2. P. Yeh, "Electromagnetic propagation in birefringent layered
-   media," J. Opt. Soc. Am. **69**, 742 (1979).
+  media," J. Opt. Soc. Am. **69**, 742 (1979).
    [DOI](https://doi.org/10.1364/JOSA.69.000742).
 3. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-   for light propagation in anisotropic stratified media," J. Opt.
+  for light propagation in anisotropic stratified media," J. Opt.
    Soc. Am. B **34**, 2128 (2017).
    [DOI](https://doi.org/10.1364/JOSAB.34.002128).
+
