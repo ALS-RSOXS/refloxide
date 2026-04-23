@@ -154,7 +154,10 @@ impl core::fmt::Display for StructureError {
                 write!(f, "refractive index must be finite and > 0, got {v}")
             }
             Self::InvalidInterfaceCount { expected, got } => {
-                write!(f, "invalid interface roughness count: expected {expected}, got {got}")
+                write!(
+                    f,
+                    "invalid interface roughness count: expected {expected}, got {got}"
+                )
             }
         }
     }
