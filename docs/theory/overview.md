@@ -13,9 +13,9 @@ in the companion files and are cross-linked from the table of
 contents below.
 
 A reader who wants historical lineage should proceed to
-[`history.md`](history.md). A reader who wants a stage-by-stage
+`[history.md](history.md)`. A reader who wants a stage-by-stage
 summary of the algorithm, without full derivations, should proceed
-to [`pipeline.md`](pipeline.md). Everything else on this page is
+to `[pipeline.md](pipeline.md)`. Everything else on this page is
 scope, applications, and pointers.
 
 ## Table of contents
@@ -26,54 +26,54 @@ interfacial roughness. Narrative context pages come first.
 
 Narrative context.
 
-- [`history.md`](history.md), the lineage from Fresnel through
-  Abelès, Parratt, Berreman, Yeh, Lin-Chung and Teitler, Xu, Li, and
-  Passler, plus the separate lineage of the three roughness models.
-- [`pipeline.md`](pipeline.md), a compact walkthrough of the six
-  stages executed per measurement coordinate.
+- `[history.md](history.md)`, the lineage from Fresnel through
+Abelès, Parratt, Berreman, Yeh, Lin-Chung and Teitler, Xu, Li, and
+Passler, plus the separate lineage of the three roughness models.
+- `[pipeline.md](pipeline.md)`, a compact walkthrough of the six
+stages executed per measurement coordinate.
 
 Core pipeline.
 
-- [`foundations.md`](foundations.md), the 6x6 Maxwell system, the
-  constitutive relation $\vec{C} = M\vec{G}$, elimination of $E_z$
-  and $H_z$, and the resulting Berreman 4x4 matrix $\Delta$.
-- [`eigenmode_analysis.md`](eigenmode_analysis.md), the per-layer
-  eigenproblem $q_{ij}\Psi_{ij} = \Delta_i \Psi_{ij}$, the
-  forward-backward partition, and the Li-Sullivan-Parsons ordering
-  rule.
-- [`interface_matrices.md`](interface_matrices.md), the
-  Xu-Wood-Golding piecewise eigenvectors $\vec{\gamma}_{ij}$, the
-  erratum-corrected components and normalization convention, and
-  the boundary-matching matrix $A_i$.
-- [`propagation_and_assembly.md`](propagation_and_assembly.md),
-  the diagonal propagation matrix $P_i$, the layer transfer matrix
-  $T_i = A_i P_i A_i^{-1}$, the stack product
-  $\Gamma_N = L_1 P_1 L_2 P_2 \cdots L_N P_N L_{N+1}$, and the
-  $\Lambda_{1324}$ permutation.
-- [`reflection_transmission.md`](reflection_transmission.md), the
-  rational extraction of the eight amplitude coefficients
-  $r_{kl}$ and $t_{kl}$ from $\Gamma_N$, with ordinary and
-  extraordinary relabeling for birefringent substrates.
-- [`electric_field_distribution.md`](electric_field_distribution.md),
-  the erratum-corrected reconstruction of $\vec{E}(x, y, z)$ inside
-  the stack.
+- `[foundations.md](foundations.md)`, the 6x6 Maxwell system, the
+constitutive relation $\vec{C} = M\vec{G}$, elimination of $E_z$
+and $H_z$, and the resulting Berreman 4x4 matrix $\Delta$.
+- `[eigenmode_analysis.md](eigenmode_analysis.md)`, the per-layer
+eigenproblem $q_{ij}\Psi_{ij} = \Delta_i \Psi_{ij}$, the
+forward-backward partition, and the Li-Sullivan-Parsons ordering
+rule.
+- `[interface_matrices.md](interface_matrices.md)`, the
+Xu-Wood-Golding piecewise eigenvectors $\vec{\gamma}_{ij}$, the
+erratum-corrected components and normalization convention, and
+the boundary-matching matrix $A_i$.
+- `[propagation_and_assembly.md](propagation_and_assembly.md)`,
+the diagonal propagation matrix $P_i$, the layer transfer matrix
+$T_i = A_i P_i A_i^{-1}$, the stack product
+$\Gamma_N = L_1 P_1 L_2 P_2 \cdots L_N P_N L_{N+1}$, and the
+$\Lambda_{1324}$ permutation.
+- `[reflection_transmission.md](reflection_transmission.md)`, the
+rational extraction of the eight amplitude coefficients
+$r_{kl}$ and $t_{kl}$ from $\Gamma_N$, with ordinary and
+extraordinary relabeling for birefringent substrates.
+- `[electric_field_distribution.md](electric_field_distribution.md)`,
+the erratum-corrected reconstruction of $\vec{E}(x, y, z)$ inside
+the stack.
 
 Roughness models.
 
-- [`roughness_framework.md`](roughness_framework.md), how the three
-  roughness models plug into (or around) the core pipeline.
-- [`roughness_nevot_croce.md`](roughness_nevot_croce.md), the
-  distorted-wave Born approximation factor applicable to short
-  correlation lengths.
-- [`roughness_debye_waller.md`](roughness_debye_waller.md), the
-  long-correlation-length counterpart and its relation to the
-  crystallographic factor.
-- [`roughness_graded_interface.md`](roughness_graded_interface.md),
-  the Stearns slide method that replaces a sharp step by a
-  discretized continuous index profile.
-- [`roughness_selection_guide.md`](roughness_selection_guide.md),
-  the decision framework that mirrors the quantitative comparison
-  of [[Esashi et al. 2021](#references)].
+- `[roughness_framework.md](roughness_framework.md)`, how the three
+roughness models plug into (or around) the core pipeline.
+- `[roughness_nevot_croce.md](roughness_nevot_croce.md)`, the
+distorted-wave Born approximation factor applicable to short
+correlation lengths.
+- `[roughness_debye_waller.md](roughness_debye_waller.md)`, the
+long-correlation-length counterpart and its relation to the
+crystallographic factor.
+- `[roughness_graded_interface.md](roughness_graded_interface.md)`,
+the Stearns slide method that replaces a sharp step by a
+discretized continuous index profile.
+- `[roughness_selection_guide.md](roughness_selection_guide.md)`,
+the decision framework that mirrors the quantitative comparison
+of [[Esashi et al. 2021](#references)].
 
 ## Problem statement
 
@@ -83,9 +83,9 @@ $\xi = \sqrt{\varepsilon_{\text{inc}}}\sin\theta$
 is incident from an isotropic, non-absorbing half space $i = 0$ onto
 a stack of $N$ homogeneous layers, each of thickness $d_i$ and
 characterized by a (generally complex, generally anisotropic)
-dielectric tensor $\bar{\varepsilon}_i$. The substrate $i = N+1$ is
+dielectric tensor $\bar{\varepsilon}*i$. The substrate $i = N+1$ is
 a second half space, which may itself be anisotropic and absorbing.
-The observables are the four reflection amplitudes $r_{pp}$,
+The observables are the four reflection amplitudes $r*{pp}$,
 $r_{ss}$, $r_{ps}$, $r_{sp}$, the four transmission amplitudes
 $t_{pp}$, $t_{ss}$, $t_{ps}$, $t_{sp}$, and optionally the full
 $\vec{E}(x, y, z)$ distribution inside every layer.
@@ -256,7 +256,7 @@ by a discretized continuous profile and is the only one of the
 three that remains correct for large $\sigma$, large $\Delta n$,
 non-Gaussian statistics, or phase-sensitive measurements. The
 decision framework is enumerated in
-[`roughness_selection_guide.md`](roughness_selection_guide.md).
+`[roughness_selection_guide.md](roughness_selection_guide.md)`.
 
 ## Intended implementation path
 
@@ -270,7 +270,7 @@ observables (reflectance, transmittance, field distribution, or a
 subset). The 4x4 kernel itself is a pure function of its arguments
 with no mutable state.
 
-Stages 1 through 6 of [`pipeline.md`](pipeline.md) map onto the six
+Stages 1 through 6 of `[pipeline.md](pipeline.md)` map onto the six
 modules of the kernel. Stage 1 (the Berreman $\Delta$ matrix and
 the dielectric tensor rotation) lives in the `core::delta` module.
 Stage 2 (the eigensolve and mode sorting) lives in `core::modes`.
@@ -296,8 +296,8 @@ implementation [[Passler and Paarmann 2019 code](#references)], the
 Python port by Jeannin [[Jeannin 2019](#references)], the Fresnel
 limit for a scalar index, the Yeh birefringent-multilayer
 benchmark, and the Parratt-limit agreement with
-[`refnx`](https://github.com/refnx/refnx) and
-[`refl1d`](https://github.com/refl1d/refl1d) for zero-anisotropy
+`[refnx](https://github.com/refnx/refnx)` and
+`[refl1d](https://github.com/refl1d/refl1d)` for zero-anisotropy
 structures.
 
 ## Related projects
@@ -309,40 +309,40 @@ credit the codebases that form our validation benchmarks.
 
 Scalar isotropic reflectometry engines.
 
-- [`refnx`](https://github.com/refnx/refnx), a Python package for
-  neutron and x-ray reflectometry fitting built on Abelès 2x2
-  matrices.
-- [`refl1d`](https://github.com/refl1d/refl1d), a companion package
-  from the NIST Center for Neutron Research, with emphasis on model
-  composition and magnetism.
-- [`IMD`](https://www.rxollc.com/idl/), David Windt's IDL-based
-  multilayer reflectivity code, widely used in the EUV community.
-- [`GenX`](https://aglavic.github.io/genx/), a Python multilayer
-  fitting suite aimed at x-ray and neutron reflectometry with
-  magnetic extensions.
-- [`tmm`](https://github.com/sbyrnes321/tmm), Steven Byrnes's
-  compact Python implementation of the scalar transfer matrix
-  method.
+- `[refnx](https://github.com/refnx/refnx)`, a Python package for
+neutron and x-ray reflectometry fitting built on Abelès 2x2
+matrices.
+- `[refl1d](https://github.com/refl1d/refl1d)`, a companion package
+from the NIST Center for Neutron Research, with emphasis on model
+composition and magnetism.
+- `[IMD](https://www.rxollc.com/idl/)`, David Windt's IDL-based
+multilayer reflectivity code, widely used in the EUV community.
+- `[GenX](https://aglavic.github.io/genx/)`, a Python multilayer
+fitting suite aimed at x-ray and neutron reflectometry with
+magnetic extensions.
+- `[tmm](https://github.com/sbyrnes321/tmm)`, Steven Byrnes's
+compact Python implementation of the scalar transfer matrix
+method.
 
 4x4 anisotropic engines.
 
 - [Passler and Paarmann MATLAB
-  implementation](https://doi.org/10.5281/zenodo.601496), the
-  reference code accompanying the 2017 paper and 2019 erratum.
+implementation](https://doi.org/10.5281/zenodo.601496), the
+reference code accompanying the 2017 paper and 2019 erratum.
 - [Jeannin Python
-  port](https://doi.org/10.5281/zenodo.3417751), a Python reimplementation
-  of the same algorithm used as a validation target here.
-- [`PyMoosh`](https://github.com/AnMoreau/PyMoosh), a Python library
-  for multilayer optics that supports anisotropic media and
-  non-standard layer models.
+port](https://doi.org/10.5281/zenodo.3417751), a Python reimplementation
+of the same algorithm used as a validation target here.
+- `[PyMoosh](https://github.com/AnMoreau/PyMoosh)`, a Python library
+for multilayer optics that supports anisotropic media and
+non-standard layer models.
 
 Adjacent full-wave and grating solvers.
 
-- [`meep`](https://github.com/NanoComp/meep), an open-source FDTD
-  package for arbitrary geometries.
-- [`S4`](https://web.stanford.edu/group/fan/S4/), a rigorous
-  coupled-wave analysis (RCWA) engine for periodic multilayer
-  gratings.
+- `[meep](https://github.com/NanoComp/meep)`, an open-source FDTD
+package for arbitrary geometries.
+- `[S4](https://web.stanford.edu/group/fan/S4/)`, a rigorous
+coupled-wave analysis (RCWA) engine for periodic multilayer
+gratings.
 
 `refloxide` occupies the niche of a fast, anisotropy-capable, 4x4
 engine with first-class support for three interfacial roughness
@@ -370,8 +370,8 @@ The tensor generalization of the Névot-Croce and Debye-Waller
 factors beyond the scalar Parratt case treated by [[Esashi et al.
 2021](#references)] is not published in the sources we cite. The
 implementation choice made in
-[`roughness_nevot_croce.md`](roughness_nevot_croce.md) and
-[`roughness_debye_waller.md`](roughness_debye_waller.md), namely
+`[roughness_nevot_croce.md](roughness_nevot_croce.md)` and
+`[roughness_debye_waller.md](roughness_debye_waller.md)`, namely
 that the scalar multiplier is applied block-diagonally to $A_i$ in
 the $s$ and $p$ eigen-channels, is an implementation decision that
 we flag explicitly rather than attribute to a published derivation.
@@ -383,52 +383,52 @@ plug cleanly into fitting frameworks that handle those concerns.
 ## References
 
 1. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-   for light propagation in anisotropic stratified media, study of
+  for light propagation in anisotropic stratified media, study of
    surface phonon polaritons in polar dielectric heterostructures,"
    J. Opt. Soc. Am. B **34**, 2128 (2017).
    [DOI](https://doi.org/10.1364/JOSAB.34.002128).
 2. N. C. Passler and A. Paarmann, "Generalized 4x4 matrix formalism
-   for light propagation in anisotropic stratified media, erratum,"
+  for light propagation in anisotropic stratified media, erratum,"
    J. Opt. Soc. Am. B **36**, 3246 (2019).
    [DOI](https://doi.org/10.1364/JOSAB.36.003246).
 3. D. W. Berreman, "Optics in stratified and anisotropic media, 4x4
-   matrix formulation," J. Opt. Soc. Am. **62**, 502 (1972).
+  matrix formulation," J. Opt. Soc. Am. **62**, 502 (1972).
    [DOI](https://doi.org/10.1364/JOSA.62.000502).
 4. F. Abelès, "Recherches sur la propagation des ondes
-   électromagnétiques sinusoïdales dans les milieux stratifiés.
+  électromagnétiques sinusoïdales dans les milieux stratifiés.
    Application aux couches minces," Ann. Phys. **12**, 596 (1950).
 5. L. G. Parratt, "Surface studies of solids by total reflection of
-   x-rays," Phys. Rev. **95**, 359 (1954).
+  x-rays," Phys. Rev. **95**, 359 (1954).
    [DOI](https://doi.org/10.1103/PhysRev.95.359).
 6. P. J. Lin-Chung and S. Teitler, "4x4 matrix formalisms for optics
-   in stratified anisotropic media," J. Opt. Soc. Am. A **1**, 703
+  in stratified anisotropic media," J. Opt. Soc. Am. A **1**, 703
    (1984).
    [DOI](https://doi.org/10.1364/JOSAA.1.000703).
 7. P. Yeh, "Electromagnetic propagation in birefringent layered
-   media," J. Opt. Soc. Am. **69**, 742 (1979).
+  media," J. Opt. Soc. Am. **69**, 742 (1979).
    [DOI](https://doi.org/10.1364/JOSA.69.000742).
 8. W. Xu, L. T. Wood, and T. D. Golding, "Optical degeneracies in
-   anisotropic layered media, treatment of singularities in a 4x4
+  anisotropic layered media, treatment of singularities in a 4x4
    matrix formalism," Phys. Rev. B **61**, 1740 (2000).
    [DOI](https://doi.org/10.1103/PhysRevB.61.1740).
 9. Z.-M. Li, B. T. Sullivan, and R. R. Parsons, "Use of the 4x4
-   matrix method in the optics of multilayer magneto-optic recording
+  matrix method in the optics of multilayer magneto-optic recording
    media," Appl. Opt. **27**, 1334 (1988).
    [DOI](https://doi.org/10.1364/AO.27.001334).
 10. L. Névot and P. Croce, "Caractérisation des surfaces par
-    réflexion rasante de rayons X. Application à l'étude du
+  réflexion rasante de rayons X. Application à l'étude du
     polissage de quelques verres silicates," Rev. Phys. Appl. **15**,
     761 (1980).
     [DOI](https://doi.org/10.1051/rphysap:01980001503076100).
 11. D. G. Stearns, "The scattering of x rays from nonideal multilayer
-    structures," J. Appl. Phys. **65**, 491 (1989).
+  structures," J. Appl. Phys. **65**, 491 (1989).
     [DOI](https://doi.org/10.1063/1.343131).
 12. Y. Esashi, M. Tanksalvala, Z. Zhang, N. W. Jenkins, H. C.
-    Kapteyn, and M. M. Murnane, "Influence of surface and interface
+  Kapteyn, and M. M. Murnane, "Influence of surface and interface
     roughness on X-ray and extreme ultraviolet reflectance, a
     comparative numerical study," OSA Continuum **4**, 1497 (2021).
     [DOI](https://doi.org/10.1364/OSAC.422924).
 13. N. C. Passler and A. Paarmann, MATLAB implementation,
-    [Zenodo](https://doi.org/10.5281/zenodo.601496) (2019).
+  [Zenodo](https://doi.org/10.5281/zenodo.601496) (2019).
 14. M. Jeannin, Python implementation,
-    [Zenodo](https://doi.org/10.5281/zenodo.3417751) (2019).
+  [Zenodo](https://doi.org/10.5281/zenodo.3417751) (2019).

@@ -75,12 +75,28 @@ nav:
   - Home: index.md
   - Theory:
       - Overview: theory/overview.md
-      - History: theory/history.md
-      - Pipeline at a glance: theory/pipeline.md
-      - Foundations: theory/foundations.md
-      - Eigenmode analysis: theory/eigenmode_analysis.md
-      - Interface matrices: theory/interface_matrices.md
-      - Propagation and assembly: theory/propagation_and_assembly.md
-      - Reflection and transmission: theory/reflection_transmission.md
+      - Narrative context:
+          - History: theory/history.md
+          - Pipeline at a glance: theory/pipeline.md
+      - Core pipeline:
+          - Foundations: theory/foundations.md
+          - Eigenmode analysis: theory/eigenmode_analysis.md
+          - Interface matrices: theory/interface_matrices.md
+          - Propagation and assembly: theory/propagation_and_assembly.md
+          - Reflection and transmission: theory/reflection_transmission.md
+          - Electric field distribution: theory/electric_field_distribution.md
+      - Roughness models:
+          - Framework: theory/roughness_framework.md
+          - Nevot-Croce: theory/roughness_nevot_croce.md
+          - Debye-Waller: theory/roughness_debye_waller.md
+          - Graded interface: theory/roughness_graded_interface.md
+          - Selection guide: theory/roughness_selection_guide.md
+  - API examples:
+      - Overview: api_examples/overview.md
+      - Structure definition: api_examples/structure_definition.md
+      - Material parameterizations: api_examples/material_parameterizations.md
+      - Single-coordinate simulation: api_examples/single_scan.md
+      - Vectorized and batched simulation: api_examples/batched_scans.md
+      - Roughness configuration: api_examples/roughness_configuration.md
   - API Reference: api.md
   - Contributing: contributing.md
