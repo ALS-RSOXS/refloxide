@@ -7,7 +7,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: shadcn
-  custom_dir: overrides
+  custom_dir: docs/stylesheets/overrides
   katex_options: {}
   icon: assets/als-logo.png
   icon_light: assets/als-logo-light.png

@@ -40,26 +40,31 @@ and tabulated them in a single place as [[3](#references), Eq.
 Each $\vec{\gamma}_{ij} = (\gamma_{ij1}, \gamma_{ij2},
 \gamma_{ij3})^\top$ is the electric-field eigenvector of mode $j$
 in layer $i$. By the Xu convention [[1](#references);
-[3](#references), Eq. (19)], the first row is normalized to unity
-for the transmitted modes,
+[3](#references), Eq. (19)], four components are fixed by
+normalization,
 
 $$
-\gamma_{i11} = \gamma_{i22} = 1,
-\quad \gamma_{i42} = -\gamma_{i31} \equiv -1,
+\gamma_{i11} = \gamma_{i22} = \gamma_{i42} = 1,
+\quad \gamma_{i31} = -1,
 $$
 
-and the remaining components are fixed by the piecewise rule
-[[3](#references), Eq. (20)]. Representative entries, with the
-corrections from [[2](#references), Eq. (20*)] folded in, read
+and the remaining eight components are fixed by the piecewise
+rule of [[3](#references), Eq. (20)] with the two entries
+$\gamma_{i13}$ and $\gamma_{i33}$ replaced by the erratum forms
+of [[2](#references), Eq. (20*)]. We tabulate all eight so that
+the implementation in `core::interface` can be diffed
+component-by-component against this page.
+
+The transmitted pair $\vec{\gamma}_{i1}, \vec{\gamma}_{i2}$ reads
 
 $$
 \gamma_{i12} =
 \begin{cases}
-0, & q_{i1} = q_{i2}, \\[2pt]
+0, & q_{i1} = q_{i2}, \\[4pt]
 \dfrac{\mu_i\varepsilon_{i23}(\mu_i\varepsilon_{i31} + \xi q_{i1})
      - \mu_i\varepsilon_{i21}(\mu_i\varepsilon_{i33} - \xi^2)}
       {(\mu_i\varepsilon_{i33} - \xi^2)(\mu_i\varepsilon_{i22} -
-        \xi^2 - q_{i1}^2) - (\mu_i\varepsilon_{i23})\varepsilon_{i32}},
+        \xi^2 - q_{i1}^2) - \mu_i^2\,\varepsilon_{i23}\varepsilon_{i32}},
 & q_{i1} \neq q_{i2},
 \end{cases}
 $$
@@ -69,7 +74,7 @@ $$
 \begin{cases}
 -\dfrac{\mu_i\varepsilon_{i31} + \xi q_{i1}}
        {\mu_i\varepsilon_{i33} - \xi^2},
-& q_{i1} = q_{i2}, \\[6pt]
+& q_{i1} = q_{i2}, \\[8pt]
 -\dfrac{\mu_i\varepsilon_{i31} + \xi q_{i1}}
        {\mu_i\varepsilon_{i33} - \xi^2}
 -\dfrac{\mu_i\varepsilon_{i32}}
@@ -78,13 +83,104 @@ $$
 \end{cases}
 $$
 
-and the analogous branches for $\vec{\gamma}_{i2}$,
-$\vec{\gamma}_{i3}$, $\vec{\gamma}_{i4}$ with $q_{i1} \leftrightarrow
-q_{i2}$ and $q_{i3} \leftrightarrow q_{i4}$ substitutions. The
-complete set of twelve non-trivial components is tabulated in
-[[3](#references), Eq. (20)] with the erratum-corrected entries
-replacing those of the 2017 paper at $\gamma_{i13}$ and
-$\gamma_{i33}$ [[2](#references), Eq. (20*)].
+$$
+\gamma_{i21} =
+\begin{cases}
+0, & q_{i1} = q_{i2}, \\[4pt]
+\dfrac{\mu_i\varepsilon_{i32}(\mu_i\varepsilon_{i13} + \xi q_{i2})
+     - \mu_i\varepsilon_{i12}(\mu_i\varepsilon_{i33} - \xi^2)}
+      {(\mu_i\varepsilon_{i33} - \xi^2)(\mu_i\varepsilon_{i11}
+        - q_{i2}^2) - (\mu_i\varepsilon_{i13} + \xi q_{i2})
+        (\mu_i\varepsilon_{i31} + \xi q_{i2})},
+& q_{i1} \neq q_{i2},
+\end{cases}
+$$
+
+$$
+\gamma_{i23} =
+\begin{cases}
+-\dfrac{\mu_i\varepsilon_{i32}}
+       {\mu_i\varepsilon_{i33} - \xi^2},
+& q_{i1} = q_{i2}, \\[8pt]
+-\dfrac{\mu_i\varepsilon_{i31} + \xi q_{i2}}
+       {\mu_i\varepsilon_{i33} - \xi^2}\,\gamma_{i21}
+-\dfrac{\mu_i\varepsilon_{i32}}
+       {\mu_i\varepsilon_{i33} - \xi^2},
+& q_{i1} \neq q_{i2}.
+\end{cases}
+$$
+
+The reflected pair $\vec{\gamma}_{i3}, \vec{\gamma}_{i4}$ is
+structurally identical with $q_{i1} \leftrightarrow q_{i3}$ and
+$q_{i2} \leftrightarrow q_{i4}$ substitutions and the sign
+reversals of [[3](#references), Eq. (20)],
+
+$$
+\gamma_{i32} =
+\begin{cases}
+0, & q_{i3} = q_{i4}, \\[4pt]
+\dfrac{\mu_i\varepsilon_{i21}(\mu_i\varepsilon_{i33} - \xi^2)
+     - \mu_i\varepsilon_{i23}(\mu_i\varepsilon_{i31} + \xi q_{i3})}
+      {(\mu_i\varepsilon_{i33} - \xi^2)(\mu_i\varepsilon_{i22}
+        - \xi^2 - q_{i3}^2) - \mu_i^2\,\varepsilon_{i23}\varepsilon_{i32}},
+& q_{i3} \neq q_{i4},
+\end{cases}
+$$
+
+$$
+\gamma_{i33} =
+\begin{cases}
+\dfrac{\mu_i\varepsilon_{i31} + \xi q_{i3}}
+       {\mu_i\varepsilon_{i33} - \xi^2},
+& q_{i3} = q_{i4}, \\[8pt]
+\dfrac{\mu_i\varepsilon_{i31} + \xi q_{i3}}
+       {\mu_i\varepsilon_{i33} - \xi^2}
++\dfrac{\mu_i\varepsilon_{i32}}
+       {\mu_i\varepsilon_{i33} - \xi^2}\,\gamma_{i32},
+& q_{i3} \neq q_{i4},
+\end{cases}
+$$
+
+$$
+\gamma_{i41} =
+\begin{cases}
+0, & q_{i3} = q_{i4}, \\[4pt]
+\dfrac{\mu_i\varepsilon_{i32}(\mu_i\varepsilon_{i13} + \xi q_{i4})
+     - \mu_i\varepsilon_{i12}(\mu_i\varepsilon_{i33} - \xi^2)}
+      {(\mu_i\varepsilon_{i33} - \xi^2)(\mu_i\varepsilon_{i11}
+        - q_{i4}^2) - (\mu_i\varepsilon_{i13} + \xi q_{i4})
+        (\mu_i\varepsilon_{i31} + \xi q_{i4})},
+& q_{i3} \neq q_{i4},
+\end{cases}
+$$
+
+$$
+\gamma_{i43} =
+\begin{cases}
+-\dfrac{\mu_i\varepsilon_{i32}}
+       {\mu_i\varepsilon_{i33} - \xi^2},
+& q_{i3} = q_{i4}, \\[8pt]
+-\dfrac{\mu_i\varepsilon_{i31} + \xi q_{i4}}
+       {\mu_i\varepsilon_{i33} - \xi^2}\,\gamma_{i41}
+-\dfrac{\mu_i\varepsilon_{i32}}
+       {\mu_i\varepsilon_{i33} - \xi^2},
+& q_{i3} \neq q_{i4}.
+\end{cases}
+$$
+
+The twelve entries enumerated above, together with the four
+fixed unit-normalizations, saturate the eigenvector layout and
+give `core::interface` a one-to-one correspondence between Rust
+expressions and PP2017/PP2019 equations. Two entries merit
+flagging. First, $\gamma_{i13}$ and $\gamma_{i33}$ are the
+erratum-corrected components of [[2](#references), Eq. (20*)].
+Second, the $\gamma_{i12}$ and $\gamma_{i32}$ denominators carry
+$\mu_i^2\varepsilon_{i23}\varepsilon_{i32}$, not
+$\mu_i\varepsilon_{i23}\varepsilon_{i32}$. The distinction is
+invisible for non-magnetic media where $\mu_i = 1$ but matters
+for magneto-optic layers, and silent loss of the quadratic
+$\mu_i$ factor is a recurring transcription failure mode in
+downstream ports.
 
 The piecewise definition is the key to the algorithm's
 well-posedness. In the degenerate branch $q_{i1} = q_{i2}$, the
