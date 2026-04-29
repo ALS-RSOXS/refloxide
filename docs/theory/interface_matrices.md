@@ -250,7 +250,7 @@ A_i =
 $$
 
 where rows 3 and 4 carry the $\vec{H}$ components recovered from
-Ampère's law within the layer. The column order reflects the
+Faraday's law within the layer. The column order reflects the
 Passler sorting of [`eigenmode_analysis.md`](eigenmode_analysis.md),
 namely
 $(\text{p-trans}, \text{s-trans}, \text{p-refl}, \text{s-refl})$.
@@ -260,6 +260,62 @@ $\vec{E}_i = (E^p_{\text{trans}}, E^s_{\text{trans}},
 E^p_{\text{refl}}, E^s_{\text{refl}})^\top$ of
 [[3](#references), Eq. (23)] projects the amplitude description
 onto the tangential-field description that matches at an interface.
+
+## Derivation of the $\vec{H}$ rows from Faraday's law
+
+The third and fourth rows of $A_i$ are not free choices of layout.
+They follow from Faraday's law applied to a plane-wave mode of
+the layer. We sketch the derivation here so the rows are
+auditable without leaving this page.
+
+Inside layer $i$, mode $j$ carries an electric field
+$\vec{E}_{ij}(\vec{r}) = \hat{\vec{\gamma}}_{ij}\,
+\exp\!\big(i(\omega/c)(\xi x + q_{ij} z)\big)$ with the
+tangential wave vector $\xi$ shared across modes and the
+longitudinal component $q_{ij}$ specific to the mode. Writing
+the dimensionless wave vector $\vec{k}_{ij} = (\xi, 0, q_{ij})$
+and applying $\nabla \times \vec{E} = i(\omega/c)\,\bar{\mu}\vec{H}$
+on the plane wave gives
+$\bar{\mu}\vec{H}_{ij} = \vec{k}_{ij} \times \hat{\vec{\gamma}}_{ij}$.
+For the magnetically isotropic layers treated by `core::interface`,
+$\bar{\mu} = \mu_i\mathbb{1}$ and the $\vec{H}$ components reduce
+to
+
+$$
+\vec{H}_{ij} = \frac{1}{\mu_i}
+\begin{pmatrix}
+-q_{ij}\,\hat{\gamma}_{ij,2} \\
+q_{ij}\,\hat{\gamma}_{ij,1} - \xi\,\hat{\gamma}_{ij,3} \\
+\xi\,\hat{\gamma}_{ij,2}
+\end{pmatrix}.
+$$
+
+The $H_z$ component is longitudinal and does not enter the
+matching matrix. Substituting the tangential components into the
+third and fourth rows of $A_i$ above gives
+
+$$
+\big(A_i\big)_{3j} = H_{ij,y} =
+\frac{q_{ij}\,\hat{\gamma}_{ij,1} - \xi\,\hat{\gamma}_{ij,3}}{\mu_i},
+\quad
+\big(A_i\big)_{4j} = -H_{ij,x} = \frac{q_{ij}\,\hat{\gamma}_{ij,2}}{\mu_i},
+$$
+
+which reproduces [[3](#references), Eq. (22)] term by term. The
+sign on the fourth row reflects the Berreman convention that the
+state vector $\Psi = (E_x, H_y, E_y, -H_x)^\top$ of
+[`foundations.md`](foundations.md) carries $-H_x$ rather than
+$+H_x$, so the corresponding row of $A_i$ stores $+q\gamma_{ij,2}/\mu_i$
+rather than $-q\gamma_{ij,2}/\mu_i$. Two failure modes recur in
+implementations that derive these rows independently. The first
+is using the unrotated dielectric tensor $\mu$ when $\bar{\mu}$
+is the appropriate operator for tilted magnetic axes. The second
+is using the field-basis ordering $(E_x, H_y, E_y, -H_x)$ of $\Psi$
+to lay out the rows of $A_i$, which inverts rows two and three
+relative to [[3](#references), Eq. (22)] and silently breaks the
+boundary-condition assembly. The library therefore stores both
+orderings as named constants and converts between them with an
+explicit permutation rather than relying on row indices.
 
 ## Interface matrix $L_i$ between layers
 

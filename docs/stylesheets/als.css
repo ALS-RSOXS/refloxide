@@ -211,7 +211,7 @@ header a[data-slot="button"] .header-brand-logo {
   height: 100%;
   max-height: 100%;
   align-self: stretch;
-  align-items: center;
+  align-items: left;
   justify-content: center;
   padding: clamp(0.15rem, 0.1rem + 0.4vmin, 0.3rem) clamp(0.25rem, 0.15rem + 0.6vw, 0.55rem);
   overflow: hidden;
@@ -227,7 +227,7 @@ header a[data-slot="button"] .header-brand-logo__inner {
   height: 100%;
   max-height: 100%;
   flex: 1 1 auto;
-  align-items: center;
+  align-items: left;
   justify-content: center;
   overflow: hidden;
 }

@@ -99,24 +99,78 @@ components that match across a planar interface.
 The elements of $\Delta$ are bilinear combinations of elements of
 $M$, the in-plane wave vector $\xi$, and the auxiliary coefficients
 $a_{3n}$ and $a_{6n}$ that arose from eliminating $E_z$ and $H_z$.
-The complete tabulation is given in [[2](#references), Eq. (8)], of
-which we reproduce representative entries,
+We reproduce the full sixteen-entry tabulation of
+[[2](#references), Eq. (8)] so that the implementation in
+`core::delta` admits a one-to-one diff against this page,
 
 $$
 \begin{aligned}
-\Delta_{11} &= M_{51} + (M_{53} + \xi)a_{31} + M_{56}a_{61}, \\
-\Delta_{21} &= M_{11} + M_{13}a_{31} + M_{16}a_{61}, \\
-\Delta_{31} &= -M_{41} - M_{43}a_{31} - M_{46}a_{61}, \\
-\Delta_{41} &= M_{21} + M_{23}a_{31} + (M_{26} - \xi)a_{61}.
+\Delta_{11} &= M_{51} + (M_{53} + \xi)\,a_{31} + M_{56}\,a_{61}, \\
+\Delta_{12} &= M_{55} + (M_{53} + \xi)\,a_{35} + M_{56}\,a_{65}, \\
+\Delta_{13} &= M_{52} + (M_{53} + \xi)\,a_{32} + M_{56}\,a_{62}, \\
+\Delta_{14} &= -M_{54} - (M_{53} + \xi)\,a_{34} - M_{56}\,a_{64}, \\[4pt]
+\Delta_{21} &= M_{11} + M_{13}\,a_{31} + M_{16}\,a_{61}, \\
+\Delta_{22} &= M_{15} + M_{13}\,a_{35} + M_{16}\,a_{65}, \\
+\Delta_{23} &= M_{12} + M_{13}\,a_{32} + M_{16}\,a_{62}, \\
+\Delta_{24} &= -M_{14} - M_{13}\,a_{34} - M_{16}\,a_{64}, \\[4pt]
+\Delta_{31} &= -M_{41} - M_{43}\,a_{31} - M_{46}\,a_{61}, \\
+\Delta_{32} &= -M_{45} - M_{43}\,a_{35} - M_{46}\,a_{65}, \\
+\Delta_{33} &= -M_{42} - M_{43}\,a_{32} - M_{46}\,a_{62}, \\
+\Delta_{34} &= M_{44} + M_{43}\,a_{34} + M_{46}\,a_{64}, \\[4pt]
+\Delta_{41} &= M_{21} + M_{23}\,a_{31} + (M_{26} - \xi)\,a_{61}, \\
+\Delta_{42} &= M_{25} + M_{23}\,a_{35} + (M_{26} - \xi)\,a_{65}, \\
+\Delta_{43} &= M_{22} + M_{23}\,a_{32} + (M_{26} - \xi)\,a_{62}, \\
+\Delta_{44} &= -M_{24} - M_{23}\,a_{34} - (M_{26} - \xi)\,a_{64}.
 \end{aligned}
 $$
 
-The full 16 entries, together with the $a_{3n}$ and $a_{6n}$
-coefficients that populate them, are enumerated in
-[[2](#references), Eqs. (8)-(10)]. The scalar $b = M_{33}M_{66} -
-M_{36}M_{63}$ of [[2](#references), Eq. (10)] appears in every
-$a_{3n}$ and $a_{6n}$ denominator and sets the condition under
-which the longitudinal elimination is non-singular.
+The auxiliary coefficient column $a_{3n}$ has entries
+[[2](#references), Eq. (9)],
+
+$$
+\begin{aligned}
+a_{31} &= \big(M_{61}M_{36} - M_{31}M_{66}\big)/b, \\
+a_{32} &= \big((M_{62} - \xi)M_{36} - M_{32}M_{66}\big)/b, \\
+a_{33} &= 0, \\
+a_{34} &= \big(M_{64}M_{36} - M_{34}M_{66}\big)/b, \\
+a_{35} &= \big(M_{65}M_{36} - (M_{35} + \xi)M_{66}\big)/b, \\
+a_{36} &= 0,
+\end{aligned}
+$$
+
+and the column $a_{6n}$ has entries
+
+$$
+\begin{aligned}
+a_{61} &= \big(M_{63}M_{31} - M_{33}M_{61}\big)/b, \\
+a_{62} &= \big(M_{63}M_{32} - M_{33}(M_{62} - \xi)\big)/b, \\
+a_{63} &= 0, \\
+a_{64} &= \big(M_{63}M_{34} - M_{33}M_{64}\big)/b, \\
+a_{65} &= \big(M_{63}(M_{35} + \xi) - M_{33}M_{65}\big)/b, \\
+a_{66} &= 0,
+\end{aligned}
+$$
+
+with the scalar denominator [[2](#references), Eq. (10)]
+
+$$
+b = M_{33}M_{66} - M_{36}M_{63}.
+$$
+
+The scalar $b$ appears in every $a_{3n}$ and $a_{6n}$ entry and
+sets the condition under which the longitudinal elimination is
+non-singular. Vanishing $b$ corresponds to a constitutive matrix
+in which the $z$-row of the $D$-block and the $z$-row of the
+$B$-block share a kernel direction, a pathology that does not
+arise in the magneto-dielectric media targeted by `refloxide`.
+
+The asymmetric placement of $\xi$ across the $\Delta$ rows is
+worth noting. Rows one and four carry $(M_{53} + \xi)$ and
+$(M_{26} - \xi)$ respectively, while the cross-row pair
+$(a_{32}, a_{35}, a_{62}, a_{65})$ also carries shifted $\xi$
+factors. The signs are not symmetric on inspection, and a code
+reviewer is invited to verify each row pair against the printed
+PDF rather than against an internal consistency hypothesis.
 
 Two conventions merit explicit mention so that a reader comparing
 to Berreman does not confuse herself. Passler and Paarmann absorb

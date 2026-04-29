@@ -54,16 +54,21 @@ markdown_extensions:
   - admonition
   - attr_list
   - md_in_html
+  - footnotes
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
   - pymdownx.arithmatex:
       generic: true
   - pymdownx.details
-  - pymdownx.superfences
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
   - pymdownx.tabbed:
       alternate_style: true
+  - shadcn.extensions.iconify
+  - shadcn.extensions.echarts.alpha
   - toc:
       permalink: true
 
@@ -89,6 +94,7 @@ nav:
           - Propagation and assembly: theory/propagation_and_assembly.md
           - Reflection and transmission: theory/reflection_transmission.md
           - Electric field distribution: theory/electric_field_distribution.md
+      - Algorithm audit: theory/algorithm_audit.md
       - Roughness models:
           - Framework: theory/roughness_framework.md
           - Nevot-Croce: theory/roughness_nevot_croce.md
