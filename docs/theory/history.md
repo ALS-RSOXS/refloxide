@@ -86,7 +86,7 @@ against Névot-Croce by Esashi et al. [[Esashi et al.
 ## References
 
 The references enumerated here are the same set collected on the
-[theory overview](overview.md#references) page. Numbering is
+[Theory overview](overview.md#references) page. Numbering is
 preserved so that in-text citations resolve identically across
 companion files.
 

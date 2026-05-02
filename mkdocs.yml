@@ -5,28 +5,20 @@ repo_url: https://github.com/als-rsoxs/refloxide
 repo_name: als-rsoxs/refloxide
 edit_uri: edit/main/docs/
 
+extra:
+  als_group:
+    full_name: ALS RSOXS Group Project
+    acronym: REIXS
+    github_url: https://github.com/als-rsoxs
+    reixs_url: https://als.lbl.gov/science/photon-science-programs/rixs-program/
+
 theme:
-  name: shadcn
-  custom_dir: docs/stylesheets/overrides
-  katex_options: {}
-  icon: assets/als-logo.png
-  icon_light: assets/als-logo-light.png
-  favicon: assets/als-favicon-32x32.png
-  palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
+  name: rsoxs
+  show_title: true
+  show_stargazers: true
+  topbar_sections: false
+  katex_options:
+    throwOnError: false
   features:
     - content.code.copy
     - content.code.annotate
@@ -39,10 +31,13 @@ theme:
     - toc.follow
 
 plugins:
+  - rsoxs
   - search
   - mkdocstrings:
       handlers:
         python:
+          paths:
+            - src
           options:
             show_source: true
             show_root_heading: true
@@ -52,33 +47,19 @@ plugins:
 
 markdown_extensions:
   - admonition
-  - attr_list
-  - md_in_html
-  - footnotes
-  - pymdownx.highlight:
-      anchor_linenums: true
-      line_spans: __span
-      pygments_lang_class: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.details
   - pymdownx.arithmatex:
       generic: true
-  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      css_class: codehilite
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
   - pymdownx.tabbed:
       alternate_style: true
-  - shadcn.extensions.iconify
-  - shadcn.extensions.echarts.alpha
   - toc:
       permalink: true
-
-extra_javascript:
-  - javascripts/mathjax.js
-  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
-
-extra_css:
-  - stylesheets/als.css
-  - stylesheets/pygments-pymdown.css
 
 nav:
   - Home: index.md

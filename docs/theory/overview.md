@@ -13,9 +13,9 @@ in the companion files and are cross-linked from the table of
 contents below.
 
 A reader who wants historical lineage should proceed to
-`[history.md](history.md)`. A reader who wants a stage-by-stage
+[History](history.md). A reader who wants a stage-by-stage
 summary of the algorithm, without full derivations, should proceed
-to `[pipeline.md](pipeline.md)`. Everything else on this page is
+to [Pipeline at a glance](pipeline.md). Everything else on this page is
 scope, applications, and pointers.
 
 ## Table of contents
@@ -26,52 +26,52 @@ interfacial roughness. Narrative context pages come first.
 
 Narrative context.
 
-- `[history.md](history.md)`, the lineage from Fresnel through
+- [History](history.md), the lineage from Fresnel through
 Abelès, Parratt, Berreman, Yeh, Lin-Chung and Teitler, Xu, Li, and
 Passler, plus the separate lineage of the three roughness models.
-- `[pipeline.md](pipeline.md)`, a compact walkthrough of the six
+- [Pipeline at a glance](pipeline.md), a compact walkthrough of the six
 stages executed per measurement coordinate.
 
 Core pipeline.
 
-- `[foundations.md](foundations.md)`, the 6x6 Maxwell system, the
+- [Foundations](foundations.md), the 6x6 Maxwell system, the
 constitutive relation $\vec{C} = M\vec{G}$, elimination of $E_z$
 and $H_z$, and the resulting Berreman 4x4 matrix $\Delta$.
-- `[eigenmode_analysis.md](eigenmode_analysis.md)`, the per-layer
+- [Eigenmode analysis](eigenmode_analysis.md), the per-layer
 eigenproblem $q_{ij}\Psi_{ij} = \Delta_i \Psi_{ij}$, the
 forward-backward partition, and the Li-Sullivan-Parsons ordering
 rule.
-- `[interface_matrices.md](interface_matrices.md)`, the
+- [Interface matrices](interface_matrices.md), the
 Xu-Wood-Golding piecewise eigenvectors $\vec{\gamma}_{ij}$, the
 erratum-corrected components and normalization convention, and
 the boundary-matching matrix $A_i$.
-- `[propagation_and_assembly.md](propagation_and_assembly.md)`,
+- [Propagation and assembly](propagation_and_assembly.md),
 the diagonal propagation matrix $P_i$, the layer transfer matrix
 $T_i = A_i P_i A_i^{-1}$, the stack product
 $\Gamma_N = L_1 P_1 L_2 P_2 \cdots L_N P_N L_{N+1}$, and the
 $\Lambda_{1324}$ permutation.
-- `[reflection_transmission.md](reflection_transmission.md)`, the
+- [Reflection and transmission](reflection_transmission.md), the
 rational extraction of the eight amplitude coefficients
 $r_{kl}$ and $t_{kl}$ from $\Gamma_N$, with ordinary and
 extraordinary relabeling for birefringent substrates.
-- `[electric_field_distribution.md](electric_field_distribution.md)`,
+- [Electric field distribution](electric_field_distribution.md),
 the erratum-corrected reconstruction of $\vec{E}(x, y, z)$ inside
 the stack.
 
 Roughness models.
 
-- `[roughness_framework.md](roughness_framework.md)`, how the three
+- [Framework](roughness_framework.md), how the three
 roughness models plug into (or around) the core pipeline.
-- `[roughness_nevot_croce.md](roughness_nevot_croce.md)`, the
+- [Nevot-Croce](roughness_nevot_croce.md), the
 distorted-wave Born approximation factor applicable to short
 correlation lengths.
-- `[roughness_debye_waller.md](roughness_debye_waller.md)`, the
+- [Debye-Waller](roughness_debye_waller.md), the
 long-correlation-length counterpart and its relation to the
 crystallographic factor.
-- `[roughness_graded_interface.md](roughness_graded_interface.md)`,
+- [Graded interface](roughness_graded_interface.md),
 the Stearns slide method that replaces a sharp step by a
 discretized continuous index profile.
-- `[roughness_selection_guide.md](roughness_selection_guide.md)`,
+- [Selection guide](roughness_selection_guide.md),
 the decision framework that mirrors the quantitative comparison
 of [[Esashi et al. 2021](#references)].
 
@@ -256,7 +256,7 @@ by a discretized continuous profile and is the only one of the
 three that remains correct for large $\sigma$, large $\Delta n$,
 non-Gaussian statistics, or phase-sensitive measurements. The
 decision framework is enumerated in
-`[roughness_selection_guide.md](roughness_selection_guide.md)`.
+[Selection guide](roughness_selection_guide.md).
 
 ## Intended implementation path
 
@@ -270,7 +270,7 @@ observables (reflectance, transmittance, field distribution, or a
 subset). The 4x4 kernel itself is a pure function of its arguments
 with no mutable state.
 
-Stages 1 through 6 of `[pipeline.md](pipeline.md)` map onto the six
+Stages 1 through 6 of [Pipeline at a glance](pipeline.md) map onto the six
 modules of the kernel. Stage 1 (the Berreman $\Delta$ matrix and
 the dielectric tensor rotation) lives in the `core::delta` module.
 Stage 2 (the eigensolve and mode sorting) lives in `core::modes`.
@@ -370,8 +370,8 @@ The tensor generalization of the Névot-Croce and Debye-Waller
 factors beyond the scalar Parratt case treated by [[Esashi et al.
 2021](#references)] is not published in the sources we cite. The
 implementation choice made in
-`[roughness_nevot_croce.md](roughness_nevot_croce.md)` and
-`[roughness_debye_waller.md](roughness_debye_waller.md)`, namely
+[Nevot-Croce](roughness_nevot_croce.md) and
+[Debye-Waller](roughness_debye_waller.md), namely
 that the scalar multiplier is applied block-diagonally to $A_i$ in
 the $s$ and $p$ eigen-channels, is an implementation decision that
 we flag explicitly rather than attribute to a published derivation.

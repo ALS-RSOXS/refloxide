@@ -179,9 +179,9 @@ This workspace extends Python with **Jupyter notebook** expectations.
 
 ### General Guidelines
 
-This project will make strong use of jupyter notebooks to solve a number of problems, primarily with a scientific focus, but may also have a general purpose focus. Notebooks should be written and well documented. But keep in mind that a notebook allows for a lot of flexibility, and as such, the code should be written in a way that is easy to understand and maintain.  
+This project will make strong use of jupyter notebooks to solve a number of problems, primarily with a scientific focus, but may also have a general purpose focus. Notebooks should be written and well documented. But keep in mind that a notebook allows for a lot of flexibility, and as such, the code should be written in a way that is easy to understand and maintain.
 
-!!!!Make sure that you use your new jupyter tools instead of generating as a json!!!!  
+!!!!Make sure that you use your new jupyter tools instead of generating as a json!!!!
 
  As a general rule, we will use notebooks for one of the following purposes:
 
@@ -219,7 +219,5 @@ It is important to note that these notebooks are designed to be robust. These sh
 ## Learned Workspace Facts
 
 - Stratified film stacks are modeled with explicit semi-infinite fronting and backing media, interior film layers, and per-interface roughness with one value per interface boundary (`layers.len() + 1`).
-- The docs site is MkDocs with the shadcn theme, ALS-oriented CSS in `docs/stylesheets/` (including `stylesheets/pygments-pymdown.css` for Pygments with `pymdownx.highlight` and mkdocstrings), and `theme.custom_dir: docs/stylesheets/overrides` for `docs/stylesheets/overrides/templates/header.html` and `docs/stylesheets/overrides/components/icon.html` when the theme is customized. Markdown uses PyMdown in the order recommended for fenced code: `pymdownx.highlight` (with `pygments_lang_class` and `line_spans` for line anchors) before `pymdownx.superfences`, plus built-in shadcn extensions `shadcn.extensions.iconify` and `shadcn.extensions.echarts.alpha` (see [mkdocs-shadcn](https://github.com/asiffer/mkdocs-shadcn)). For the header mark, the shadcn theme uses `theme.icon` (not Material-style `theme.logo`); optional `theme.icon_light` shows a different logo in light mode when a second asset is provided.
-- `docs/theory` is organized in the left nav in grouped subsections aligned with `docs/theory/overview.md` (Narrative context, Core Pipeline, Roughness models).
-- Favicon and brand images for the site live under `docs/assets/`.
-
+- The docs site is MkDocs with the **mkdocs-rsoxs** theme (`theme.name: rsoxs`). Math uses **`pymdownx.arithmatex`** with **`generic: true`** so the theme injects KaTeX; set **`theme.katex_options`** to a non-empty dict (for example `throwOnError: false`) because an empty dict is falsy in the theme’s KaTeX template and breaks `renderMathInElement` options. Code fences use **`pymdownx.highlight`** with **`css_class: codehilite`** to match the theme’s Pygments CSS. Optional branding: **`theme.icon`** / **`theme.icon_light`** (paths under `docs/` if overridden); defaults ship in the theme package.
+- `docs/theory` is organized in the left nav in grouped subsections aligned with `docs/theory/overview.md` (Narrative context, Core pipeline, Roughness models).

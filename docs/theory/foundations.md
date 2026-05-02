@@ -6,9 +6,9 @@ This page derives the 4x4 differential system that underlies every
 subsequent stage of the pipeline. It follows the reduction given by
 Berreman [[1](#references)] and recast in modern notation by
 Passler and Paarmann [[2](#references), Sec. 2.A.1 and Eqs.
-(1)-(10)]. The reader arriving from the [overview](overview.md) or
-the [pipeline summary](pipeline.md) will find the algebraic steps
-here and will then continue to the [eigenmode
+(1)-(10)]. The reader arriving from the [Theory overview](overview.md) or
+the [Pipeline at a glance](pipeline.md) will find the algebraic steps
+here and will then continue to the [Eigenmode
 analysis](eigenmode_analysis.md).
 
 ## Geometry and conventions
@@ -51,7 +51,7 @@ but invert the direction of the constitutive closure, writing
 
 $$
 \vec{C} = M\vec{G} \equiv
-\begin{pmatrix} \bar{\varepsilon} & \bar{\rho}_1 
+\begin{pmatrix} \bar{\varepsilon} & \bar{\rho}_1
                 \bar{\rho}_2 & \bar{\mu} \end{pmatrix} \vec{G},
 $$
 
@@ -202,7 +202,7 @@ would require the numerical ODE integration sketched by Berreman
 [[1](#references)], which is what `refloxide` avoids by discretizing
 graded interfaces into thin homogeneous sublayers inside the
 roughness pipeline (see
-`[roughness_graded_interface.md](roughness_graded_interface.md)`).
+[Graded interface](roughness_graded_interface.md)).
 
 The elimination of $E_z$ and $H_z$ assumes $b \neq 0$. The scalar
 $b$ vanishes only in pathological constitutive relations that we do
@@ -210,7 +210,7 @@ not encounter in ordinary magneto-dielectric media, so no numerical
 safeguard is required at this stage. The guard against singularities
 enters later, at the eigenvector level, through the Xu piecewise
 definitions [[3](#references); [4](#references)] treated in
-`[interface_matrices.md](interface_matrices.md)`.
+[Interface matrices](interface_matrices.md).
 
 ## References
 

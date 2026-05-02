@@ -3,7 +3,7 @@
 ## Scope of this page
 
 This page treats stage 2 of the pipeline. Given the 4x4 Berreman
-matrix $\Delta_i$ produced in [`foundations.md`](foundations.md),
+matrix $\Delta_i$ produced in [Foundations](foundations.md),
 we solve the algebraic eigenvalue problem in each homogeneous layer
 $i$, partition the four resulting modes into forward and backward
 propagation, and impose the continuity ordering of Li, Sullivan,
@@ -150,13 +150,13 @@ projection whenever the principal-axis alignment fails.
 
 The ordered mode quadruplet $(q_{i1}, q_{i2}, q_{i3}, q_{i4})$
 becomes the convention relied on in stages 3 through 6. Stage 3
-(see [`interface_matrices.md`](interface_matrices.md)) assembles
+(see [Interface matrices](interface_matrices.md)) assembles
 the interface matrix $A_i$ with column layout
 $(\text{p-trans}, \text{s-trans}, \text{p-refl}, \text{s-refl})$,
 the Xu $\gamma_{ij}$ eigenvectors [[2](#references), Eqs. (19)-(20);
 [3](#references)] are written in the same order, and the
 Yeh-layout permutation $\Lambda_{1324}$ introduced in
-[`propagation_and_assembly.md`](propagation_and_assembly.md) relies
+[Propagation and assembly](propagation_and_assembly.md) relies
 on exactly this ordering. A violation of the Li sorting would
 therefore propagate as a mis-permutation of $\Gamma_N$ and would
 surface as discontinuous $r_{kl}(\omega)$ or $r_{kl}(\theta)$
@@ -187,7 +187,7 @@ the label assignment. We note that this degeneracy is the one Xu,
 Wood, and Golding treat separately at the eigenvector level
 [[3](#references); [2](#references), Eq. (19) branch
 $q_{i1} = q_{i2}$], and the Xu piecewise construction (see
-[`interface_matrices.md`](interface_matrices.md)) is the mechanism
+[Interface matrices](interface_matrices.md)) is the mechanism
 that keeps the rest of the pipeline finite through the degenerate
 limit.
 

@@ -4,12 +4,12 @@
 
 This page treats stage 6 of the pipeline. Given the amplitude
 coefficients from
-[`reflection_transmission.md`](reflection_transmission.md), together
+[Reflection and transmission](reflection_transmission.md), together
 with the per-interface matrices $L_i$ and the partial propagation
 matrices $P_i(z)$ from
-[`propagation_and_assembly.md`](propagation_and_assembly.md) and
+[Propagation and assembly](propagation_and_assembly.md) and
 the normalized eigenvectors $\hat{\vec{\gamma}}_{ij}$ from
-[`interface_matrices.md`](interface_matrices.md), we reconstruct
+[Interface matrices](interface_matrices.md), we reconstruct
 the complex three-component electric field $\vec{E}(x, y, z)$
 inside every layer of the stack. The procedure follows the
 erratum-corrected recipe of Passler and Paarmann
@@ -61,7 +61,7 @@ $t_{s(p/o)}$ and $t_{s(s/e)}$ in the transmitted slots. The
 reflected slots vanish identically because no source sits below the
 substrate [[1](#references), text following Eq. (37*)]. The
 $p/o$ and $s/e$ pairing reflects the relabeling discussion of
-[`reflection_transmission.md`](reflection_transmission.md).
+[Reflection and transmission](reflection_transmission.md).
 Lab-frame-diagonal substrates take the $p/s$ reading, birefringent
 substrates take the $o/e$ reading, and the formalism does not
 otherwise distinguish the two cases.
@@ -157,7 +157,7 @@ where $\xi(\omega/c)$ is the in-plane wavenumber of stage 1 and the
 $x$-phase factor is common to every mode because $\xi$ is conserved
 across the stack. The $y$ dependence is absent because the plane of
 incidence was chosen as the $x$-$z$ plane in
-[`foundations.md`](foundations.md).
+[Foundations](foundations.md).
 
 ## Why the eigenvector phases already account for reflection
 
@@ -229,7 +229,7 @@ regime. Agreement with the Jeannin Python port
 erratum-corrected path. Convergence of the reconstructed field
 against finer $z$-sampling in graded-interface expansions is the
 test that couples stage 6 to the roughness machinery of
-[`roughness_graded_interface.md`](roughness_graded_interface.md).
+[Graded interface](roughness_graded_interface.md).
 
 ## References
 

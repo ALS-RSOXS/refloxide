@@ -12,9 +12,9 @@ equation that needs to be carried into the kernel has a home in
 the code, that the home is named, and that the home has a test.
 
 The page is intentionally redundant with the per-stage
-discussions in [`foundations.md`](foundations.md),
-[`eigenmode_analysis.md`](eigenmode_analysis.md), and
-[`interface_matrices.md`](interface_matrices.md). The redundancy
+discussions in [Foundations](foundations.md),
+[Eigenmode analysis](eigenmode_analysis.md), and
+[Interface matrices](interface_matrices.md). The redundancy
 is structural. The per-stage pages explain why each step is
 correct. This page enumerates the steps so that none is forgotten.
 

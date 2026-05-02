@@ -4,7 +4,7 @@
 
 This page treats stage 3 of the pipeline. Given the per-layer
 eigenvalues $q_{ij}$ and sorted eigenvectors $\Psi_{ij}$ produced
-in [`eigenmode_analysis.md`](eigenmode_analysis.md), we construct
+in [Eigenmode analysis](eigenmode_analysis.md), we construct
 the singularity-free electric-field eigenvectors
 $\vec{\gamma}_{ij}$ of Xu, Wood, and Golding [[1](#references)],
 apply the normalization and component corrections imposed by the
@@ -219,7 +219,7 @@ because the magnitudes cancel between columns of $A_i$ and rows of
 $A_i^{-1}$. It does affect the cross-polarization coefficients for
 birefringent substrates [[2](#references), text following Eq.
 (E1)], and it is essential for the field reconstruction of stage 6
-(see [`electric_field_distribution.md`](electric_field_distribution.md)).
+(see [Electric field distribution](electric_field_distribution.md)).
 A library that omits the normalization silently produces wrong
 $r_{ps}$, $r_{sp}$, $t_{pe}$, and $t_{so}$ in birefringent stacks.
 The module therefore applies $\hat{\vec{\gamma}}$ in place of
@@ -251,7 +251,7 @@ $$
 
 where rows 3 and 4 carry the $\vec{H}$ components recovered from
 Faraday's law within the layer. The column order reflects the
-Passler sorting of [`eigenmode_analysis.md`](eigenmode_analysis.md),
+Passler sorting of [Eigenmode analysis](eigenmode_analysis.md),
 namely
 $(\text{p-trans}, \text{s-trans}, \text{p-refl}, \text{s-refl})$.
 
@@ -304,7 +304,7 @@ $$
 which reproduces [[3](#references), Eq. (22)] term by term. The
 sign on the fourth row reflects the Berreman convention that the
 state vector $\Psi = (E_x, H_y, E_y, -H_x)^\top$ of
-[`foundations.md`](foundations.md) carries $-H_x$ rather than
+[Foundations](foundations.md) carries $-H_x$ rather than
 $+H_x$, so the corresponding row of $A_i$ stores $+q\gamma_{ij,2}/\mu_i$
 rather than $-q\gamma_{ij,2}/\mu_i$. Two failure modes recur in
 implementations that derive these rows independently. The first
@@ -331,7 +331,7 @@ $$
 which defines the interface matrix [[3](#references), Eq. (24)].
 $L_i$ projects the mode basis of layer $i$ onto the mode basis of
 layer $i-1$. The stack-level product constructed in
-[`propagation_and_assembly.md`](propagation_and_assembly.md)
+[Propagation and assembly](propagation_and_assembly.md)
 alternates $L_i$ and $P_i$ and is algebraically equivalent to the
 $A^{-1} T A$ form of [[3](#references), Eq. (28)].
 
@@ -350,7 +350,7 @@ Eq. (28), first line] as the most stable implementation route,
 because it restricts inversion to the two cladding matrices.
 `refloxide` follows this recommendation but retains the $L_i$ form
 internally for field reconstruction (see
-[`electric_field_distribution.md`](electric_field_distribution.md)),
+[Electric field distribution](electric_field_distribution.md)),
 where the per-interface operations are needed explicitly.
 
 ## Where the code lives

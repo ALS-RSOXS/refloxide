@@ -4,7 +4,7 @@
 
 This page treats stage 5 of the pipeline. Given the Yeh-layout
 transfer matrix $\tilde{\Gamma}_N$ from
-`[propagation_and_assembly.md](propagation_and_assembly.md)`, we
+[Propagation and assembly](propagation_and_assembly.md), we
 extract the eight complex amplitude coefficients
 $r_{pp}, r_{ss}, r_{ps}, r_{sp}, t_{pp}, t_{ss}, t_{ps}, t_{sp}$
 from rational combinations of its matrix elements, and we document
@@ -88,7 +88,7 @@ components in birefringent media [[1](#references), Sec. 2.B]. The
 transmittance $T_{kl} = |t_{kl}|^2$ is unchanged, but the phase of
 the transmitted field is not, and the phase matters for the field
 reconstruction of stage 6 (see
-`[electric_field_distribution.md](electric_field_distribution.md)`).
+[Electric field distribution](electric_field_distribution.md)).
 `refloxide` implements the erratum-corrected signs. A library that
 implements the 2017 signs verbatim and then uses the 2017 field
 reconstruction recipe produces self-consistent but incorrect
@@ -97,7 +97,7 @@ fields in birefringent stacks.
 ## Reflectance
 
 Because the incident medium is isotropic and non-absorbing (see the
-assumptions in `[overview.md](overview.md#assumptions)`), the
+assumptions in [Overview](overview.md#assumptions)), the
 reflectance is the modulus-squared of the amplitude coefficient,
 
 $$

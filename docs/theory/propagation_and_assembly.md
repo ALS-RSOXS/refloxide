@@ -4,7 +4,7 @@
 
 This page treats stage 4 of the pipeline. Given the per-layer
 interface matrices $A_i$ from
-`[interface_matrices.md](interface_matrices.md)`, we assemble the
+[Interface matrices](interface_matrices.md), we assemble the
 single-layer transfer matrix $T_i$, chain the $N$ per-layer
 transfers into a total transfer $T_{\text{tot}}$, sandwich the
 result between the two cladding matrices, and apply the
@@ -35,13 +35,13 @@ The sign convention in the exponent follows Passler and Paarmann
 [[1](#references), text preceding Eq. (25)] and is consistent with
 the assignment of forward modes as those with
 $\operatorname{Im}(q_{ij}) \ge 0$ in
-`[eigenmode_analysis.md](eigenmode_analysis.md)`.
+[Eigenmode analysis](eigenmode_analysis.md).
 
 Two practical remarks are worth flagging. First, $P_i$ is evaluated
 at the full layer thickness $d_i$ for the stack assembly, but it
 can also be evaluated at a partial thickness $0 < z < d_i$ for the
 field reconstruction of stage 6 (see
-`[electric_field_distribution.md](electric_field_distribution.md)`),
+[Electric field distribution](electric_field_distribution.md)),
 where the diagonal entries become $e^{-i(\omega/c)q_{ij} z}$
 [[1](#references), Eq. (38)]. Second, exponentials of large
 positive imaginary argument grow without bound, which is the
@@ -102,7 +102,7 @@ into the order
 $(E^p_{\text{trans}}, E^s_{\text{trans}},
   E^p_{\text{refl}}, E^s_{\text{refl}})^\top$
 [[1](#references), Eq. (23); see also
-`[eigenmode_analysis.md](eigenmode_analysis.md)`]. The Yeh
+[Eigenmode analysis](eigenmode_analysis.md)]. The Yeh
 extraction of stage 5, by contrast, requires the layout
 $(E^p_{\text{trans}}, E^p_{\text{refl}},
   E^s_{\text{trans}}, E^s_{\text{refl}})^\top$
@@ -133,7 +133,7 @@ similarity transformation incurs no numerical inversion penalty.
 
 Stages 5 and 6 consume $\tilde{\Gamma}_N$. Every closed-form
 expression for the amplitude coefficients displayed in
-`[reflection_transmission.md](reflection_transmission.md)` reads
+[Reflection and transmission](reflection_transmission.md) reads
 matrix elements of $\tilde{\Gamma}_N$, not of the pre-permutation
 $\Gamma_N$. A library that forgets this permutation returns
 $r_{pp}$ where $r_{ss}$ is expected, and vice versa, which is a

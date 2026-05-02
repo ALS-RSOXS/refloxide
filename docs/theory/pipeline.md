@@ -24,7 +24,7 @@ $\partial_z \Psi = i(\omega/c)\Delta\Psi$,
 where $\Delta$ is the 4x4 Berreman matrix tabulated in [[Passler and
 Paarmann 2017](overview.md#references), Eq. (8)]. This reduction is
 the entry point to the whole formalism. See
-`[foundations.md](foundations.md)`.
+[Foundations](foundations.md).
 
 ## 2. Eigenmode analysis per layer
 
@@ -47,7 +47,7 @@ $C(q_{ij}) = |S_{ij,x}|^2 / (|S_{ij,x}|^2 + |S_{ij,y}|^2)$,
 following [[Li et al. 1988](overview.md#references)]. This ordering
 is the step that guarantees continuity of the solution branches
 when the dielectric tensor varies smoothly across parameter space.
-See `[eigenmode_analysis.md](eigenmode_analysis.md)`.
+See [Eigenmode analysis](eigenmode_analysis.md).
 
 ## 3. Interface matrices free of singularities
 
@@ -71,7 +71,7 @@ step across interface $i$ then reads
 $A_{i-1}\vec{E}_{i-1} = A_i\vec{E}_i$, and
 $L_i = A_{i-1}^{-1} A_i$ is the interface matrix that projects the
 mode basis of layer $i$ onto that of layer $i-1$. See
-`[interface_matrices.md](interface_matrices.md)`.
+[Interface matrices](interface_matrices.md).
 
 ## 4. Propagation and assembly
 
@@ -98,7 +98,7 @@ E^s_{\text{refl}})$, but Yeh's $r/t$ expressions expect the layout
 $(E^p_{\text{trans}}, E^p_{\text{refl}}, E^s_{\text{trans}},
 E^s_{\text{refl}})$, we apply a permutation $\Lambda_{1324}$ after
 $\Gamma_N$ is built. See
-`[propagation_and_assembly.md](propagation_and_assembly.md)`.
+[Propagation and assembly](propagation_and_assembly.md).
 
 ## 5. Reflection and transmission coefficients
 
@@ -117,7 +117,7 @@ $|t_{kl}|^2$. A proper energy-conservation treatment for
 anisotropic substrates was deferred to a later publication
 [[Passler and Paarmann 2019](overview.md#references)] and is
 outside the scope of this initial implementation. See
-`[reflection_transmission.md](reflection_transmission.md)`.
+[Reflection and transmission](reflection_transmission.md).
 
 ## 6. Electric field distribution
 
@@ -133,4 +133,4 @@ $s$-polarized incident light so that birefringent cross-coupling
 is represented correctly. Because $\hat{\vec{\gamma}}_{ij}$
 already carries the phase information, no separate
 reflection-phase bookkeeping is needed. See
-`[electric_field_distribution.md](electric_field_distribution.md)`.
+[Electric field distribution](electric_field_distribution.md).

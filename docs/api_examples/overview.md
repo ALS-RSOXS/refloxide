@@ -12,8 +12,8 @@ simulation workflows.
 
 ## Example map
 
-- `structure_definition.md`
-- `material_parameterizations.md`
-- `single_scan.md`
-- `batched_scans.md`
-- `roughness_configuration.md`
+- [Structure definition](structure_definition.md)
+- [Material parameterizations](material_parameterizations.md)
+- [Single-coordinate simulation](single_scan.md)
+- [Vectorized and batched simulation](batched_scans.md)
+- [Roughness configuration](roughness_configuration.md)
