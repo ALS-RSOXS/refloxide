@@ -1,12 +1,45 @@
+//! `refloxide`, the Rust kernel of the 4x4 transfer matrix method.
+//!
+//! Crate layout follows the plan at
+//! `.cursor/plan/01_rust_kernel_implementation.md`. The pure-Rust
+//! algorithm lives under [`kernel`], typed inputs live under
+//! [`material`] and [`stack`], the staged builder lives under
+//! [`solver`], and the pyo3 surface lives under [`ffi`].
+//!
+//! The plan and the algorithm-audit traceability matrix refer to
+//! the algorithm modules under the path `core::*`. The Rust crate
+//! exposes them as [`kernel`] to avoid the implicit shadowing of
+//! the standard library `core` crate. Public-facing identifiers
+//! and equation citations reference `kernel::*` accordingly.
+//!
+//! Equation references in module docstrings point to PP2017
+//! (see `docs/theory/foundations.md`) for the Berreman reduction,
+//! PP2019 erratum for the corrected `gamma_i13` and `gamma_i33`
+//! components, and `docs/theory/algorithm_audit.md` for the
+//! per-equation traceability matrix.
+
+#![allow(clippy::module_inception)]
+#![allow(dead_code)]
+
+pub mod error;
+pub mod ffi;
+pub mod kernel;
+pub mod material;
+pub mod solver;
+pub mod stack;
+pub mod types;
+
+pub use error::{KernelError, KernelResult};
+pub use solver::pipeline::{Amplitudes, FieldProfile, Pipeline, Polarization};
+pub use stack::{Layer, Stack};
+pub use types::parameterization::{OpticalIndex, PrincipalTensor};
+pub use types::scalar::C64;
+
 use pyo3::prelude::*;
 
-#[pyfunction]
-fn hello_from_rust() -> String {
-    "Hello from refloxide core".to_string()
-}
-
+/// pyo3 module entry point. The Python-visible name is `_core`,
+/// configured by the `[lib].name = "_core"` key in `Cargo.toml`.
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_function(wrap_pyfunction!(hello_from_rust, module)?)?;
-    Ok(())
+    ffi::register_module(module)
 }
