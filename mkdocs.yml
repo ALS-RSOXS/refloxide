@@ -5,6 +5,12 @@ repo_url: https://github.com/als-rsoxs/refloxide
 repo_name: als-rsoxs/refloxide
 edit_uri: edit/main/docs/
 
+hooks:
+  - hooks.py
+
+not_in_nav: |
+  rustdoc/**
+
 extra:
   als_group:
     full_name: ALS RSOXS Group Project
@@ -42,8 +48,11 @@ plugins:
             show_source: true
             show_root_heading: true
             show_root_toc_entry: true
-            docstring_style: google
+            show_submodules: false
+            docstring_style: numpy
             merge_init_into_class: true
+            preload_modules:
+              - refloxide._core
 
 markdown_extensions:
   - admonition
@@ -89,5 +98,11 @@ nav:
       - Single-coordinate simulation: api_examples/single_scan.md
       - Vectorized and batched simulation: api_examples/batched_scans.md
       - Roughness configuration: api_examples/roughness_configuration.md
-  - API Reference: api.md
+  - API Reference:
+      - Overview: api/index.md
+      - Python:
+          - refloxide: api/python/refloxide.md
+          - pxr: api/python/pxr/index.md
+          - tjf4x4: api/python/pxr/tjf4x4.md
+      - Rust (_core): api/rust.md
   - Contributing: contributing.md

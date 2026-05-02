@@ -85,6 +85,7 @@ known-first-party = ["refloxide"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ARG001"]
+"src/refloxide/pxr/**/*.py" = ["ERA001"]
 
 # =============================================================================
 # ty (Astral type checker)
