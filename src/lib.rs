@@ -22,6 +22,7 @@
 #![allow(dead_code)]
 
 pub mod error;
+#[cfg(feature = "python")]
 pub mod ffi;
 pub mod kernel;
 pub mod material;
@@ -35,10 +36,12 @@ pub use stack::{Layer, Stack};
 pub use types::parameterization::{OpticalIndex, PrincipalTensor};
 pub use types::scalar::C64;
 
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-/// pyo3 module entry point. The Python-visible name is `_core`,
-/// configured by the `[lib].name = "_core"` key in `Cargo.toml`.
+/// pyo3 module entry point. Must match `[tool.maturin] module-name = "refloxide._core"`
+/// so the extension exports `PyInit__core`.
+#[cfg(feature = "python")]
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     ffi::register_module(module)

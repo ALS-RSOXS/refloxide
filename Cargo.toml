@@ -4,14 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "_core"
+name = "refloxide"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["python"]
+python = ["dep:pyo3"]
+
 [dependencies]
-pyo3 = { version = "0.28.3", features = ["extension-module"] }
+pyo3 = { version = "0.28.3", optional = true, features = ["extension-module", "num-complex"] }
 nalgebra = "0.33"
 num-complex = "0.4"
 thiserror = "1.0"
+physical_constants = "0.5"
+lapack = { version = "0.20.0", default-features = false }
 
 [dev-dependencies]
 approx = "0.5"

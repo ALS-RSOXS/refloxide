@@ -36,6 +36,40 @@ impl Stack {
     /// invariants. Used by [`StackBuilder::build`] and re-runnable
     /// after manual mutation.
     pub fn validate(&self) -> KernelResult<()> {
-        todo!("Stack::validate not yet implemented")
+        if self.roughness.len() != self.interface_count() {
+            return Err(crate::KernelError::InvalidGeometry(format!(
+                "roughness specs must match interface_count {} (got {})",
+                self.interface_count(),
+                self.roughness.len()
+            )));
+        }
+        let validate_layer = |label: &str, layer: &crate::stack::Layer| -> KernelResult<()> {
+            if !(layer.thickness_nm.is_finite() || layer.thickness_nm.is_infinite()) {
+                return Err(crate::KernelError::InvalidGeometry(format!(
+                    "{label} thickness_nm must be finite or infinite"
+                )));
+            }
+            let diag = layer
+                .material
+                .epsilon_principal
+                .to_epsilon_principal_diag()?;
+            diag.validate_passive()?;
+            if let Some(mu) = layer.material.mu_principal {
+                let mud = mu.to_epsilon_principal_diag()?;
+                mud.validate_passive()?;
+            }
+            Ok(())
+        };
+        validate_layer("incident", &self.incident)?;
+        for (k, layer) in self.layers.iter().enumerate() {
+            if !(layer.thickness_nm.is_finite() && layer.thickness_nm > 0.0) {
+                return Err(crate::KernelError::InvalidGeometry(format!(
+                    "interior layer {k} thickness_nm must be finite and positive"
+                )));
+            }
+            validate_layer(&format!("layer[{k}]"), layer)?;
+        }
+        validate_layer("substrate", &self.substrate)?;
+        Ok(())
     }
 }

@@ -61,7 +61,14 @@ impl MaterialBuilder {
 
     /// Finalize the builder.
     pub fn build(self) -> KernelResult<Material> {
-        todo!("MaterialBuilder::build not yet implemented")
+        let epsilon_principal = self
+            .epsilon_principal
+            .ok_or_else(|| crate::KernelError::InvalidGeometry("missing epsilon_principal".into()))?;
+        Ok(Material {
+            epsilon_principal,
+            mu_principal: self.mu_principal,
+            euler_zxz_rad: self.euler_zxz_rad,
+        })
     }
 }
 

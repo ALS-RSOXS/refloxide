@@ -28,6 +28,14 @@ pub type MMatrix = Matrix6<C64>;
 /// The rotation tensors are not currently exposed and are set to
 /// zero. A future revision can add them as optional inputs.
 pub fn build_m(epsilon_lab: LabTensor, mu_lab: LabTensor) -> KernelResult<MMatrix> {
-    let _ = (epsilon_lab, mu_lab);
-    todo!("build_m not yet implemented")
+    let e = epsilon_lab.as_matrix();
+    let mu = mu_lab.as_matrix();
+    let mut m = MMatrix::zeros();
+    for i in 0..3 {
+        for j in 0..3 {
+            m[(i, j)] = e[(i, j)];
+            m[(i + 3, j + 3)] = mu[(i, j)];
+        }
+    }
+    Ok(m)
 }

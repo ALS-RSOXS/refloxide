@@ -63,8 +63,32 @@ impl StackBuilder {
 
     /// Finalize the builder, running structural validation.
     pub fn build(self) -> KernelResult<Stack> {
-        let _ = self;
-        todo!("StackBuilder::build not yet implemented")
+        let incident = self
+            .incident
+            .ok_or_else(|| crate::KernelError::InvalidGeometry("missing incident medium".into()))?;
+        let substrate = self
+            .substrate
+            .ok_or_else(|| crate::KernelError::InvalidGeometry("missing substrate medium".into()))?;
+        let roughness = if self.roughness.is_empty() {
+            vec![RoughnessSpec::sharp(); self.layers.len() + 1]
+        } else if self.roughness.len() == self.layers.len() + 1 {
+            self.roughness
+        } else {
+            return Err(crate::KernelError::InvalidGeometry(format!(
+                "expected {} roughness entries for {} interior layers (got {})",
+                self.layers.len() + 1,
+                self.layers.len(),
+                self.roughness.len()
+            )));
+        };
+        let stack = Stack {
+            incident,
+            layers: self.layers,
+            substrate,
+            roughness,
+        };
+        stack.validate()?;
+        Ok(stack)
     }
 }
 

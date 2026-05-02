@@ -6,6 +6,8 @@
 
 pub mod pyfunctions;
 
+mod stack_repr;
+
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
