@@ -10,7 +10,7 @@ ep0 = 1.0 / (c**2 * mu0)
 TINY = np.finfo(float).eps
 
 
-def uniaxial_reflectivity(q, layers, tensor, energy):
+def uniaxial_reflectivity(q: NDArray, layers: NDArray, tensor: NDArray, energy: float):
     """
     EMpy implementation of the uniaxial 4x4 matrix formalism.
 
@@ -22,22 +22,22 @@ def uniaxial_reflectivity(q, layers, tensor, energy):
 
     Parameters
     ----------
-    q: array_like
-        the q values required for the calculation.
-        Q = 4 * Pi / lambda * sin(omega).
-        Units = Angstrom**-1
+    q: np.ndarray
+        q values for which to calculate the reflectivity.
+        Units: 1/Angstroms
+
     layers: np.ndarray
         coefficients required for the calculation, has shape (2 + N, 4),
         where N is the number of layers
-        layers[0, 1] - SLD of fronting (/1e-6 Angstrom**-2)
-        layers[0, 2] - iSLD of fronting (/1e-6 Angstrom**-2)
-        layers[N, 0] - thickness of layer N
-        layers[N, 1] - SLD of layer N (/1e-6 Angstrom**-2)
-        layers[N, 2] - iSLD of layer N (/1e-6 Angstrom**-2)
-        layers[N, 3] - roughness between layer N-1/N
-        layers[-1, 1] - SLD of backing (/1e-6 Angstrom**-2)
-        layers[-1, 2] - iSLD of backing (/1e-6 Angstrom**-2)
-        layers[-1, 3] - roughness between backing and last layer
+        - layers[0, 1] - SLD of fronting (/1e-6 Angstrom**-2)
+        - layers[0, 2] - iSLD of fronting (/1e-6 Angstrom**-2)
+        - layers[N, 0] - thickness of layer N
+        - layers[N, 1] - SLD of layer N (/1e-6 Angstrom**-2)
+        - layers[N, 2] - iSLD of layer N (/1e-6 Angstrom**-2)
+        - layers[N, 3] - roughness between layer N-1/N
+        - layers[-1, 1] - SLD of backing (/1e-6 Angstrom**-2)
+        - layers[-1, 2] - iSLD of backing (/1e-6 Angstrom**-2)
+        - layers[-1, 3] - roughness between backing and last layer
 
     tensor: np.ndarray
         contains the 1x3x3 dimensions
@@ -47,9 +47,6 @@ def uniaxial_reflectivity(q, layers, tensor, energy):
         Multiply all reflectivities by this value.
     bkg: float
         Linear background to be added to all reflectivities
-    threads: int, optional
-        <THIS OPTION IS CURRENTLY IGNORED>
-
 
     Returns
     -------
@@ -387,12 +384,16 @@ def calculate_P(_numpnts, _nlayers, kz, d):
     """
     Calculate the propagation matrix using the previously calculated values for kz.
 
-        :param complex 4-entry kz: Eigenvalues for solving characteristic equation, 4
-        potentially degenerate inputs
-        :param float d: thickness of the layer in question. (units: Angstroms)
-        returns: :math:`P`
-
-    .. important:: Requires prior execution of :py:func:`calculate_kz`.
+    Parameters
+    ----------
+    _numpnts : int
+        Number of points in the calculation grid (not used directly in this function).
+    _nlayers : int
+        Number of layers in the model (not used directly in this function).
+    kz : ndarray
+        Array of shape (numpnts, nlayers, 4) containing the z-component of the wavevector for each point, layer, and solution.
+    d : ndarray
+        Array of shape (nlayers,) containing the thickness of each layer.
     """
     # Create the diagonal components in the propogation matrix
     # Cast into a 4x4 version through redundent broadcasting
