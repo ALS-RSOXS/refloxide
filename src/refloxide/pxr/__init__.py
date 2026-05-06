@@ -6,7 +6,3 @@ published in the following papers:
 https://doi.org/10.1021/jacsau.3c00168
 https://doi.org/10.1021/acsami.1c19948
 """
-
-from refloxide.pxr.tjf4x4 import uniaxial_reflectivity
-
-__all__ = ["uniaxial_reflectivity"]

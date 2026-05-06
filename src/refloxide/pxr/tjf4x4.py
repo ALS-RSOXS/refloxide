@@ -1,3 +1,12 @@
+"""Pure python port of the uniaxial 4x4 matrix formalism.
+
+This algorithm is used for the following publications:
+- https://doi.org/10.1021/acsami.1c19948
+- https://doi.org/10.1021/jacsau.3c00168
+"""
+
+import warnings
+
 import numpy as np
 from numpy.linalg import LinAlgError
 from numpy.typing import NDArray
@@ -484,7 +493,8 @@ def calculate_TMM(_numpnts, nlayers, M, D, Di, P, W):
     Parameters
     ----------
     _numpnts : int
-        Unused; retained for signature compatibility. Number of points is implied by array axes.
+        Unused; retained for signature compatibility. Number of points is implied by
+        array axes.
     nlayers : int
         Number of layers in the optical system.
     M : ndarray
@@ -524,30 +534,81 @@ def calculate_TMM(_numpnts, nlayers, M, D, Di, P, W):
 def calculate_output(
     numpnts: int, M_full: np.ndarray
 ) -> tuple[NDArray[np.float64], NDArray[np.complex128]]:
-    """Extract reflectivity and transmittance amplitudes from the system matrix.
+    """Calculate reflection and transmission coefficients from a transfer matrix.
+
+    This function computes the reflection and transmission coefficients for s- and
+    p-polarized light
+    from a given transfer matrix using the Berreman 4x4 matrix method.
 
     Parameters
     ----------
     numpnts : int
-        Number of angular or momentum samples.
+        Number of points/wavelengths being calculated
     M_full : ndarray
-        System transfer matrix with shape ``(numpnts, 4, 4)``.
+        4x4 transfer matrix with shape (numpnts, 4, 4) containing the optical system
+        information
 
     Returns
     -------
     refl : ndarray
-        Real reflectivity values, shape ``(numpnts,)``.
+        Array of shape (numpnts, 2, 2) containing reflection coefficients:
+        refl[:,0,0] = r_ss (s to s reflection)
+        refl[:,0,1] = r_sp (p to s reflection)
+        refl[:,1,0] = r_ps (s to p reflection)
+        refl[:,1,1] = r_pp (p to p reflection)
     tran : ndarray
-        Complex transmittance-related amplitudes, shape ``(numpnts,)``.
+        Complex array of shape (numpnts, 2, 2) containing transmission coefficients:
+        tran[:,0,0] = t_ss (s to s transmission)
+        tran[:,0,1] = t_sp (p to s transmission)
+        tran[:,1,0] = t_ps (s to p transmission)
+        tran[:,1,1] = t_pp (p to p transmission)
 
     Notes
     -----
-    The full Yeh 4x4 extraction from ``M_full`` is not yet implemented in this
-    port; the returned arrays are zero-filled so the module remains importable
-    and documentable while the optical reduction is completed.
+    The coefficients are calculated using the standard transfer matrix method formalism
+    where the coefficients are obtained from the elements of the 4x4 transfer matrix.
     """
-    _ = M_full
-    return (
-        np.zeros(numpnts, dtype=np.float64),
-        np.zeros(numpnts, dtype=np.complex128),
-    )
+    refl: np.ndarray = np.zeros((numpnts, 2, 2), dtype=np.float64)
+    tran: np.ndarray = np.zeros((numpnts, 2, 2), dtype=np.complex128)
+
+    M: np.ndarray = M_full
+
+    # Calculate denominator with numerical stability check
+    denom = M[:, 0, 0] * M[:, 2, 2] - M[:, 0, 2] * M[:, 2, 0]
+    # Add tiny constant to avoid division by zero
+    denom = np.where(np.abs(denom) < TINY, denom + TINY, denom)
+
+    # Calculate reflection coefficients
+    r_ss: np.ndarray = (M[:, 1, 0] * M[:, 2, 2] - M[:, 1, 2] * M[:, 2, 0]) / denom
+    r_sp: np.ndarray = (M[:, 3, 0] * M[:, 2, 2] - M[:, 3, 2] * M[:, 2, 0]) / denom
+    r_ps: np.ndarray = (M[:, 0, 0] * M[:, 1, 2] - M[:, 1, 0] * M[:, 0, 2]) / denom
+    r_pp: np.ndarray = (M[:, 0, 0] * M[:, 3, 2] - M[:, 3, 0] * M[:, 0, 2]) / denom
+
+    # Calculate transmission coefficients
+    t_ss: np.ndarray = M[:, 2, 2] / denom
+    t_sp: np.ndarray = -M[:, 2, 0] / denom
+    t_ps: np.ndarray = -M[:, 0, 2] / denom
+    t_pp: np.ndarray = M[:, 0, 0] / denom
+
+    # Clip reflection coefficients to physical values
+    refl[:, 0, 0] = np.real(np.multiply(r_ss, np.conj(r_ss)))
+    refl[:, 0, 1] = np.real(np.multiply(r_sp, np.conj(r_sp)))
+    refl[:, 1, 0] = np.real(np.multiply(r_ps, np.conj(r_ps)))
+    refl[:, 1, 1] = np.real(np.multiply(r_pp, np.conj(r_pp)))
+
+    if np.any(refl > 1):
+        # Clip reflection coefficients to a maximum of 1
+        warnings.warn(
+            "Reflection coefficients exceed 1, clipping to 1.",
+            UserWarning,
+            stacklevel=2,
+        )
+        refl = np.clip(refl, 0, 1)
+
+    # Store transmission coefficients
+    tran[:, 0, 0] = t_ss
+    tran[:, 0, 1] = t_sp
+    tran[:, 1, 0] = t_ps
+    tran[:, 1, 1] = t_pp
+
+    return refl, tran

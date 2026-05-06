@@ -1,11 +1,10 @@
 
-
+<!-- DOTAGENT MANAGED - DO NOT EDIT THIS section>
 # General
 
 ## General Structure
 
 This codebase is maintained by contributors with physics PhDs and extensive backgrounds in scientific and engineering software, including numerical computing, data analysis, instrumentation, simulation, and research-grade reproducibility. Maintainers are highly mathematically literate, comfortable with linear algebra and statistics, and expect rigorous numerics with explicit type handling—silent coercion and imprecise computations are not acceptable.
-
 ## Operating principles
 
 - Prefer the smallest coherent change set that satisfies the stated specification. Avoid drive-by refactors, unrelated formatting sweeps, and scope expansion.
@@ -210,17 +209,17 @@ It is important to note that these notebooks are designed to be robust. These sh
 - Class definitions should idealy be avoided in notebooks, unless we are prototyping a library. If we need a class, it should be defined in a separate cell and have a minimal footprint.
 - Variables should be defined in the cells that use them, and should usually be displayed to the user. Avoid using global variables, or mutable state if possible.
 - When prototping a library, use the `%autoreload 2` magic to ensure that the code is reloaded when it is changed.
+<!-- END OF DOTAGENT MANAGED - EDIT BELOW THIS LINE>
 
 ## Learned User Preferences
 
-- Prefer no Typer and no user-facing CLI or `[project.scripts]` entrypoints unless the user explicitly requests them.
-- When the user supplies an explicit list of paths to stage or commit, restrict `git add` and the commit to that list only; avoid staging unrelated changes.
-- Treat the core library as a **pure functional** reflectivity generator: callers supply stratified layers and query reflected intensity (or related outputs) for incident angle and wavelength; support **vectorized** inputs and outputs while keeping execution **single-threaded** so the stack composes cleanly with other libraries.
-- When changing MkDocs layout or CSS, align documentation styling with **ALSComputing** org dev-standard references (for example the shared ALS dev-standards docs) rather than one-off ad hoc rules.
+- Prefer `match` / `case` (including guarded `case _ if ...`) over long `if` / `elif` ladders when resolving unions such as dispersive SLD specs or routing symbolic keys.
+- Avoid unsolicited git commits and scope-expanding refactors; stay within the requested surface unless the user asks to widen it.
+- When work is Python-only (examples, plotting, `pxr` helpers), rerun with `uv run python` as needed; rebuild the Maturin extension only after Rust or extension-layout changes or when imports prove the wheel is missing or stale.
+- Avoid module-level ALL_CAPS frozensets for key routing when designing accessors; derive allowlists locally from `typing.get_args` on `Literal` aliases, small methods, or instance caching instead.
 
 ## Learned Workspace Facts
 
-- Stratified film stacks are modeled with explicit semi-infinite fronting and backing media, interior film layers, and per-interface roughness with one value per interface boundary (`layers.len() + 1`).
-- Optical constants are intended to support **full 3x3 complex** dielectric or index-of-refraction tensors (not scalar-only layer fields); conversions among common parameterizations (for example n+ik, 1-delta+i*beta, f0+f'+if'', scattering-length density, susceptibility chi, permittivity epsilon) belong in a dedicated optics/index module rather than being hard-coded as a single `f64` per layer.
-- The docs site is MkDocs with the **mkdocs-rsoxs** theme (`theme.name: rsoxs`). Math uses **`pymdownx.arithmatex`** with **`generic: true`** so the theme injects KaTeX; set **`theme.katex_options`** to a non-empty dict (for example `throwOnError: false`) because an empty dict is falsy in the theme’s KaTeX template and breaks `renderMathInElement` options. Code fences use **`pymdownx.highlight`** with **`css_class: codehilite`** to match the theme’s Pygments CSS. Optional branding: **`theme.icon`** / **`theme.icon_light`** (paths under `docs/` if overridden); defaults ship in the theme package. Any **site-specific CSS** files must be listed under **`extra_css`** in `mkdocs.yml` or they are not loaded (the theme does not automatically import everything under `docs/stylesheets/`).
-- `docs/theory` is organized in the left nav in grouped subsections aligned with `docs/theory/overview.md` (Narrative context, Core pipeline, Roughness models).
+- `refloxide.pxr.tjf4x4.uniaxial_reflectivity` expects each slab `tensor` diagonal to carry δ + iβ per principal axis under `epsilon = conj(I - 2 * tensor)`, not raw n or an n²-derived packing; lightweight stack builders should populate rows accordingly.
+- `periodictable.xsf.index_of_refraction` takes photon energy in keV; convert eV by dividing by 1000 before calling when pairing with eV-scale experiment parameters.
+- `plugin` reflectivity helpers often assume a `(n_q, 2, 2)` polarization reflectivity block; confirm the rank returned by `tjf4x4` matches before applying matrix-style indexing.

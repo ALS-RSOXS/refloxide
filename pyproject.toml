@@ -35,11 +35,23 @@ dev = [
     "pysentry-rs>=0.1.0",
     "maturin>=1.13.1",
     "numpy>=2.0",
+    "ipykernel>=7.2.0",
+    "periodictable>=2.1.0",
+    "matplotlib>=3.10.9",
+    "marimo>=0.23.4",
+    "refnx>=0.1.63",
 ]
 docs = [
     "mkdocs>=1.6.0",
     "mkdocs-rsoxs>=0.1.2",
     "mkdocstrings-python>=2.0.1",
+]
+plugin = [
+    "polars>=1.40.1",
+    "refnx>=0.1.63",
+    "periodictable>=2.1.0",
+    "marimo>=0.23.4",
+    "arviz>=1.1.0",
 ]
 
 [project.urls]
