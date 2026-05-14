@@ -11,14 +11,14 @@ logger = logging.getLogger("mkdocs")
 
 
 def _write_rustdoc_stub(dest: Path) -> None:
-    stub = dest / "_core" / "index.html"
+    stub = dest / "refloxide" / "index.html"
     stub.parent.mkdir(parents=True, exist_ok=True)
     stub.write_text(
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         "<title>Rustdoc not generated</title></head><body>"
         "<p>Rust documentation was not copied. Install a Rust toolchain and run "
         "<code>mkdocs build</code> again, or run <code>cargo doc --no-deps</code> "
-        "and open <code>target/doc/_core/index.html</code>.</p>"
+        "and open <code>target/doc/refloxide/index.html</code>.</p>"
         "</body></html>\n",
         encoding="utf-8",
     )

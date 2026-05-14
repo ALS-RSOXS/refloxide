@@ -63,7 +63,7 @@ Changelog = "https://github.com/HarlanHeilman/refloxide/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 python-source = "src"
-module-name = "refloxide._core"
+module-name = "refloxide.rust"
 features = ["python"]
 
 # =============================================================================

@@ -1,6 +1,6 @@
 """Public Python interface for refloxide.
 
-The native extension lives in :mod:`refloxide._core` (Rust / PyO3). This
+The native extension lives in :mod:`refloxide.rust` (Rust / PyO3). This
 package re-exports the small surface intended to replace ad hoc Python
 pipelines such as :func:`refloxide.pxr.uniaxial_reflectivity` once the
 stack representation and Passler pipeline are wired through.

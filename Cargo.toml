@@ -9,10 +9,11 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["python"]
-python = ["dep:pyo3"]
+python = ["dep:pyo3", "dep:numpy"]
 
 [dependencies]
 pyo3 = { version = "0.28.3", optional = true, features = ["extension-module", "num-complex"] }
+numpy = { version = "0.28", optional = true }
 nalgebra = "0.33"
 num-complex = "0.4"
 thiserror = "1.0"

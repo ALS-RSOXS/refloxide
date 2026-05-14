@@ -52,7 +52,7 @@ plugins:
             docstring_style: numpy
             merge_init_into_class: true
             preload_modules:
-              - refloxide._core
+              - refloxide.rust
 
 markdown_extensions:
   - admonition
@@ -84,25 +84,17 @@ nav:
           - Propagation and assembly: theory/propagation_and_assembly.md
           - Reflection and transmission: theory/reflection_transmission.md
           - Electric field distribution: theory/electric_field_distribution.md
-      - Algorithm audit: theory/algorithm_audit.md
       - Roughness models:
           - Framework: theory/roughness_framework.md
           - Nevot-Croce: theory/roughness_nevot_croce.md
           - Debye-Waller: theory/roughness_debye_waller.md
           - Graded interface: theory/roughness_graded_interface.md
           - Selection guide: theory/roughness_selection_guide.md
-  - API examples:
-      - Overview: api_examples/overview.md
-      - Structure definition: api_examples/structure_definition.md
-      - Material parameterizations: api_examples/material_parameterizations.md
-      - Single-coordinate simulation: api_examples/single_scan.md
-      - Vectorized and batched simulation: api_examples/batched_scans.md
-      - Roughness configuration: api_examples/roughness_configuration.md
   - API Reference:
       - Overview: api/index.md
       - Python:
           - refloxide: api/python/refloxide.md
           - pxr: api/python/pxr/index.md
           - tjf4x4: api/python/pxr/tjf4x4.md
-      - Rust (_core): api/rust.md
+      - Rust (core): api/rust.md
   - Contributing: contributing.md

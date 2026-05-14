@@ -10,4 +10,4 @@ Python API pages are generated from source with mkdocstrings. The PyO3 extension
 
 ## Rust
 
-- [Rust extension `_core`](rust.md) — rustdoc for the PyO3 crate
+- [Rust extension `rust`](rust.md) — rustdoc for the PyO3 crate

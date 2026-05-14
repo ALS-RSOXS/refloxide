@@ -8,7 +8,7 @@ import numpy as np
 from refnx.analysis import Parameters, possibly_create_parameter
 from scipy.interpolate import interp1d
 
-from pyref.fitting.structure import Scatterer
+from refloxide.pxr.plugin.structure import Scatterer
 
 if TYPE_CHECKING:
     import pandas as pd
