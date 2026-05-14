@@ -19,6 +19,7 @@ num-complex = "0.4"
 thiserror = "1.0"
 physical_constants = "0.5"
 lapack = { version = "0.20.0", default-features = false }
+rayon = "1.10"
 
 [dev-dependencies]
 approx = "0.5"
