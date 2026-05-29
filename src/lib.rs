@@ -4,11 +4,11 @@
 //! uniaxial-z kernel lives in [`uniaxial`] and is exposed through PyO3 as
 //! `refloxide.rust` when the `python` feature is enabled. Errors are typed
 //! through [`error::RefloxideError`] so callers can recover or surface
-//! diagnostics. Future backends (biaxial, off-axis tilt, magneto-optic)
-//! should land alongside the uniaxial module under `src/` rather than
-//! inside the existing kernel.
+//! diagnostics. Shared numerics used by stratified solvers live in [`math`].
 
+mod c4x4;
 pub mod error;
+pub mod math;
 pub mod uniaxial;
 
 #[cfg(feature = "python")]

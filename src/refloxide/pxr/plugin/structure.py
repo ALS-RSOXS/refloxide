@@ -86,9 +86,9 @@ class Structure(UserList):
         s.data = self.data.copy()
         return s
 
-    def __setitem__(self, i, v) -> None:
-        """Set the i-th item of the structure to v."""
-        self.data[i] = v
+    def __setitem__(self, i, item) -> None:
+        """Set the i-th item of the structure to item."""
+        self.data[i] = item
 
     def __str__(self) -> str:
         """Representation of the structure."""
@@ -304,12 +304,16 @@ class Structure(UserList):
         if self.slabs() is None:
             e = "Structure requires fronting and backing Slabs in order to calculate."
             raise TypeError(e)
-        refl, _tran, *components = reflectivity(
+        result = reflectivity(
             q,
             self.slabs(),  # type: ignore
             self.tensor(energy=energy),
             backend=backend,
         )
+        if result is None:
+            msg = "reflectivity returned None; check dq and backend arguments"
+            raise TypeError(msg)
+        refl, _tran, *components = result
         return refl[:, 1, 1], refl[:, 0, 0], components
 
     def sld_profile(self, z=None, align=0):
@@ -822,7 +826,7 @@ class PXR_Component:
         """
         return 0
 
-    def tensor(self, energy=None):
+    def tensor(self, energy=None):  # noqa: ARG002
         """
         Information pertaining to the tensor dielectric properties of the slab.
 
@@ -895,7 +899,7 @@ class Slab(PXR_Component):
         self._parameters.name = self.name
         return self._parameters
 
-    def slabs(self, structure=None):
+    def slabs(self, structure=None):  # noqa: ARG002
         """
         Slab representation of this component.
 
@@ -998,14 +1002,14 @@ class SLD(Scatterer):
         n: np.ndarray = np.zeros(3, dtype=np.complex128)
 
         if isinstance(value, np.ndarray):
-            if value.shape == (3,):
-                n[:] = value
-            elif value.shape == (2,):
-                # Assume uniaxial: [n_xx, n_zz] -> [n_xx, n_xx, n_zz]
-                n[0:2] = value[0]
-                n[2] = value[1]
-            elif value.shape == (3, 3):
-                n[:] = value.diagonal()
+            arr = np.asarray(value, dtype=np.complex128)
+            if arr.shape == (3,):
+                n[:] = arr
+            elif arr.shape == (2,):
+                n[0:2] = arr[0]
+                n[2] = arr[1]
+            elif arr.shape == (3, 3):
+                n[:] = arr.diagonal()
             else:
                 e = "Array must have shape (2,), (3,) or (3,3)"
                 raise ValueError(e)
@@ -1494,7 +1498,7 @@ class MixedMaterialSlab(PXR_Component):
         self._parameters.name = self.name
         return self._parameters
 
-    def slabs(self, structure=None):
+    def slabs(self, structure=None):  # noqa: ARG002
         """
         Slab representation of this component.
 
@@ -1583,9 +1587,9 @@ class Stack(PXR_Component, UserList):
                 e = "You can only initialise a PXR_Stack with PXR_Components"
                 raise TypeError(e)
 
-    def __setitem__(self, i, v):
+    def __setitem__(self, i, item):
         """Set the ith item of the stack."""
-        self.data[i] = v
+        self.data[i] = item
 
     def __str__(self):
         """Representation of the stack."""
@@ -1626,7 +1630,7 @@ class Stack(PXR_Component, UserList):
             raise TypeError(e)
         self.data.append(item)
 
-    def slabs(self, structure=None):  # type: ignore
+    def slabs(self, structure=None):  # noqa: ARG002  # type: ignore
         """
         Slab representation of this component.
 
@@ -1754,7 +1758,7 @@ def birefringence_profile(slabs, tensor, z=None, step=False):
             zstart, zend, num=total_film_thickness * 2
         )  # 0.5 Angstrom resolution default
     else:
-        zed = np.asfarray(z)  # type: ignore[assignment]
+        zed = np.asarray(z, dtype=float)
 
     # Reduce the dimensionality of the tensor for ease of use
     reduced_tensor = tensor.diagonal(
@@ -1896,9 +1900,9 @@ henke_densities: list[tuple[str, str, float]] = [
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    import pandas as pd
-    import seaborn as sns
-    from pyref.fitting.model import ReflectModel
+    import pandas as pd  # ty: ignore[unresolved-import]
+    import seaborn as sns  # ty: ignore[unresolved-import]
+    from pyref.fitting.model import ReflectModel  # ty: ignore[unresolved-import]
 
     sns.set_palette("blend:#00829c,#ff9d8d", n_colors=3)
 

@@ -19,7 +19,13 @@ ep0 = 1.0 / (c**2 * mu0)
 TINY = np.finfo(float).eps
 
 
-def uniaxial_reflectivity(q: NDArray, layers: NDArray, tensor: NDArray, energy: float):
+def uniaxial_reflectivity(
+    q: NDArray,
+    layers: NDArray,
+    tensor: NDArray,
+    energy: float,
+    phi: float = 0.0,
+):
     """
     EMpy implementation of the uniaxial 4x4 matrix formalism.
 
@@ -64,7 +70,6 @@ def uniaxial_reflectivity(q: NDArray, layers: NDArray, tensor: NDArray, energy: 
     """
     # Plane of incidence - required to define polarization vectors
     OpticAxis = np.array([0.0, 0.0, 1.0])
-    phi = 0  # This is a uniaxial calculation
 
     ##Organize qvals into proper order
     qvals = np.asarray(q)
@@ -400,7 +405,8 @@ def calculate_P(_numpnts, _nlayers, kz, d):
     _nlayers : int
         Number of layers in the model (not used directly in this function).
     kz : ndarray
-        Array of shape (numpnts, nlayers, 4) containing the z-component of the wavevector for each point, layer, and solution.
+        Array of shape (numpnts, nlayers, 4) containing the z-component of
+        the wavevector for each point, layer, and solution.
     d : ndarray
         Array of shape (nlayers,) containing the thickness of each layer.
     """

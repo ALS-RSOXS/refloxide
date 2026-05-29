@@ -11,13 +11,19 @@ use nalgebra::{Matrix3, Matrix4, Vector3};
 use num_complex::Complex;
 use rayon::prelude::*;
 
+use crate::c4x4;
+use crate::c4x4::Mat4;
 use crate::error::{RefloxideError, Result};
+use crate::math::exact_inv_4x4;
 
 /// Complex alias used throughout the kernel.
 type C = Complex<f64>;
 
+/// Polarized 2x2 reflectance and transmission blocks for one q-point.
+type PolBlock = ([[f64; 2]; 2], [[C; 2]; 2]);
+
 /// Photon energy to wavelength conversion constant in `eV * Angstrom`.
-const HC_EV_ANGSTROM: f64 = 12_398.4193;
+const HC_EV_ANGSTROM: f64 = 12398.4193;
 
 /// One slab in a stratified medium.
 ///
@@ -74,7 +80,30 @@ struct LayerSnapshot {
     /// Mode-ordered z-component wavevectors: `[extraord+, extraord-, ord+, ord-]`.
     kz: [C; 4],
     /// Inverse dynamic matrix for the layer.
-    di: Matrix4<C>,
+    di: Mat4,
+}
+
+/// Reusable scratch for one q-point solve (avoids per-slab allocations).
+struct QScratch {
+    m: Mat4,
+    tmp: Mat4,
+    kernel: Mat4,
+    w: Mat4,
+    d: Mat4,
+    p_diag: [C; 4],
+}
+
+impl QScratch {
+    fn new() -> Self {
+        Self {
+            m: c4x4::identity(),
+            tmp: c4x4::identity(),
+            kernel: c4x4::identity(),
+            w: c4x4::identity(),
+            d: c4x4::identity(),
+            p_diag: [C::new(0.0, 0.0); 4],
+        }
+    }
 }
 
 /// Computes polarized reflectance and transmission for a uniaxial multilayer.
@@ -119,15 +148,10 @@ pub fn uniaxial_reflectivity(
     let wl = HC_EV_ANGSTROM / energy;
     let k0 = 2.0 * std::f64::consts::PI / wl;
 
-    // Build the Berreman dielectric once per layer.
     let eps: Vec<Matrix3<C>> = tensor.iter().map(berreman_dielectric).collect();
 
-    // Solve per q. Each solve is independent so the only choice is whether
-    // to dispatch across rayon's global pool or to run on the caller thread.
-    let solve = |(i, qi): (usize, f64)| {
-        solve_q(qi, layers, &eps, k0).map_err(|e| annotate(e, i))
-    };
-    let solved: Vec<([[f64; 2]; 2], [[C; 2]; 2])> = if parallel {
+    let solve = |(i, qi): (usize, f64)| solve_q(qi, layers, &eps, k0).map_err(|e| annotate(e, i));
+    let solved: Vec<PolBlock> = if parallel {
         q.par_iter()
             .copied()
             .enumerate()
@@ -151,7 +175,6 @@ pub fn uniaxial_reflectivity(
     Ok(UniaxialOutput { refl, tran })
 }
 
-/// Attaches a q-index to errors that need one for diagnostics.
 fn annotate(err: RefloxideError, q_index: usize) -> RefloxideError {
     match err {
         RefloxideError::SingularDynamicMatrix { layer, .. } => {
@@ -161,43 +184,56 @@ fn annotate(err: RefloxideError, q_index: usize) -> RefloxideError {
     }
 }
 
-/// Solves the chain for one scattering wavevector.
-fn solve_q(
-    qi: f64,
-    layers: &[Layer],
-    eps: &[Matrix3<C>],
-    k0: f64,
-) -> Result<([[f64; 2]; 2], [[C; 2]; 2])> {
+fn solve_q(qi: f64, layers: &[Layer], eps: &[Matrix3<C>], k0: f64) -> Result<PolBlock> {
     let nlayers = layers.len();
     let s = (qi / (2.0 * k0)).clamp(-1.0, 1.0);
     let theta = std::f64::consts::FRAC_PI_2 - s.asin();
     let kx = k0 * theta.sin();
     let ky = 0.0_f64;
 
-    // Fronting (j = 0): we only need its inverse-dynamic and kz for the
-    // next interface, never its propagation matrix.
-    let mut prev = build_snapshot(0, &eps[0], kx, ky, k0)?;
-    let mut m = Matrix4::<C>::identity();
+    let mut scratch = QScratch::new();
+    scratch.m = c4x4::identity();
 
-    // Interior slabs.
+    let mut prev = build_snapshot(0, &eps[0], kx, ky, k0)?;
+
     for j in 1..nlayers - 1 {
-        let (snap, d_j, p_j) = build_snapshot_with_d_p(j, &eps[j], &layers[j], kx, ky, k0)?;
-        let w_j = build_w(&prev.kz, &snap.kz, layers[j].sigma);
-        let kernel = (prev.di * d_j).component_mul(&w_j) * p_j;
-        m = m * kernel;
+        let layer = &layers[j];
+        let snap = build_snapshot_with_d(j, &eps[j], kx, ky, k0, &mut scratch.d)?;
+        c4x4::fill_w(&prev.kz, &snap.kz, layer.sigma, &mut scratch.w);
+        c4x4::propagation_diag(&snap.kz, layer.thickness, &mut scratch.p_diag);
+        c4x4::fused_interface_kernel(
+            &prev.di,
+            &scratch.d,
+            &scratch.w,
+            Some(&scratch.p_diag),
+            &mut scratch.tmp,
+            &mut scratch.kernel,
+        );
+        c4x4::mul_assign(&mut scratch.m, &scratch.kernel);
         prev = snap;
     }
 
-    // Backing.
-    let (snap_last, d_last) = build_snapshot_with_d(nlayers - 1, &eps[nlayers - 1], kx, ky, k0)?;
-    let w_last = build_w(&prev.kz, &snap_last.kz, layers[nlayers - 1].sigma);
-    let kernel_last = (prev.di * d_last).component_mul(&w_last);
-    m = m * kernel_last;
+    let snap_last =
+        build_snapshot_with_d(nlayers - 1, &eps[nlayers - 1], kx, ky, k0, &mut scratch.d)?;
+    c4x4::fill_w(
+        &prev.kz,
+        &snap_last.kz,
+        layers[nlayers - 1].sigma,
+        &mut scratch.w,
+    );
+    c4x4::fused_interface_kernel(
+        &prev.di,
+        &scratch.d,
+        &scratch.w,
+        None,
+        &mut scratch.tmp,
+        &mut scratch.kernel,
+    );
+    c4x4::mul_assign(&mut scratch.m, &scratch.kernel);
 
-    Ok(extract_rt(&m))
+    Ok(extract_rt(&scratch.m))
 }
 
-/// Builds the Berreman dielectric `eps = conj(I - 2 * tensor)`.
 fn berreman_dielectric(t: &Matrix3<C>) -> Matrix3<C> {
     let two = C::new(2.0, 0.0);
     let scaled = t.map(|v| v * two);
@@ -208,13 +244,7 @@ fn berreman_dielectric(t: &Matrix3<C>) -> Matrix3<C> {
     m
 }
 
-/// Computes the four kz roots and the dynamic matrix for a slab.
-fn compute_eigenstructure(
-    eps: &Matrix3<C>,
-    kx: f64,
-    ky: f64,
-    k0: f64,
-) -> ([C; 4], Matrix4<C>) {
+fn compute_eigenstructure(eps: &Matrix3<C>, kx: f64, ky: f64, k0: f64) -> ([C; 4], Matrix4<C>) {
     let one = C::new(1.0, 0.0);
     let e_o = eps[(0, 0)];
     let e_e = eps[(2, 2)];
@@ -262,7 +292,16 @@ fn compute_eigenstructure(
     (kz, d)
 }
 
-/// Builds the fronting snapshot. The fronting only needs `(kz, Di)`.
+fn invert_dynamic(layer_idx: usize, d: &Matrix4<C>) -> Result<Mat4> {
+    match exact_inv_4x4(d) {
+        Some(inv) => Ok(c4x4::from_nalgebra(&inv)),
+        None => Err(RefloxideError::SingularDynamicMatrix {
+            layer: layer_idx,
+            q_index: usize::MAX,
+        }),
+    }
+}
+
 fn build_snapshot(
     layer_idx: usize,
     eps: &Matrix3<C>,
@@ -271,103 +310,37 @@ fn build_snapshot(
     k0: f64,
 ) -> Result<LayerSnapshot> {
     let (kz, d) = compute_eigenstructure(eps, kx, ky, k0);
-    let di = d
-        .try_inverse()
-        .ok_or(RefloxideError::SingularDynamicMatrix {
-            layer: layer_idx,
-            q_index: usize::MAX,
-        })?;
+    let di = invert_dynamic(layer_idx, &d)?;
     Ok(LayerSnapshot { kz, di })
 }
 
-/// Builds the snapshot for an interior slab, returning also `D` and `P`.
-fn build_snapshot_with_d_p(
-    layer_idx: usize,
-    eps: &Matrix3<C>,
-    layer: &Layer,
-    kx: f64,
-    ky: f64,
-    k0: f64,
-) -> Result<(LayerSnapshot, Matrix4<C>, Matrix4<C>)> {
-    let (kz, d) = compute_eigenstructure(eps, kx, ky, k0);
-    let di = d
-        .try_inverse()
-        .ok_or(RefloxideError::SingularDynamicMatrix {
-            layer: layer_idx,
-            q_index: usize::MAX,
-        })?;
-    let p = build_propagation(&kz, layer.thickness);
-    Ok((LayerSnapshot { kz, di }, d, p))
-}
-
-/// Builds the backing snapshot, returning also `D`. No `P` is needed.
 fn build_snapshot_with_d(
     layer_idx: usize,
     eps: &Matrix3<C>,
     kx: f64,
     ky: f64,
     k0: f64,
-) -> Result<(LayerSnapshot, Matrix4<C>)> {
+    d_out: &mut Mat4,
+) -> Result<LayerSnapshot> {
     let (kz, d) = compute_eigenstructure(eps, kx, ky, k0);
-    let di = d
-        .try_inverse()
-        .ok_or(RefloxideError::SingularDynamicMatrix {
-            layer: layer_idx,
-            q_index: usize::MAX,
-        })?;
-    Ok((LayerSnapshot { kz, di }, d))
+    *d_out = c4x4::from_nalgebra(&d);
+    let di = invert_dynamic(layer_idx, &d)?;
+    Ok(LayerSnapshot { kz, di })
 }
 
-/// Diagonal propagation matrix `diag(exp(-i kz d))`.
-fn build_propagation(kz: &[C; 4], thickness: f64) -> Matrix4<C> {
-    let mut p = Matrix4::<C>::zeros();
-    let d = C::new(thickness, 0.0);
-    let minus_i = C::new(0.0, -1.0);
-    for s in 0..4 {
-        p[(s, s)] = (minus_i * kz[s] * d).exp();
-    }
-    p
-}
-
-/// Nevot-Croce roughness matrix at the interface between two layers.
-fn build_w(kz_prev: &[C; 4], kz_curr: &[C; 4], sigma: f64) -> Matrix4<C> {
-    let r2_half = C::new(sigma * sigma * 0.5, 0.0);
-    let mut eplus = [C::new(0.0, 0.0); 4];
-    let mut eminus = [C::new(0.0, 0.0); 4];
-    for s in 0..4 {
-        let plus = kz_curr[s] + kz_prev[s];
-        let minus = kz_curr[s] - kz_prev[s];
-        eplus[s] = (-plus * plus * r2_half).exp();
-        eminus[s] = (-minus * minus * r2_half).exp();
-    }
-    let mut w = Matrix4::<C>::zeros();
-    for row in 0..4 {
-        for col in 0..4 {
-            w[(row, col)] = if (row + col) % 2 == 0 {
-                eminus[col]
-            } else {
-                eplus[col]
-            };
-        }
-    }
-    w
-}
-
-/// Berreman extraction of the four reflection and transmission elements
-/// from the assembled 4x4 transfer matrix.
-fn extract_rt(m: &Matrix4<C>) -> ([[f64; 2]; 2], [[C; 2]; 2]) {
-    let mut denom = m[(0, 0)] * m[(2, 2)] - m[(0, 2)] * m[(2, 0)];
+fn extract_rt(m: &Mat4) -> ([[f64; 2]; 2], [[C; 2]; 2]) {
+    let mut denom = m[0][0] * m[2][2] - m[0][2] * m[2][0];
     if denom.norm() < f64::EPSILON {
         denom += C::new(f64::EPSILON, 0.0);
     }
-    let r_ss = (m[(1, 0)] * m[(2, 2)] - m[(1, 2)] * m[(2, 0)]) / denom;
-    let r_sp = (m[(3, 0)] * m[(2, 2)] - m[(3, 2)] * m[(2, 0)]) / denom;
-    let r_ps = (m[(0, 0)] * m[(1, 2)] - m[(1, 0)] * m[(0, 2)]) / denom;
-    let r_pp = (m[(0, 0)] * m[(3, 2)] - m[(3, 0)] * m[(0, 2)]) / denom;
-    let t_ss = m[(2, 2)] / denom;
-    let t_sp = -m[(2, 0)] / denom;
-    let t_ps = -m[(0, 2)] / denom;
-    let t_pp = m[(0, 0)] / denom;
+    let r_ss = (m[1][0] * m[2][2] - m[1][2] * m[2][0]) / denom;
+    let r_sp = (m[3][0] * m[2][2] - m[3][2] * m[2][0]) / denom;
+    let r_ps = (m[0][0] * m[1][2] - m[1][0] * m[0][2]) / denom;
+    let r_pp = (m[0][0] * m[3][2] - m[3][0] * m[0][2]) / denom;
+    let t_ss = m[2][2] / denom;
+    let t_sp = -m[2][0] / denom;
+    let t_ps = -m[0][2] / denom;
+    let t_pp = m[0][0] / denom;
 
     let refl = [
         [r_ss.norm_sqr().min(1.0), r_sp.norm_sqr().min(1.0)],
@@ -375,4 +348,61 @@ fn extract_rt(m: &Matrix4<C>) -> ([[f64; 2]; 2], [[C; 2]; 2]) {
     ];
     let tran = [[t_ss, t_sp], [t_ps, t_pp]];
     (refl, tran)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn c4_mul_matches_nalgebra() {
+        let a = Matrix4::new(
+            C::new(1.0, 0.1),
+            C::new(0.2, 0.0),
+            C::new(0.0, 0.3),
+            C::new(0.1, -0.1),
+            C::new(0.3, 0.0),
+            C::new(1.1, 0.2),
+            C::new(0.4, 0.0),
+            C::new(0.0, 0.2),
+            C::new(0.0, 0.1),
+            C::new(0.2, -0.1),
+            C::new(0.9, 0.0),
+            C::new(0.3, 0.1),
+            C::new(0.1, 0.0),
+            C::new(0.0, 0.2),
+            C::new(0.2, 0.1),
+            C::new(1.2, -0.1),
+        );
+        let b = Matrix4::new(
+            C::new(0.8, 0.0),
+            C::new(0.1, 0.2),
+            C::new(0.0, 0.0),
+            C::new(0.3, 0.0),
+            C::new(0.0, 0.1),
+            C::new(1.0, 0.0),
+            C::new(0.2, 0.1),
+            C::new(0.0, 0.0),
+            C::new(0.4, -0.1),
+            C::new(0.0, 0.0),
+            C::new(0.7, 0.2),
+            C::new(0.1, 0.0),
+            C::new(0.0, 0.0),
+            C::new(0.2, 0.0),
+            C::new(0.0, 0.1),
+            C::new(0.5, 0.0),
+        );
+        let aa = c4x4::from_nalgebra(&a);
+        let bb = c4x4::from_nalgebra(&b);
+        let mut out = c4x4::identity();
+        c4x4::mul(&aa, &bb, &mut out);
+        let ref_prod = a * b;
+        for r in 0..4 {
+            for c in 0..4 {
+                assert_relative_eq!(out[r][c].re, ref_prod[(r, c)].re, epsilon = 1e-12);
+                assert_relative_eq!(out[r][c].im, ref_prod[(r, c)].im, epsilon = 1e-12);
+            }
+        }
+    }
 }

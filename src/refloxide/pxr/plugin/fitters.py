@@ -495,7 +495,7 @@ class Fitter(CurveFitter):
         # but PTSampler didn't historically accept that...
         if self._ntemps == -1 and isinstance(rng, np.random.RandomState):
             rstate0 = rng.get_state()
-            self._state.random_state = rstate0  # pyright: ignore[reportOptionalMemberAccess]
+            self._state.random_state = rstate0  # pyright: ignore[reportOptionalMemberAccess]  # ty: ignore[invalid-assignment]
             self.sampler.random_state = rstate0
         elif self._ntemps > 0:
             self._state.random_state = rng.bit_generator.state  # type: ignore

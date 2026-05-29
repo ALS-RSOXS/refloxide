@@ -103,7 +103,7 @@ class XrayReflectDataset(ReflectDataset):
         ds: XrayReflectDataset = XrayReflectDataset(data=(Q, R, dR))
         return ds
 
-    def plot(self, ax=None, ax_anisotropy=None, *, show_anisotropy=True, **kwargs):  # noqa: ARG002  # pyright: ignore[reportIncompatibleMethodOverride]
+    def plot(self, ax=None, ax_anisotropy=None, *, show_anisotropy=True, **kwargs):  # noqa: ARG002  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[invalid-method-override]
         """Plot the reflectivity and anisotropy data."""
         import matplotlib.pyplot as plt
 

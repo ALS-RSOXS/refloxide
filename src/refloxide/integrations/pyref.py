@@ -53,7 +53,6 @@ def _solve_refloxide(
             tensor,
             float(energy),
             parallel=parallel,
-            phi=0.0,
         )
         refl_arr = np.asarray(refl, dtype=np.float64)
         tran_arr = np.asarray(tran, dtype=np.complex128)
@@ -428,11 +427,11 @@ def patch_pyref(
         use_rust=use_rust,
         parallel=parallel,
     )
-    setattr(uni_mod, "uniaxial_reflectivity", patched_uni)
+    uni_mod.uniaxial_reflectivity = patched_uni  # ty: ignore[unresolved-attribute]
     if patch_reflectivity:
         patched_refl = partial(
             reflectivity,
             use_rust=use_rust,
             parallel=parallel,
         )
-        setattr(model_mod, "reflectivity", patched_refl)
+        model_mod.reflectivity = patched_refl  # ty: ignore[unresolved-attribute]
