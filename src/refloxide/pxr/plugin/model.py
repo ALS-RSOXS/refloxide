@@ -9,7 +9,7 @@ import numpy as np
 from refnx.analysis import Parameters, possibly_create_parameter
 from scipy.interpolate import splev, splrep
 
-from refloxide.pxr.layout import apply_reflectmodel_scales, reflectmodel_layout
+from refloxide.pxr.layout import apply_laboratory_scales, reflectivity_for_pol
 from refloxide.pxr.tjf4x4 import uniaxial_reflectivity
 
 if TYPE_CHECKING:
@@ -450,27 +450,7 @@ class ReflectModel:
 
         """
         qvals, qvals_1, qvals_2, refl, _tran, _components = self._model(x, p, x_err)
-
-        # Return result based on desired polarization:
-
-        if self.pol == "s":
-            output = refl[:, 1, 1]
-        elif self.pol == "p":
-            output = refl[:, 0, 0]
-        elif self.pol == "sp":
-            spol_model = np.interp(qvals_1, qvals, refl[:, 1, 1])  # type: ignore
-            ppol_model = np.interp(qvals_2, qvals, refl[:, 0, 0])  # type: ignore
-            output = np.concatenate([spol_model, ppol_model])
-        elif self.pol == "ps":
-            spol_model = np.interp(qvals_2, qvals, refl[:, 1, 1])  # type: ignore
-            ppol_model = np.interp(qvals_1, qvals, refl[:, 0, 0])  # type: ignore
-            output = np.concatenate([ppol_model, spol_model])
-
-        else:
-            print("No polarizations were chosen for model")
-            output = 0
-
-        return output
+        return reflectivity_for_pol(self.pol, refl, qvals, qvals_1, qvals_2)
 
     def anisotropy(self, x, p=None, x_err=None):  # noqa: ARG002
         """
@@ -725,14 +705,14 @@ def reflectivity(
                     energy,
                     phi,  # type: ignore
                 )
-            refl = reflectmodel_layout(np.asarray(refl, dtype=np.float64))
-            apply_reflectmodel_scales(refl, scale_s, scale_p)
+            refl = np.asarray(refl, dtype=np.float64)
+            apply_laboratory_scales(refl, scale_s, scale_p)
             return (refl + bkg), tran, components
         else:
             smear_refl, smear_tran, *components = _smeared_reflectivity(
                 q, slabs, tensor, energy, phi, dq, backend=backend
             )
-            apply_reflectmodel_scales(smear_refl, scale_s, scale_p)
+            apply_laboratory_scales(smear_refl, scale_s, scale_p)
             return (smear_refl + bkg), smear_tran, components
 
     return None
@@ -761,7 +741,7 @@ def _smeared_reflectivity(q, w, tensor, energy, phi, resolution, backend="uni"):
             refl, tran, *components = uniaxial_reflectivity(q, w, tensor, energy)
         else:
             refl, tran, *components = uniaxial_reflectivity(q, w, tensor, energy, phi)  # type: ignore
-        refl = reflectmodel_layout(np.asarray(refl, dtype=np.float64))
+        refl = np.asarray(refl, dtype=np.float64)
         return refl, tran, components
 
     resolution /= 100
@@ -791,23 +771,23 @@ def _smeared_reflectivity(q, w, tensor, energy, phi, resolution, backend="uni"):
         refl, tran, *components = uniaxial_reflectivity(xlin, w, tensor, energy)
     else:
         refl, tran, *components = uniaxial_reflectivity(xlin, w, tensor, energy)
-    refl = reflectmodel_layout(np.asarray(refl, dtype=np.float64))
+    refl = np.asarray(refl, dtype=np.float64)
     step = gauss_x[1] - gauss_x[0]
-    smeared_pp = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * step  # type: ignore
-    smeared_ps = np.convolve(refl[:, 0, 1], gauss_y, mode="same") * step  # type: ignore
-    smeared_sp = np.convolve(refl[:, 1, 0], gauss_y, mode="same") * step  # type: ignore
-    smeared_ss = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * step  # type: ignore
+    smeared_ss = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * step  # type: ignore
+    smeared_pp = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * step  # type: ignore
+    smeared_sp = np.convolve(refl[:, 0, 1], gauss_y, mode="same") * step  # type: ignore
+    smeared_ps = np.convolve(refl[:, 1, 0], gauss_y, mode="same") * step  # type: ignore
 
-    smeared_output_pp = splev(q, splrep(xlin, smeared_pp))
-    smeared_output_ps = splev(q, splrep(xlin, smeared_ps))
-    smeared_output_sp = splev(q, splrep(xlin, smeared_sp))
     smeared_output_ss = splev(q, splrep(xlin, smeared_ss))
+    smeared_output_sp = splev(q, splrep(xlin, smeared_sp))
+    smeared_output_ps = splev(q, splrep(xlin, smeared_ps))
+    smeared_output_pp = splev(q, splrep(xlin, smeared_pp))
 
     smeared_output = np.rollaxis(
         np.array(
             [
-                [smeared_output_pp, smeared_output_ps],
-                [smeared_output_sp, smeared_output_ss],
+                [smeared_output_ss, smeared_output_sp],
+                [smeared_output_ps, smeared_output_pp],
             ]
         ),
         2,

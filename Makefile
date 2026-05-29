@@ -1,4 +1,4 @@
-.PHONY: verify fix lint format format-check type-check install test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
+.PHONY: verify fix lint format format-check type-check install develop test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
 
 # Verify - check everything without making changes
 verify: lint format-check type-check
@@ -24,6 +24,10 @@ type-check:
 # Install all dependencies
 install:
 	uv sync --all-groups
+
+# Editable install of the Rust extension (run after clone or Rust/Python changes)
+develop:
+	bash scripts/develop.sh
 
 # Run tests
 test:

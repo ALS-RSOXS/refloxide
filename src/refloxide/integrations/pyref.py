@@ -1,9 +1,10 @@
 """Drop-in uniaxial reflectivity hooks for ``pyref.fitting`` workflows.
 
-Maps refloxide's laboratory s/p power matrix (``R_ss`` at ``[:,0,0]``,
-``R_pp`` at ``[:,1,1]`` in :mod:`refloxide.pxr.tjf4x4`) onto the
-:class:`pyref.fitting.model.ReflectModel` channel layout (``pol='s'`` reads
-``[:,1,1]``, ``pol='p'`` reads ``[:,0,0]``).
+Routes reflectivity through refloxide's native Jones layout (``R_ss`` at
+``[:,0,0]``, ``R_pp`` at ``[:,1,1]``) and patches
+:class:`pyref.fitting.model.ReflectModel` so polarization extraction matches
+stock pyref (``pol='s'`` from ``[:,1,1]``, ``pol='p'`` from ``[:,0,0]``),
+preserving ``pol='sp'`` / ``pol='ps'`` segment ordering for combined datasets.
 
 Scope is **uniaxial only** (``phi = 0``, ``backend = "uni"``). Do not use
 this adapter for biaxial or general-incidence claims.
@@ -20,14 +21,16 @@ from scipy.interpolate import splev, splrep
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-from refloxide.pxr.layout import apply_reflectmodel_scales, reflectmodel_layout
+from refloxide.pxr.layout import apply_laboratory_scales, reflectivity_for_pol
 from refloxide.pxr.tjf4x4 import uniaxial_reflectivity as _python_uniaxial
 
 _FWHM = 2 * np.sqrt(2 * np.log(2.0))
 
 
 def _swap_sp_block(matrix: NDArray[Any]) -> NDArray[Any]:
-    """Alias for :func:`reflectmodel_layout` kept for tests and callers."""
+    """Legacy alias; prefer :func:`refloxide.pxr.layout.reflectmodel_layout`."""
+    from refloxide.pxr.layout import reflectmodel_layout
+
     return reflectmodel_layout(matrix)
 
 
@@ -63,7 +66,7 @@ def _solve_refloxide(
         refl_arr = np.asarray(refl_arr, dtype=np.float64)
         tran_arr = np.asarray(tran_arr, dtype=np.complex128)
 
-    return reflectmodel_layout(refl_arr), reflectmodel_layout(tran_arr)
+    return refl_arr, tran_arr
 
 
 def uniaxial_reflectivity(
@@ -76,13 +79,13 @@ def uniaxial_reflectivity(
     parallel: bool = False,
     return_components: bool = False,
 ) -> tuple[NDArray[np.float64], NDArray[np.complex128], *tuple[Any, ...]]:
-    """Evaluate uniaxial reflectivity in the ``pyref.fitting.uniaxial`` contract.
+    """Evaluate uniaxial reflectivity using refloxide's laboratory Jones layout.
 
     Accepts the same positional arguments as
     ``pyref.fitting.uniaxial.uniaxial_reflectivity`` (``q``, ``layers``,
-    ``tensor``, ``energy`` in eV). Internally routes through refloxide's
-    uniaxial TJF 4x4 kernel and reorders the ``(n_q, 2, 2)`` power matrix so
-    ``ReflectModel`` polarization indexing matches historical pyref fits.
+    ``tensor``, ``energy`` in eV). Returns ``refl`` with ``[:,0,0] = R_ss`` and
+    ``[:,1,1] = R_pp``. Pair with :func:`patch_pyref` so
+    :class:`pyref.fitting.model.ReflectModel` reads those channels correctly.
 
     Parameters
     ----------
@@ -116,11 +119,10 @@ def uniaxial_reflectivity(
     Returns
     -------
     refl
-        Power reflectance ``(n_q, 2, 2)`` in ReflectModel layout
-        (``[:,1,1]`` is ``R_ss``, ``[:,0,0]`` is ``R_pp``).
+        Power reflectance ``(n_q, 2, 2)`` with ``[:,0,0] = R_ss``,
+        ``[:,1,1] = R_pp``.
     tran
-        Complex transmission amplitudes with the same index layout as
-        ``refl``.
+        Complex transmission amplitudes in the same Jones layout as ``refl``.
     components
         Optional trailing diagnostics when ``return_components=True``.
 
@@ -130,24 +132,6 @@ def uniaxial_reflectivity(
         Propagated from the Rust kernel on malformed inputs.
     RuntimeError
         Propagated from the Rust kernel when the dynamic matrix is singular.
-
-    Notes
-    -----
-    Laboratory-frame ``R_ss`` / ``R_pp`` from refloxide occupy the opposite
-    diagonal corners relative to ``ReflectModel`` channel reads. This adapter
-    applies :func:`refloxide.pxr.layout.reflectmodel_layout` so
-    ``pol='s'`` / ``pol='p'`` / ``pol='sp'`` / ``pol='ps'`` map to the
-    correct Jones power elements without notebook changes.
-
-    Examples
-    --------
-    Monkeypatch pyref before constructing models::
-
-        import pyref.fitting.uniaxial as uni_mod
-        from refloxide.integrations.pyref import patch_pyref
-
-        patch_pyref(use_rust=True, parallel=False)
-        assert uni_mod.uniaxial_reflectivity is not None
     """
     q_arr = np.asarray(q, dtype=np.float64)
     layers_arr = np.asarray(layers, dtype=np.float64)
@@ -189,9 +173,9 @@ def reflectivity(
 ) -> tuple[np.ndarray, np.ndarray, list[Any]] | None:
     """Mirror ``pyref.fitting.model.reflectivity`` for uniaxial refloxide kernels.
 
-    Applies scale, background, and optional constant ``dQ/Q`` smearing using
-    the same recipe as pyref, but evaluates the stratified stack with
-    :func:`uniaxial_reflectivity`.
+    Applies laboratory-index scaling, background, and optional constant ``dQ/Q``
+    smearing using the same recipe as pyref, but evaluates the stratified stack
+    with :func:`uniaxial_reflectivity`.
 
     Parameters
     ----------
@@ -208,8 +192,8 @@ def reflectivity(
         Accepted for API compatibility with pyref; ignored (uniaxial path
         fixes ``phi = 0``).
     scale_s, scale_p
-        Independent scale factors applied to ``refl[:,1,1]`` (s) and
-        ``refl[:,0,0]`` (p) before adding ``bkg``.
+        Independent scale factors applied to ``refl[:,0,0]`` (``R_ss``) and
+        ``refl[:,1,1]`` (``R_pp``) before adding ``bkg``.
     bkg
         Constant background added to every reflectivity element.
     dq
@@ -259,7 +243,7 @@ def reflectivity(
             parallel=parallel,
         )
         refl = np.asarray(refl, dtype=np.float64)
-        apply_reflectmodel_scales(refl, scale_s, scale_p)
+        apply_laboratory_scales(refl, scale_s, scale_p)
         return refl + bkg, tran, list(components)
 
     smear_refl, smear_tran, *components = _smeared_reflectivity(
@@ -271,7 +255,7 @@ def reflectivity(
         use_rust=use_rust,
         parallel=parallel,
     )
-    apply_reflectmodel_scales(smear_refl, scale_s, scale_p)
+    apply_laboratory_scales(smear_refl, scale_s, scale_p)
     return smear_refl + bkg, smear_tran, list(components)
 
 
@@ -330,27 +314,42 @@ def _smeared_reflectivity(
         parallel=parallel,
     )
     step = gauss_x[1] - gauss_x[0]
-    smeared_pp = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * step
-    smeared_ps = np.convolve(refl[:, 0, 1], gauss_y, mode="same") * step
-    smeared_sp = np.convolve(refl[:, 1, 0], gauss_y, mode="same") * step
-    smeared_ss = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * step
+    smeared_ss = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * step
+    smeared_pp = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * step
+    smeared_sp = np.convolve(refl[:, 0, 1], gauss_y, mode="same") * step
+    smeared_ps = np.convolve(refl[:, 1, 0], gauss_y, mode="same") * step
 
-    smeared_output_pp = splev(q, splrep(xlin, smeared_pp))
-    smeared_output_ps = splev(q, splrep(xlin, smeared_ps))
-    smeared_output_sp = splev(q, splrep(xlin, smeared_sp))
     smeared_output_ss = splev(q, splrep(xlin, smeared_ss))
+    smeared_output_sp = splev(q, splrep(xlin, smeared_sp))
+    smeared_output_ps = splev(q, splrep(xlin, smeared_ps))
+    smeared_output_pp = splev(q, splrep(xlin, smeared_pp))
 
     smeared_output = np.rollaxis(
         np.array(
             [
-                [smeared_output_pp, smeared_output_ps],
-                [smeared_output_sp, smeared_output_ss],
+                [smeared_output_ss, smeared_output_sp],
+                [smeared_output_ps, smeared_output_pp],
             ]
         ),
         2,
         0,
     )
     return smeared_output, tran, list(components)
+
+
+def _patch_reflect_model_model(model_mod: Any) -> None:
+    """Read laboratory Jones channels in :meth:`ReflectModel.model`."""
+    reflect_model = model_mod.ReflectModel
+    if getattr(reflect_model, "__refloxide_model_patched__", False):
+        return
+
+    def model(self, x, p=None, x_err=None):
+        qvals, qvals_1, qvals_2, refl, tran, components = self._model(x, p, x_err)
+        output = reflectivity_for_pol(self.pol, refl, qvals, qvals_1, qvals_2)
+        return output
+
+    reflect_model.model = model
+    reflect_model.__refloxide_model_patched__ = True
 
 
 def patch_pyref(
@@ -364,7 +363,8 @@ def patch_pyref(
     Replaces ``pyref.fitting.uniaxial.uniaxial_reflectivity`` with a partial
     application of :func:`uniaxial_reflectivity`. Optionally replaces
     ``pyref.fitting.model.reflectivity`` so smearing and scaling stay on the
-    refloxide code path.
+    refloxide code path. Patches :meth:`pyref.fitting.model.ReflectModel.model`
+    to extract polarization channels with the same indexing as stock pyref.
 
     Parameters
     ----------
@@ -408,6 +408,7 @@ def patch_pyref(
         parallel=parallel,
     )
     uni_mod.uniaxial_reflectivity = patched_uni  # ty: ignore[unresolved-attribute]
+    uni_mod.__refloxide_patched__ = True  # ty: ignore[unresolved-attribute]
     if patch_reflectivity:
         patched_refl = partial(
             reflectivity,
@@ -415,3 +416,34 @@ def patch_pyref(
             parallel=parallel,
         )
         model_mod.reflectivity = patched_refl  # ty: ignore[unresolved-attribute]
+    _patch_reflect_model_model(model_mod)
+    model_mod.__refloxide_patched__ = True  # ty: ignore[unresolved-attribute]
+
+
+def pyref_patched() -> bool:
+    """Return whether :func:`patch_pyref` has installed refloxide kernels in pyref."""
+    import importlib
+
+    try:
+        model_mod = importlib.import_module("pyref.fitting.model")
+    except ModuleNotFoundError:
+        return False
+    return bool(getattr(model_mod, "__refloxide_patched__", False)) and bool(
+        getattr(model_mod.ReflectModel, "__refloxide_model_patched__", False)
+    )
+
+
+def require_pyref_patched() -> None:
+    """Raise when pyref is not configured for refloxide laboratory channels.
+
+    Call :func:`patch_pyref` or ``import utils.models`` (refl-analysis) before
+    constructing or evaluating :class:`pyref.fitting.model.ReflectModel`.
+    """
+    if pyref_patched():
+        return
+    msg = (
+        "pyref.fitting is not patched for refloxide. Call patch_pyref() or "
+        "import utils.models before fitting so ReflectModel reads laboratory "
+        "pyref-compatible s/p channel extraction on the native Jones matrix."
+    )
+    raise RuntimeError(msg)

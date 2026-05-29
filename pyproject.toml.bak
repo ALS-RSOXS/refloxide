@@ -8,7 +8,7 @@ version = "0.1.4"
 description = "A blazingly fast 4x4 transfer matrix method for simulating reflection though stratified media"
 readme = "README.md"
 license = "GPL-3.0"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "Harlan D Heilman", email = "73567020+HarlanHeilman@users.noreply.github.com" },
 ]
@@ -18,7 +18,6 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
     "Typing :: Typed",
@@ -44,7 +43,7 @@ dev = [
 ]
 docs = [
     "mkdocs>=1.6.0",
-    "mkdocs-rsoxs>=0.1.2; python_version >= '3.13'",
+    "mkdocs-rsoxs>=0.1.2",
     "mkdocstrings-python>=2.0.1",
     "pymdown-extensions>=10.21.3",
 ]

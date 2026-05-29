@@ -229,3 +229,4 @@ It is important to note that these notebooks are designed to be robust. These sh
 - Uniaxial pyref fitting integration lives at `refloxide.integrations.pyref` (`patch_pyref`, `reflectivity`); it defaults to `parallel=False` for nested fitter parallelism.
 - Pre-release wheel validation: run `make release-smoke` (`scripts/smoke_release.sh`); Linux PyPI wheels must carry `manylinux_*` tags, not bare `linux_x86_64`.
 - Version bumps must stay aligned across `pyproject.toml`, `Cargo.toml`, and `src/refloxide/__init__.py`.
+- Local extension build: `make develop` (`scripts/develop.sh`) runs `uv sync --group dev`, then `UV_NO_CONFIG=1 uv run maturin develop --release` (project `uv` config must not steer maturin's internal `uv pip install`). Sibling `../pyref` is installed editable with `hvplot` when present; smoke test applies `patch_pyref` when `pyref.fitting` imports.
