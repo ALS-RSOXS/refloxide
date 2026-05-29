@@ -140,9 +140,7 @@ def print_timing_table(
     (operate_mean, operate_std))`` with times in seconds.
     """
     impl = "Implementation"
-    header = (
-        f"{impl:<{label_width}} {'Construct (ms)':<22} {'Operate (ms)':<22}"
-    )
+    header = f"{impl:<{label_width}} {'Construct (ms)':<22} {'Operate (ms)':<22}"
     print(header)
     print("-" * len(header))
     for label, (cm, cs), (om, os) in rows:
@@ -197,15 +195,11 @@ def main() -> None:
     refnx_stack = build_refnx()
 
     operate_rust_seq = time_callable(
-        lambda: rust_reflectivity(
-            refloxide_layers, q, energy, parallel=False
-        ),
+        lambda: rust_reflectivity(refloxide_layers, q, energy, parallel=False),
         n=n_operate,
     )
     operate_rust_par = time_callable(
-        lambda: rust_reflectivity(
-            refloxide_layers, q, energy, parallel=True
-        ),
+        lambda: rust_reflectivity(refloxide_layers, q, energy, parallel=True),
         n=n_operate,
     )
     operate_python = time_callable(
@@ -219,9 +213,7 @@ def main() -> None:
         f"Stack: vacuum / polystyrene (200 A) / silicon at {energy:.0f} eV, "
         f"{q.size} q-points."
     )
-    print(
-        f"Repetitions: {n_construct} for construct, {n_operate} for operate."
-    )
+    print(f"Repetitions: {n_construct} for construct, {n_operate} for operate.")
     print_timing_table(
         [
             (

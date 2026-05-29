@@ -12,12 +12,7 @@ pub(crate) type Mat4 = [[C; 4]; 4];
 pub(crate) fn identity() -> Mat4 {
     let z = C::new(0.0, 0.0);
     let o = C::new(1.0, 0.0);
-    [
-        [o, z, z, z],
-        [z, o, z, z],
-        [z, z, o, z],
-        [z, z, z, o],
-    ]
+    [[o, z, z, z], [z, o, z, z], [z, z, o, z], [z, z, z, o]]
 }
 
 #[inline]

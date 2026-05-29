@@ -45,6 +45,7 @@ docs = [
     "mkdocs>=1.6.0",
     "mkdocs-rsoxs>=0.1.2",
     "mkdocstrings-python>=2.0.1",
+    "pymdown-extensions>=10.21.3",
 ]
 plugin = [
     "polars>=1.40.1",

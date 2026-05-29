@@ -6,9 +6,9 @@
 //! through [`error::RefloxideError`] so callers can recover or surface
 //! diagnostics. Shared numerics used by stratified solvers live in [`math`].
 
+mod c4x4;
 pub mod error;
 pub mod math;
-mod c4x4;
 pub mod uniaxial;
 
 #[cfg(feature = "python")]

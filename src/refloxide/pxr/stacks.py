@@ -229,11 +229,13 @@ def stack_tensor(
     energy: float | None = None,
     kwargs: list[Mapping[str, Any]] | None = None,
 ) -> np.ndarray:
-    kwargs = kwargs or [{} for _ in layers]
+    layer_kwargs: list[Mapping[str, Any]] = (
+        [{} for _ in layers] if kwargs is None else kwargs
+    )
     return np.array(
         [
             layer.tensor(energy=energy, **kw)
-            for layer, kw in zip(layers, kwargs, strict=True)
+            for layer, kw in zip(layers, layer_kwargs, strict=True)
         ],
         dtype=np.complex128,
     )
@@ -245,11 +247,13 @@ def stack_slabs(
     energy: float | None = None,
     kwargs: list[Mapping[str, Any]] | None = None,
 ) -> np.ndarray:
-    kwargs = kwargs or [{} for _ in layers]
+    layer_kwargs: list[Mapping[str, Any]] = (
+        [{} for _ in layers] if kwargs is None else kwargs
+    )
     return np.array(
         [
             layer.slab(energy=energy, **kw)
-            for layer, kw in zip(layers, kwargs, strict=True)
+            for layer, kw in zip(layers, layer_kwargs, strict=True)
         ],
         dtype=np.float64,
     )
@@ -261,11 +265,10 @@ def reflectivity(
     energy: float,
     kwargs: list[Mapping[str, Any]] | None = None,
 ):
-    kwargs = kwargs or [{} for _ in layers]
     refl, _trans, *components = uniaxial_reflectivity(
         q=q,
-        layers=stack_slabs(layers, energy=energy),
-        tensor=stack_tensor(layers, energy=energy),
+        layers=stack_slabs(layers, energy=energy, kwargs=kwargs),
+        tensor=stack_tensor(layers, energy=energy, kwargs=kwargs),
         energy=energy,
     )
     return refl[:, 0, 0], refl[:, 1, 1], components
@@ -278,8 +281,12 @@ if __name__ == "__main__":
     from refloxide.pxr.plugin.structure import MaterialSLD
 
     # callable test
-    ps_sld = lambda e: index_of_refraction("C8H8", density=1, energy=e * 1e-3)
-    si_sld = lambda e: index_of_refraction("Si", density=2.33, energy=e * 1e-3)
+    def ps_sld(e):
+        return index_of_refraction("C8H8", density=1, energy=e * 1e-3)
+
+    def si_sld(e):
+        return index_of_refraction("Si", density=2.33, energy=e * 1e-3)
+
     # Simplified structure format
     vac = Layer(
         thickness=0.0,

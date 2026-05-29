@@ -147,9 +147,7 @@ pub fn uniaxial_reflectivity(
 
     let eps: Vec<Matrix3<C>> = tensor.iter().map(berreman_dielectric).collect();
 
-    let solve = |(i, qi): (usize, f64)| {
-        solve_q(qi, layers, &eps, k0).map_err(|e| annotate(e, i))
-    };
+    let solve = |(i, qi): (usize, f64)| solve_q(qi, layers, &eps, k0).map_err(|e| annotate(e, i));
     let solved: Vec<([[f64; 2]; 2], [[C; 2]; 2])> = if parallel {
         q.par_iter()
             .copied()
@@ -217,7 +215,8 @@ fn solve_q(
         prev = snap;
     }
 
-    let snap_last = build_snapshot_with_d(nlayers - 1, &eps[nlayers - 1], kx, ky, k0, &mut scratch.d)?;
+    let snap_last =
+        build_snapshot_with_d(nlayers - 1, &eps[nlayers - 1], kx, ky, k0, &mut scratch.d)?;
     c4x4::fill_w(
         &prev.kz,
         &snap_last.kz,
@@ -247,12 +246,7 @@ fn berreman_dielectric(t: &Matrix3<C>) -> Matrix3<C> {
     m
 }
 
-fn compute_eigenstructure(
-    eps: &Matrix3<C>,
-    kx: f64,
-    ky: f64,
-    k0: f64,
-) -> ([C; 4], Matrix4<C>) {
+fn compute_eigenstructure(eps: &Matrix3<C>, kx: f64, ky: f64, k0: f64) -> ([C; 4], Matrix4<C>) {
     let one = C::new(1.0, 0.0);
     let e_o = eps[(0, 0)];
     let e_e = eps[(2, 2)];
