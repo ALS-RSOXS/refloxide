@@ -1,9 +1,9 @@
 """Drop-in uniaxial reflectivity hooks for ``pyref.fitting`` workflows.
 
 Maps refloxide's laboratory s/p power matrix (``R_ss`` at ``[:,0,0]``,
-``R_pp`` at ``[:,1,1]`` after the Berreman cross-map in
-:mod:`refloxide.pxr.tjf4x4`) onto the legacy ``pyref.fitting.uniaxial``
-kernel layout expected by :class:`pyref.fitting.model.ReflectModel`.
+``R_pp`` at ``[:,1,1]`` in :mod:`refloxide.pxr.tjf4x4`) onto the
+:class:`pyref.fitting.model.ReflectModel` channel layout (``pol='s'`` reads
+``[:,1,1]``, ``pol='p'`` reads ``[:,0,0]``).
 
 Scope is **uniaxial only** (``phi = 0``, ``backend = "uni"``). Do not use
 this adapter for biaxial or general-incidence claims.
@@ -20,19 +20,15 @@ from scipy.interpolate import splev, splrep
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+from refloxide.pxr.layout import apply_reflectmodel_scales, reflectmodel_layout
 from refloxide.pxr.tjf4x4 import uniaxial_reflectivity as _python_uniaxial
 
 _FWHM = 2 * np.sqrt(2 * np.log(2.0))
 
 
 def _swap_sp_block(matrix: NDArray[Any]) -> NDArray[Any]:
-    """Reorder a ``(n_q, 2, 2)`` block from refloxide to pyref kernel layout."""
-    out = np.empty_like(matrix)
-    out[:, 0, 0] = matrix[:, 1, 1]
-    out[:, 0, 1] = matrix[:, 1, 0]
-    out[:, 1, 0] = matrix[:, 0, 1]
-    out[:, 1, 1] = matrix[:, 0, 0]
-    return out
+    """Alias for :func:`reflectmodel_layout` kept for tests and callers."""
+    return reflectmodel_layout(matrix)
 
 
 def _solve_refloxide(
@@ -67,7 +63,7 @@ def _solve_refloxide(
         refl_arr = np.asarray(refl_arr, dtype=np.float64)
         tran_arr = np.asarray(tran_arr, dtype=np.complex128)
 
-    return _swap_sp_block(refl_arr), _swap_sp_block(tran_arr)
+    return reflectmodel_layout(refl_arr), reflectmodel_layout(tran_arr)
 
 
 def uniaxial_reflectivity(
@@ -120,8 +116,8 @@ def uniaxial_reflectivity(
     Returns
     -------
     refl
-        Power reflectance ``(n_q, 2, 2)`` in pyref kernel layout
-        (``[:,0,0]`` / ``[:,1,1]`` follow ``pyref.fitting.uniaxial``).
+        Power reflectance ``(n_q, 2, 2)`` in ReflectModel layout
+        (``[:,1,1]`` is ``R_ss``, ``[:,0,0]`` is ``R_pp``).
     tran
         Complex transmission amplitudes with the same index layout as
         ``refl``.
@@ -138,10 +134,10 @@ def uniaxial_reflectivity(
     Notes
     -----
     Laboratory-frame ``R_ss`` / ``R_pp`` from refloxide occupy the opposite
-    diagonal corners relative to pyref's legacy kernel. This adapter applies
-    the index swap so existing ``pyref.fitting.model.ReflectModel`` instances
-    continue to select s/p channels via ``pol='s'`` / ``pol='p'`` without
-    code changes.
+    diagonal corners relative to ``ReflectModel`` channel reads. This adapter
+    applies :func:`refloxide.pxr.layout.reflectmodel_layout` so
+    ``pol='s'`` / ``pol='p'`` / ``pol='sp'`` / ``pol='ps'`` map to the
+    correct Jones power elements without notebook changes.
 
     Examples
     --------
@@ -212,8 +208,8 @@ def reflectivity(
         Accepted for API compatibility with pyref; ignored (uniaxial path
         fixes ``phi = 0``).
     scale_s, scale_p
-        Independent scale factors applied to ``refl[:,0,0]`` and
-        ``refl[:,1,1]`` before adding ``bkg``.
+        Independent scale factors applied to ``refl[:,1,1]`` (s) and
+        ``refl[:,0,0]`` (p) before adding ``bkg``.
     bkg
         Constant background added to every reflectivity element.
     dq
@@ -263,8 +259,7 @@ def reflectivity(
             parallel=parallel,
         )
         refl = np.asarray(refl, dtype=np.float64)
-        refl[:, 0, 0] = scale_s * refl[:, 0, 0]
-        refl[:, 1, 1] = scale_p * refl[:, 1, 1]
+        apply_reflectmodel_scales(refl, scale_s, scale_p)
         return refl + bkg, tran, list(components)
 
     smear_refl, smear_tran, *components = _smeared_reflectivity(
@@ -276,8 +271,7 @@ def reflectivity(
         use_rust=use_rust,
         parallel=parallel,
     )
-    smear_refl[:, 0, 0] = scale_s * smear_refl[:, 0, 0]
-    smear_refl[:, 1, 1] = scale_p * smear_refl[:, 1, 1]
+    apply_reflectmodel_scales(smear_refl, scale_s, scale_p)
     return smear_refl + bkg, smear_tran, list(components)
 
 
@@ -335,36 +329,22 @@ def _smeared_reflectivity(
         use_rust=use_rust,
         parallel=parallel,
     )
-    smeared_ss = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * (
-        gauss_x[1] - gauss_x[0]
-    )
-    smeared_pp = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * (
-        gauss_x[1] - gauss_x[0]
-    )
-    smeared_sp = np.convolve(refl[:, 0, 1], gauss_y, mode="same") * (
-        gauss_x[1] - gauss_x[0]
-    )
-    smeared_ps = np.convolve(refl[:, 1, 0], gauss_y, mode="same") * (
-        gauss_x[1] - gauss_x[0]
-    )
+    step = gauss_x[1] - gauss_x[0]
+    smeared_pp = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * step
+    smeared_ps = np.convolve(refl[:, 0, 1], gauss_y, mode="same") * step
+    smeared_sp = np.convolve(refl[:, 1, 0], gauss_y, mode="same") * step
+    smeared_ss = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * step
 
-    tck_ss = splrep(xlin, smeared_ss)
-    smeared_output_ss = splev(q, tck_ss)
-
-    tck_sp = splrep(xlin, smeared_sp)
-    smeared_output_sp = splev(q, tck_sp)
-
-    tck_ps = splrep(xlin, smeared_ps)
-    smeared_output_ps = splev(q, tck_ps)
-
-    tck_pp = splrep(xlin, smeared_pp)
-    smeared_output_pp = splev(q, tck_pp)
+    smeared_output_pp = splev(q, splrep(xlin, smeared_pp))
+    smeared_output_ps = splev(q, splrep(xlin, smeared_ps))
+    smeared_output_sp = splev(q, splrep(xlin, smeared_sp))
+    smeared_output_ss = splev(q, splrep(xlin, smeared_ss))
 
     smeared_output = np.rollaxis(
         np.array(
             [
-                [smeared_output_ss, smeared_output_sp],
-                [smeared_output_ps, smeared_output_pp],
+                [smeared_output_pp, smeared_output_ps],
+                [smeared_output_sp, smeared_output_ss],
             ]
         ),
         2,

@@ -217,9 +217,15 @@ It is important to note that these notebooks are designed to be robust. These sh
 - Avoid unsolicited git commits and scope-expanding refactors; stay within the requested surface unless the user asks to widen it.
 - When work is Python-only (examples, plotting, `pxr` helpers), rerun with `uv run python` as needed; rebuild the Maturin extension only after Rust or extension-layout changes or when imports prove the wheel is missing or stale.
 - Avoid module-level ALL_CAPS frozensets for key routing when designing accessors; derive allowlists locally from `typing.get_args` on `Literal` aliases, small methods, or instance caching instead.
+- Treat uniaxial lab-frame s-in/p-in as the validated scope; do not claim biaxial or general-incidence correctness unless explicitly tested.
+- When calling the Rust reflectivity kernel from pyref or other MCMC/fitting loops, pass `parallel=False` and parallelize walkers or chains at the fitter level to avoid nested Rayon oversubscription.
+- Parity and benchmark scripts should time both single-threaded (`parallel=False`) and parallel Rust paths alongside reference implementations such as refnx.
 
 ## Learned Workspace Facts
 
 - `refloxide.pxr.tjf4x4.uniaxial_reflectivity` expects each slab `tensor` diagonal to carry δ + iβ per principal axis under `epsilon = conj(I - 2 * tensor)`, not raw n or an n²-derived packing; lightweight stack builders should populate rows accordingly.
 - `periodictable.xsf.index_of_refraction` takes photon energy in keV; convert eV by dividing by 1000 before calling when pairing with eV-scale experiment parameters.
 - `plugin` reflectivity helpers often assume a `(n_q, 2, 2)` polarization reflectivity block; confirm the rank returned by `tjf4x4` matches before applying matrix-style indexing.
+- Uniaxial pyref fitting integration lives at `refloxide.integrations.pyref` (`patch_pyref`, `reflectivity`); it defaults to `parallel=False` for nested fitter parallelism.
+- Pre-release wheel validation: run `make release-smoke` (`scripts/smoke_release.sh`); Linux PyPI wheels must carry `manylinux_*` tags, not bare `linux_x86_64`.
+- Version bumps must stay aligned across `pyproject.toml`, `Cargo.toml`, and `src/refloxide/__init__.py`.

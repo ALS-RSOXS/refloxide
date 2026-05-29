@@ -14,6 +14,7 @@ from refloxide.integrations.pyref import (
     reflectivity,
     uniaxial_reflectivity,
 )
+from refloxide.pxr.layout import apply_reflectmodel_scales, reflectmodel_layout
 from refloxide.pxr.stacks import Layer, Material, stack_slabs, stack_tensor
 from refloxide.pxr.tjf4x4 import uniaxial_reflectivity as refloxide_kernel
 
@@ -44,6 +45,24 @@ def _reference_stack() -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
     return q, slabs, energy, tensor
 
 
+def _anisotropic_stack() -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
+    q, slabs, energy, tensor = _reference_stack()
+    tensor = tensor.copy()
+    tensor[1, 0, 0] = complex(1.52, 0.012)
+    tensor[1, 1, 1] = complex(1.41, 0.008)
+    return q, slabs, energy, tensor
+
+
+def test_reflectmodel_layout_maps_laboratory_channels() -> None:
+    q, slabs, energy, tensor = _anisotropic_stack()
+    native, *_ = refloxide_kernel(q, slabs, tensor, energy)
+    layout = reflectmodel_layout(native)
+    assert np.max(np.abs(layout[:, 1, 1] - native[:, 0, 0])) == 0.0
+    assert np.max(np.abs(layout[:, 0, 0] - native[:, 1, 1])) == 0.0
+    assert np.max(np.abs(layout[:, 1, 0] - native[:, 0, 1])) == 0.0
+    assert np.max(np.abs(layout[:, 0, 1] - native[:, 1, 0])) == 0.0
+
+
 def test_swap_sp_block_inverts_refloxide_layout() -> None:
     q, slabs, energy, tensor = _reference_stack()
     native, *_ = refloxide_kernel(q, slabs, tensor, energy)
@@ -52,10 +71,9 @@ def test_swap_sp_block_inverts_refloxide_layout() -> None:
     assert np.max(np.abs(swapped[:, 1, 1] - native[:, 0, 0])) == 0.0
 
 
-def test_adapter_matches_pyref_kernel_layout() -> None:
-    pyref_mod = _load_pyref_uniaxial()
-    q, slabs, energy, tensor = _reference_stack()
-    pyref_refl, *_ = pyref_mod.uniaxial_reflectivity(q, slabs, tensor, energy)
+def test_adapter_assigns_laboratory_ss_to_reflectmodel_s_index() -> None:
+    q, slabs, energy, tensor = _anisotropic_stack()
+    native, *_ = refloxide_kernel(q, slabs, tensor, energy)
     for use_rust in (True, False):
         adapter_refl, *_ = uniaxial_reflectivity(
             q,
@@ -65,13 +83,76 @@ def test_adapter_matches_pyref_kernel_layout() -> None:
             use_rust=use_rust,
             parallel=False,
         )
-        assert np.max(np.abs(adapter_refl - pyref_refl)) < 1e-10
+        assert np.max(np.abs(adapter_refl[:, 1, 1] - native[:, 0, 0])) < 1e-10
+        assert np.max(np.abs(adapter_refl[:, 0, 0] - native[:, 1, 1])) < 1e-10
+
+
+def test_pyref_kernel_layout_mismatches_reflectmodel_s_channel() -> None:
+    pyref_mod = _load_pyref_uniaxial()
+    q, slabs, energy, tensor = _anisotropic_stack()
+    pyref_refl, *_ = pyref_mod.uniaxial_reflectivity(q, slabs, tensor, energy)
+    native, *_ = refloxide_kernel(q, slabs, tensor, energy)
+    assert np.max(np.abs(pyref_refl[:, 1, 1] - native[:, 0, 0])) > 1e-6
+    assert np.max(np.abs(pyref_refl[:, 0, 0] - native[:, 1, 1])) > 1e-6
+
+
+def test_reflectmodel_pol_reads_adapter_channels() -> None:
+    q, slabs, energy, tensor = _anisotropic_stack()
+    native, *_ = refloxide_kernel(q, slabs, tensor, energy)
+    adapter_refl, *_ = uniaxial_reflectivity(
+        q,
+        slabs,
+        tensor,
+        energy,
+        use_rust=True,
+        parallel=False,
+    )
+    r_s = adapter_refl[:, 1, 1]
+    r_p = adapter_refl[:, 0, 0]
+    assert np.max(np.abs(r_s - native[:, 0, 0])) < 1e-10
+    assert np.max(np.abs(r_p - native[:, 1, 1])) < 1e-10
+    anisotropy = (r_p - r_s) / (r_p + r_s)
+    expected = (native[:, 1, 1] - native[:, 0, 0]) / (native[:, 1, 1] + native[:, 0, 0])
+    assert np.max(np.abs(anisotropy - expected)) < 1e-10
+
+
+def test_reflectivity_wrapper_applies_reflectmodel_scales() -> None:
+    q, slabs, energy, tensor = _anisotropic_stack()
+    base, *_ = uniaxial_reflectivity(
+        q,
+        slabs,
+        tensor,
+        energy,
+        use_rust=True,
+        parallel=False,
+    )
+    scaled = base.copy()
+    apply_reflectmodel_scales(scaled, scale_s=0.8, scale_p=1.2)
+    wrapped = reflectivity(
+        q,
+        slabs,
+        tensor,
+        energy,
+        scale_s=0.8,
+        scale_p=1.2,
+        use_rust=True,
+        parallel=False,
+    )
+    assert wrapped is not None
+    wrapped_refl, _, _ = wrapped
+    assert np.max(np.abs(wrapped_refl - scaled)) < 1e-10
 
 
 def test_reflectivity_wrapper_zero_smear() -> None:
-    pyref_uni = _load_pyref_uniaxial()
     q, slabs, energy, tensor = _reference_stack()
-    pyref_refl, *_ = pyref_uni.uniaxial_reflectivity(q, slabs, tensor, energy)
+    uni_refl, *_ = uniaxial_reflectivity(
+        q,
+        slabs,
+        tensor,
+        energy,
+        use_rust=True,
+        parallel=False,
+    )
     wrapped = reflectivity(
         q,
         slabs,
@@ -82,7 +163,7 @@ def test_reflectivity_wrapper_zero_smear() -> None:
     )
     assert wrapped is not None
     wrapped_refl, _, _ = wrapped
-    assert np.max(np.abs(wrapped_refl - pyref_refl)) < 1e-10
+    assert np.max(np.abs(wrapped_refl - uni_refl)) < 1e-10
 
 
 def test_reflectivity_rejects_non_uni_backend() -> None:
@@ -118,7 +199,7 @@ def test_patch_pyref_replaces_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
     importlib.reload(adapter)
     adapter.patch_pyref(use_rust=True, parallel=False)
     assert fake_uni.uniaxial_reflectivity is not pyref_mod.uniaxial_reflectivity
-    q, slabs, energy, tensor = _reference_stack()
+    q, slabs, energy, tensor = _anisotropic_stack()
     patched_refl, *_ = fake_uni.uniaxial_reflectivity(q, slabs, tensor, energy)
     expected, *_ = uniaxial_reflectivity(
         q,
