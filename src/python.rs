@@ -15,6 +15,10 @@ use crate::uniaxial::{uniaxial_reflectivity as core_solve, Layer};
 
 type C = Complex<f64>;
 
+type UniaxialPyArrays<'py> = (Bound<'py, PyArray3<f64>>, Bound<'py, PyArray3<C>>);
+
+type UnpackedInputs = (Vec<f64>, Vec<Layer>, Vec<Matrix3<C>>);
+
 /// Computes uniaxial reflection and transmission.
 ///
 /// See [`crate::uniaxial::uniaxial_reflectivity`] for the contract. The
@@ -37,7 +41,7 @@ fn uniaxial_reflectivity<'py>(
     tensor: PyReadonlyArray3<'py, C>,
     energy: f64,
     parallel: bool,
-) -> PyResult<(Bound<'py, PyArray3<f64>>, Bound<'py, PyArray3<C>>)> {
+) -> PyResult<UniaxialPyArrays<'py>> {
     let (q_vec, layers_rust, tensor_rust) =
         unpack_inputs(&q, &layers, &tensor).map_err(PyErr::from)?;
 
@@ -65,7 +69,7 @@ fn unpack_inputs(
     q: &PyReadonlyArray1<'_, f64>,
     layers: &PyReadonlyArray2<'_, f64>,
     tensor: &PyReadonlyArray3<'_, C>,
-) -> Result<(Vec<f64>, Vec<Layer>, Vec<Matrix3<C>>)> {
+) -> Result<UnpackedInputs> {
     let layers_view = layers.as_array();
     let tensor_view = tensor.as_array();
     let nlayers = layers_view.nrows();

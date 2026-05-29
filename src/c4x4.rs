@@ -76,9 +76,9 @@ pub(crate) fn fill_w(kz_prev: &[C; 4], kz_curr: &[C; 4], sigma: f64, out: &mut M
         eplus[s] = (-plus * plus * r2_half).exp();
         eminus[s] = (-minus * minus * r2_half).exp();
     }
-    for row in 0..4 {
+    for (row, out_row) in out.iter_mut().enumerate().take(4) {
         for col in 0..4 {
-            out[row][col] = if (row + col) % 2 == 0 {
+            out_row[col] = if (row + col) % 2 == 0 {
                 eminus[col]
             } else {
                 eplus[col]
@@ -100,9 +100,9 @@ pub(crate) fn fused_interface_kernel(
     mul(prev_di, d, scratch);
     hadamard(scratch, w, out);
     if let Some(p) = p_diag {
-        for i in 0..4 {
+        for out_row in out.iter_mut().take(4) {
             for j in 0..4 {
-                out[i][j] *= p[j];
+                out_row[j] *= p[j];
             }
         }
     }

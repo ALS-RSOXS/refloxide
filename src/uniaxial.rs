@@ -19,8 +19,11 @@ use crate::math::exact_inv_4x4;
 /// Complex alias used throughout the kernel.
 type C = Complex<f64>;
 
+/// Polarized 2x2 reflectance and transmission blocks for one q-point.
+type PolBlock = ([[f64; 2]; 2], [[C; 2]; 2]);
+
 /// Photon energy to wavelength conversion constant in `eV * Angstrom`.
-const HC_EV_ANGSTROM: f64 = 12_398.4193;
+const HC_EV_ANGSTROM: f64 = 12398.4193;
 
 /// One slab in a stratified medium.
 ///
@@ -148,7 +151,7 @@ pub fn uniaxial_reflectivity(
     let eps: Vec<Matrix3<C>> = tensor.iter().map(berreman_dielectric).collect();
 
     let solve = |(i, qi): (usize, f64)| solve_q(qi, layers, &eps, k0).map_err(|e| annotate(e, i));
-    let solved: Vec<([[f64; 2]; 2], [[C; 2]; 2])> = if parallel {
+    let solved: Vec<PolBlock> = if parallel {
         q.par_iter()
             .copied()
             .enumerate()
@@ -181,12 +184,7 @@ fn annotate(err: RefloxideError, q_index: usize) -> RefloxideError {
     }
 }
 
-fn solve_q(
-    qi: f64,
-    layers: &[Layer],
-    eps: &[Matrix3<C>],
-    k0: f64,
-) -> Result<([[f64; 2]; 2], [[C; 2]; 2])> {
+fn solve_q(qi: f64, layers: &[Layer], eps: &[Matrix3<C>], k0: f64) -> Result<PolBlock> {
     let nlayers = layers.len();
     let s = (qi / (2.0 * k0)).clamp(-1.0, 1.0);
     let theta = std::f64::consts::FRAC_PI_2 - s.asin();
