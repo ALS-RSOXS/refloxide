@@ -1,10 +1,10 @@
 [build-system]
-requires = ["maturin>=1.13.1,<2.0"]
+requires = ["maturin[patchelf]>=1.13.1,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "refloxide"
-version = "0.1.1"
+version = "0.1.2"
 description = "A blazingly fast 4x4 transfer matrix method for simulating reflection though stratified media"
 readme = "README.md"
 license = "GPL-3.0"
@@ -66,6 +66,7 @@ Changelog = "https://github.com/HarlanHeilman/refloxide/blob/main/CHANGELOG.md"
 python-source = "src"
 module-name = "refloxide.rust"
 features = ["python"]
+compatibility = "pypi"
 
 # =============================================================================
 # Ruff
