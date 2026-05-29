@@ -1,4 +1,4 @@
-.PHONY: verify fix lint format format-check type-check install test test-cov test-matrix test-matrix-cov pysentry docs docs-serve
+.PHONY: verify fix lint format format-check type-check install test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
 
 # Verify - check everything without making changes
 verify: lint format-check type-check
@@ -53,3 +53,6 @@ docs:
 
 docs-serve:
 	uv run mkdocs serve
+
+release-smoke:
+	bash scripts/smoke_release.sh

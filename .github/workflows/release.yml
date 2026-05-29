@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     name: Build distribution
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,14 +24,35 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install 3.13
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build source distribution
+        run: uv build --sdist -o dist --clear
 
       - uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist --compatibility pypi --sdist
+          args: --release --out dist --compatibility pypi --find-interpreter
           manylinux: auto
+
+      - name: Assert wheel platform tag
+        run: |
+          python - <<'PY'
+          import glob
+          import sys
+
+          wheels = glob.glob("dist/*.whl")
+          if not wheels:
+              sys.exit("no wheel in dist/")
+          name = wheels[0].split("/")[-1]
+          if name.endswith("linux_x86_64.whl"):
+              sys.exit(f"unsupported platform tag in {name}")
+          if "manylinux" not in name and "musllinux" not in name:
+              sys.exit(f"expected manylinux/musllinux tag in {name}")
+          print(f"OK: {name}")
+          PY
 
       - name: Store distribution packages
         uses: actions/upload-artifact@v4
