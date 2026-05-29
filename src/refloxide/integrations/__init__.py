@@ -1,0 +1,10 @@
+"""Optional adapters that connect refloxide kernels to external fitting stacks.
+
+Each submodule targets one host ecosystem (for example ``pyref``). Import
+adapters explicitly when wiring a workflow; they are not loaded from the
+top-level :mod:`refloxide` package.
+"""
+
+from refloxide.integrations import pyref
+
+__all__ = ["pyref"]
