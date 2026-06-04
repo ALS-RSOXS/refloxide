@@ -219,6 +219,7 @@ It is important to note that these notebooks are designed to be robust. These sh
 - Avoid module-level ALL_CAPS frozensets for key routing when designing accessors; derive allowlists locally from `typing.get_args` on `Literal` aliases, small methods, or instance caching instead.
 - Treat uniaxial lab-frame s-in/p-in as the validated scope; do not claim biaxial or general-incidence correctness unless explicitly tested.
 - When calling the Rust reflectivity kernel from pyref or other MCMC/fitting loops, pass `parallel=False` and parallelize walkers or chains at the fitter level to avoid nested Rayon oversubscription.
+- Call `patch_pyref(use_rust=True, parallel=False)` or import refl-analysis `utils.models` before `ReflectModel` fitting; building or installing refloxide alone does not patch `pyref.fitting`.
 - Parity and benchmark scripts should time both single-threaded (`parallel=False`) and parallel Rust paths alongside reference implementations such as refnx.
 
 ## Learned Workspace Facts
@@ -226,7 +227,11 @@ It is important to note that these notebooks are designed to be robust. These sh
 - `refloxide.pxr.tjf4x4.uniaxial_reflectivity` expects each slab `tensor` diagonal to carry δ + iβ per principal axis under `epsilon = conj(I - 2 * tensor)`, not raw n or an n²-derived packing; lightweight stack builders should populate rows accordingly.
 - `periodictable.xsf.index_of_refraction` takes photon energy in keV; convert eV by dividing by 1000 before calling when pairing with eV-scale experiment parameters.
 - `plugin` reflectivity helpers often assume a `(n_q, 2, 2)` polarization reflectivity block; confirm the rank returned by `tjf4x4` matches before applying matrix-style indexing.
-- Uniaxial pyref fitting integration lives at `refloxide.integrations.pyref` (`patch_pyref`, `reflectivity`); it defaults to `parallel=False` for nested fitter parallelism.
+- Uniaxial pyref fitting integration lives at `refloxide.integrations.pyref` (`patch_pyref`, `reflectivity`); patched adapters apply `refloxide.pxr.layout.reflectmodel_layout` so `ReflectModel` `pol='s'`/`'p'` read kernel `R_ss`/`R_pp`, with default `parallel=False`; for combined `pol='sp'` datasets use `AnisotropyObjective.plot`, not raw `model(data.x)`.
+- `refloxide.pxr.energy` provides deferred-energy refnx stacks (`EnergyProbe`, `OocAnchor`, `EnergyDependentStructure`, `EnergyBookendedOrientationDensityProfile`, `upgrade_structure`); effective eV includes structure and scatterer offsets; after energy or offset changes on book-ended films call `clear_ooc_cache()` then `cache_ooc_at(eff_energy)` (and set `MaterialSLD.energy` on substrate slabs when broadcasting probe energy in place); Rust supplies `interp_ooc_linear` and `lab_tensor_diagonals_batch`.
+- `EnergyBookendedOrientationDensityProfile.num_slabs` is fixed at construction; change microslab count by rebuilding the profile and copying fitted film parameters, not by mutating an existing instance.
+- Passler `compute_field` is documented but not exposed in bindings; isotropic E-field maps should use scalar Abeles/Fresnel reconstruction with `kx = k0 * sqrt(1 - (q/(2*k0))^2)` to match `tjf4x4`.
+- `refloxide.pxr.plugin.batched_global` exposes `BatchedGlobalObjective` and `BatchedFitter` for multi-channel fits in one `logl` pass; keep `parallel_kernels=False` under emcee or scipy worker pools.
 - Pre-release wheel validation: run `make release-smoke` (`scripts/smoke_release.sh`); Linux PyPI wheels must carry `manylinux_*` tags, not bare `linux_x86_64`.
 - Version bumps must stay aligned across `pyproject.toml`, `Cargo.toml`, and `src/refloxide/__init__.py`.
 - Local extension build: `make develop` (`scripts/develop.sh`) runs `uv sync --group dev`, then `UV_NO_CONFIG=1 uv run maturin develop --release` (project `uv` config must not steer maturin's internal `uv pip install`). Sibling `../pyref` is installed editable with `hvplot` when present; smoke test applies `patch_pyref` when `pyref.fitting` imports.

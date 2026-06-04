@@ -26,6 +26,17 @@ hc = (speed_of_light * plank_constant) * 1e10  # ev*A
 tensor_index = ["xx", "yy", "zz"]  # Indexing for later definitions
 
 
+def _is_stack_component(other: object) -> bool:
+    """True when ``other`` is a leaf component with ``slabs``/``tensor`` rows."""
+    if isinstance(other, (Structure, Stack)):
+        return False
+    if isinstance(other, PXR_Component):
+        return True
+    slabs = getattr(other, "slabs", None)
+    tensor = getattr(other, "tensor", None)
+    return callable(slabs) and callable(tensor)
+
+
 # ==============/ Base Classes /===================
 
 
@@ -123,7 +134,7 @@ class Structure(UserList):
             self.append(item())
             return
 
-        if not isinstance(item, PXR_Component):
+        if not _is_stack_component(item):
             e = "You can only add PXR_Component objects to a structure"
             raise TypeError(e)
         super().append(item)
@@ -401,11 +412,10 @@ class Structure(UserList):
         structure |= si(0, 4)
         ```
         """
-        # self |= other
-        if isinstance(other, PXR_Component):
-            self.append(other)
-        elif isinstance(other, Structure):
+        if isinstance(other, Structure):
             self.extend(other.data)
+        elif _is_stack_component(other):
+            self.append(other)  # type: ignore[arg-type]
         elif isinstance(other, Scatterer):
             slab = other(0, 0)
             self.append(slab)
@@ -1625,7 +1635,7 @@ class Stack(PXR_Component, UserList):
             self.append(item())
             return
 
-        if not isinstance(item, PXR_Component):
+        if not _is_stack_component(item):
             e = "You can only add PXR_Components"
             raise TypeError(e)
         self.data.append(item)
