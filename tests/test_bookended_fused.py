@@ -13,7 +13,7 @@ from refloxide.pxr.energy.fused import (
     evaluate_fused_bookended_reflectivity,
 )
 from refloxide.pxr.energy.ooc import OocAnchor
-from refloxide.pxr.plugin.structure import MaterialSLD, Slab
+from refloxide.pxr.plugin.structure import MaterialSLD, Slab, Structure
 
 
 def _ooc_frame() -> pd.DataFrame:
@@ -50,11 +50,11 @@ def _bookended_stack(num_slabs: int = 100) -> tuple:
         num_slabs=num_slabs,
         mesh_constant=0.1,
     )
-    structure = (
-        Slab(0.0, vac_sld, 0.0, name="vac")
-        | profile
-        | Slab(8.0, sio2_sld, 6.0, name="oxide")
-        | Slab(0.0, si_sld, 3.0, name="si")
+    structure = Structure(
+        Slab(0.0, vac_sld, 0.0, name="vac"),
+        profile,
+        Slab(8.0, sio2_sld, 6.0, name="oxide"),
+        Slab(0.0, si_sld, 3.0, name="si"),
     )
     return structure, profile, energy
 
@@ -92,10 +92,8 @@ def test_slabs_calls_tensor_once(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_legacy_triple_tensor_slabs_slower_than_fused() -> None:
     """Profile ``slabs()`` that re-entered ``tensor()`` via delta/beta was ~3x work."""
     _, profile, energy = _bookended_stack(num_slabs=50)
-    q = np.linspace(0.01, 0.2, 64)
-    structure, _, _ = _bookended_stack(num_slabs=50)
 
-    def legacy_slabs() -> None:
+    def legacy_slabs() -> np.ndarray:
         thicknesses = profile.slab_thick
         tens = profile.tensor(energy)
         iso = np.trace(tens, axis1=1, axis2=2)

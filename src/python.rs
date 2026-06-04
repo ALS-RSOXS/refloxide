@@ -134,11 +134,8 @@ fn lab_tensor_diagonals_batch<'py>(
     n_mol_zz: C,
     orientations_rad: PyReadonlyArray1<'py, f64>,
 ) -> Bound<'py, PyArray3<C>> {
-    let diags = lab_diagonal_uniaxial_batch(
-        n_mol_xx,
-        n_mol_zz,
-        &orientations_rad.as_array().to_vec(),
-    );
+    let diags =
+        lab_diagonal_uniaxial_batch(n_mol_xx, n_mol_zz, &orientations_rad.as_array().to_vec());
     let packed = pack_diagonal_tensors(&diags);
     let n = packed.len();
     let mut arr = Array3::<C>::zeros((n, 3, 3));
@@ -184,6 +181,7 @@ fn isotropic_lab_tensor(n: C) -> [[C; 3]; 3] {
     backing,
     parallel = false,
 ))]
+#[allow(clippy::too_many_arguments)]
 fn bookended_uniaxial_reflectivity<'py>(
     py: Python<'py>,
     q: PyReadonlyArray1<'py, f64>,

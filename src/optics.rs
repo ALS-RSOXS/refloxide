@@ -31,12 +31,7 @@ pub fn interpolate_ooc_linear(
         return [n_xx[0], n_ixx[0], n_zz[0], n_izz[0]];
     }
     if query_ev >= energy_ev[n - 1] {
-        return [
-            n_xx[n - 1],
-            n_ixx[n - 1],
-            n_zz[n - 1],
-            n_izz[n - 1],
-        ];
+        return [n_xx[n - 1], n_ixx[n - 1], n_zz[n - 1], n_izz[n - 1]];
     }
     let mut hi = 1usize;
     while hi < n && energy_ev[hi] < query_ev {

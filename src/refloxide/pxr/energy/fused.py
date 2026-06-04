@@ -112,6 +112,7 @@ def evaluate_fused_bookended_reflectivity(
     backing = stack_backing_rows(structure, idx)
     if backing.shape[0] < 1:
         return None
+    num_slabs = int(params["num_slabs"])
     refl, tran = bookended_uniaxial_reflectivity(
         np.asarray(q, dtype=np.float64),
         anchor.energy_ev,
@@ -123,6 +124,17 @@ def evaluate_fused_bookended_reflectivity(
         fronting=np.asarray(fronting, dtype=np.float64),
         backing=np.asarray(backing, dtype=np.float64),
         parallel=parallel,
-        **params,
+        total_thick=params["total_thick"],
+        surface_roughness=params["surface_roughness"],
+        tau_si=params["tau_si"],
+        tau_vac=params["tau_vac"],
+        alpha_bulk=params["alpha_bulk"],
+        alpha_si=params["alpha_si"],
+        alpha_vac=params["alpha_vac"],
+        density_bulk=params["density_bulk"],
+        density_si=params["density_si"],
+        density_vac=params["density_vac"],
+        num_slabs=num_slabs,
+        mesh_constant=params["mesh_constant"],
     )
     return np.asarray(refl, dtype=np.float64), np.asarray(tran, dtype=np.complex128)

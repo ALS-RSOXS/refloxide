@@ -477,9 +477,9 @@ def _patch_pyref_structure_ior() -> None:
             return self
         return original_ior(self, other)
 
-    st_mod.Structure.append = append
-    st_mod.Structure.__ior__ = __ior__
-    st_mod.Structure.__refloxide_ior_patched__ = True
+    st_mod.Structure.append = append  # ty: ignore[invalid-assignment]
+    st_mod.Structure.__ior__ = __ior__  # ty: ignore[invalid-assignment]
+    st_mod.Structure.__refloxide_ior_patched__ = True  # ty: ignore[unresolved-attribute]
 
 
 def patch_pyref(
@@ -545,7 +545,7 @@ def patch_pyref(
             use_rust=use_rust,
             parallel=parallel,
         )
-        model_mod.reflectivity = patched_refl  # ty: ignore[unresolved-attribute]
+        model_mod.reflectivity = patched_refl  # ty: ignore[invalid-assignment, unresolved-attribute]
     _patch_reflect_model_model(model_mod)
     _patch_reflect_model_fused(model_mod, parallel=parallel)
     _patch_pyref_structure_ior()

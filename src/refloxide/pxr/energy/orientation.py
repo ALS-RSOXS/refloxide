@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from refnx.analysis import Parameters, possibly_create_parameter
@@ -42,7 +42,7 @@ class AdaptiveOrientationScatterer(EnergyDependentUniTensorSLD):
         rotation: float = 0.0,
         energy_offset: float = 0.0,
         name: str = "",
-        interp: str = "linear",
+        interp: Literal["linear", "pchip"] = "linear",
     ) -> None:
         super().__init__(
             ooc,
@@ -50,7 +50,7 @@ class AdaptiveOrientationScatterer(EnergyDependentUniTensorSLD):
             density=density,
             energy_offset=energy_offset,
             name=name,
-            interp=interp,  # type: ignore[arg-type]
+            interp=interp,
         )
         angles = np.asarray(orientations_rad, dtype=np.float64).ravel()
         self._orientation_parameters = Parameters(name=f"{name}_orientations")

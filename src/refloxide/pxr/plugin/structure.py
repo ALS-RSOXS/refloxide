@@ -76,7 +76,7 @@ class Structure(UserList):
 
     def __init__(
         self,
-        *components: tuple[PXR_Component],
+        *components: PXR_Component,
         name="",
         reverse_structure=False,
     ) -> None:

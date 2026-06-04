@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from refnx.analysis import possibly_create_parameter
@@ -26,15 +26,15 @@ def orientation_profile_bookended(
     alpha_vac: float,
 ) -> float | NDArray[np.float64]:
     """Tilt angle (rad) vs depth for a vacuum|film|substrate book-ended stack."""
-    if np.isscalar(depth):
-        z = float(depth)
+    if isinstance(depth, np.ndarray):
+        z = np.asarray(depth, dtype=np.float64)
         term_vac = (alpha_vac - alpha_bulk) * np.exp(-z / tau_vac)
         term_si = (alpha_si - alpha_bulk) * np.exp(-(total_thick - z) / tau_si)
-        return float(alpha_bulk + term_vac + term_si)
-    z = np.asarray(depth, dtype=np.float64)
+        return alpha_bulk + term_vac + term_si
+    z = float(depth)
     term_vac = (alpha_vac - alpha_bulk) * np.exp(-z / tau_vac)
     term_si = (alpha_si - alpha_bulk) * np.exp(-(total_thick - z) / tau_si)
-    return alpha_bulk + term_vac + term_si
+    return float(alpha_bulk + term_vac + term_si)
 
 
 def density_profile_bookended(
@@ -47,15 +47,15 @@ def density_profile_bookended(
     rho_vac: float,
 ) -> float | NDArray[np.float64]:
     """Mass density vs depth for the same book-ended functional form as orientation."""
-    if np.isscalar(depth):
-        z = float(depth)
+    if isinstance(depth, np.ndarray):
+        z = np.asarray(depth, dtype=np.float64)
         term_vac = (rho_vac - rho_bulk) * np.exp(-z / tau_vac)
         term_si = (rho_si - rho_bulk) * np.exp(-(total_thick - z) / tau_si)
-        return float(rho_bulk + term_vac + term_si)
-    z = np.asarray(depth, dtype=np.float64)
+        return rho_bulk + term_vac + term_si
+    z = float(depth)
     term_vac = (rho_vac - rho_bulk) * np.exp(-z / tau_vac)
     term_si = (rho_si - rho_bulk) * np.exp(-(total_thick - z) / tau_si)
-    return rho_bulk + term_vac + term_si
+    return float(rho_bulk + term_vac + term_si)
 
 
 def adaptive_microslab_thicknesses(
@@ -138,7 +138,7 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
         num_slabs: int = 20,
         mesh_constant: float = 0.1,
         *,
-        interp: str = "linear",
+        interp: Literal["linear", "pchip"] = "linear",
     ) -> None:
         super().__init__(name=name)
         self.mesh_constant = mesh_constant
@@ -146,7 +146,7 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
         if isinstance(ooc, OocAnchor):
             self._anchor = ooc
         else:
-            self._anchor = OocAnchor.from_dataframe(ooc, interp=interp)  # type: ignore[arg-type]
+            self._anchor = OocAnchor.from_dataframe(ooc, interp=interp)
         self.total_thick = possibly_create_parameter(total_thick, name="total_thick")
         self.surface_roughness = possibly_create_parameter(
             surface_roughness,
@@ -307,7 +307,7 @@ def bookended_from_three_slabs(
     num_slabs: int = 24,
     mesh_constant: float = 0.1,
     name: str = "",
-    interp: str = "linear",
+    interp: Literal["linear", "pchip"] = "linear",
 ) -> EnergyBookendedOrientationDensityProfile:
     """Build a book-ended film from the three legacy ``UniTensorSLD`` slabs.
 

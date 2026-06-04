@@ -72,7 +72,7 @@ pub fn adaptive_microslab_thicknesses(
     let n_half = num_slabs / 2;
     let half_thick = total_thick / 2.0;
     let r = mesh_constant.powf(1.0 / n_half as f64);
-    let mut mesh = if num_slabs % 2 == 0 {
+    let mut mesh = if num_slabs.is_multiple_of(2) {
         let a = half_thick * (r - 1.0) / (r.powi(n_half as i32) - 1.0);
         let mesh_half: Vec<f64> = (0..n_half).map(|i| a * r.powi(i as i32)).collect();
         let mut left = mesh_half.clone();
@@ -140,11 +140,8 @@ pub fn build_bookended_film_stack(
     let n_mol_xx_base = C::new(ooc[0], ooc[1]);
     let n_mol_zz_base = C::new(ooc[2], ooc[3]);
 
-    let thicknesses = adaptive_microslab_thicknesses(
-        params.total_thick,
-        params.num_slabs,
-        params.mesh_constant,
-    );
+    let thicknesses =
+        adaptive_microslab_thicknesses(params.total_thick, params.num_slabs, params.mesh_constant);
     let mid = mid_points_from_thicknesses(&thicknesses);
     let mut layers = Vec::with_capacity(params.num_slabs);
     let mut tensors = Vec::with_capacity(params.num_slabs);
@@ -190,6 +187,7 @@ pub fn build_bookended_film_stack(
 ///
 /// ``fronting`` and ``backing`` are refnx-style rows ``[d, delta, beta, sigma]``.
 /// ``backing`` may contain multiple substrate rows (oxide + bulk Si).
+#[allow(clippy::too_many_arguments)]
 pub fn bookended_uniaxial_reflectivity(
     q: &[f64],
     energy_ev: &[f64],

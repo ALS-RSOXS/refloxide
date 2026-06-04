@@ -102,7 +102,6 @@ def isotropic_lab_tensor(n: complex) -> NDArray[np.complex128]:
     """Build a ``(3, 3)`` isotropic tensor with scalar index ``n`` on the diagonal."""
     ...
 
-
 def bookended_uniaxial_reflectivity(
     q: NDArray[np.float64],
     energy_ev: NDArray[np.float64],

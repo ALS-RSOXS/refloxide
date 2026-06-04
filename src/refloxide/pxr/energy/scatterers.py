@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import periodictable as pt
@@ -90,13 +90,13 @@ class EnergyDependentUniTensorSLD(EnergyDependentScatterer):
         density: float = 1.0,
         energy_offset: float = 0.0,
         name: str = "",
-        interp: str = "linear",
+        interp: Literal["linear", "pchip"] = "linear",
     ) -> None:
         super().__init__(name=name)
         if isinstance(ooc, OocAnchor):
             anchor = ooc
         else:
-            anchor = OocAnchor.from_dataframe(ooc, interp=interp)  # type: ignore[arg-type]
+            anchor = OocAnchor.from_dataframe(ooc, interp=interp)
         self._anchor = anchor
         self.density = possibly_create_parameter(  # type: ignore[assignment]
             density,
@@ -175,4 +175,6 @@ class FixedTensorScatterer(EnergyDependentScatterer):
 
     def tensor_at(self, probe: EnergyProbe) -> NDArray[np.complex128]:
         del probe
-        return self._tensor.copy()
+        tensor = self._tensor
+        assert tensor is not None
+        return tensor.copy()

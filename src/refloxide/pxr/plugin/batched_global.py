@@ -181,7 +181,8 @@ def _evaluate_reflectivity_term(
         theta_offset_s=float(model.theta_offset_s.value),  # type: ignore[arg-type]
         theta_offset_p=float(model.theta_offset_p.value),  # type: ignore[arg-type]
     )
-    dq = term.x_err if term.x_err is not None else float(model.dq)  # type: ignore[arg-type]
+    dq_raw = term.x_err if term.x_err is not None else float(model.dq)  # type: ignore[arg-type, union-attr]
+    dq = float(np.asarray(dq_raw).flat[0])
     result = refloxide_reflectivity(
         qvals + float(model.q_offset.value),  # type: ignore[arg-type]
         slabs,
@@ -484,7 +485,7 @@ class BatchedGlobalObjective(Objective):
             max_workers=self.max_workers,
         )
         chunks: list[np.ndarray] = []
-        lnsigma = float(self.lnsigma.value) if is_parameter(self.lnsigma) else None  # type: ignore[union-attr]
+        lnsigma = float(self.lnsigma.value) if is_parameter(self.lnsigma) else None  # ty: ignore[unresolved-attribute]
         for idx, term in enumerate(self.terms):
             model_y = curves[idx]
             y, y_err, model_y = self._transform_term(term, model_y)
@@ -505,7 +506,7 @@ class BatchedGlobalObjective(Objective):
             parallel_terms=self.parallel_terms,
             max_workers=self.max_workers,
         )
-        lnsigma = float(self.lnsigma.value) if is_parameter(self.lnsigma) else None  # type: ignore[union-attr]
+        lnsigma = float(self.lnsigma.value) if is_parameter(self.lnsigma) else None  # ty: ignore[unresolved-attribute]
         logl = 0.0
         for idx, term in enumerate(self.terms):
             model_y = curves[idx]
@@ -551,7 +552,7 @@ class BatchedGlobalObjective(Objective):
         y, y_err = self.transform(term.x, y, y_err)
         return y, y_err if self.weighted else np.ones_like(y), model_t
 
-    def plot(self, pvals=None, **_kwargs):  # type: ignore[no-untyped-def]
+    def plot(self, pvals=None, **_kwargs):  # type: ignore[no-untyped-def]  # ty: ignore[invalid-method-override]
         """Plot each reflectivity term on shared axes (requires matplotlib)."""
         import matplotlib.pyplot as plt
 

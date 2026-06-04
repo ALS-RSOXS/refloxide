@@ -567,7 +567,7 @@ class Fitter(CurveFitter):
         """
         var_names = [p.name for p in self.objective.varying_parameters()]
         return az.from_emcee(
-            sampler=self.sampler,
+            sampler=self.sampler,  # ty: ignore[invalid-argument-type]
             var_names=var_names,
             coords={"chain": np.arange(self._nwalkers)},
         )
