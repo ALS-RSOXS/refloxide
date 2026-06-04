@@ -85,10 +85,8 @@ def test_reflectivity_for_pol_sp_and_ps_ordering() -> None:
     q_s = np.linspace(0.02, 0.08, 16)
     q_p = np.linspace(0.09, 0.11, 12)
     qvals = np.linspace(0.02, 0.11, len(q))
-    r_ss_on_qs = np.interp(q_s, qvals, refl[:, 0, 0])
     r_pp_on_qs = np.interp(q_s, qvals, refl[:, 1, 1])
     r_ss_on_qp = np.interp(q_p, qvals, refl[:, 0, 0])
-    r_pp_on_qp = np.interp(q_p, qvals, refl[:, 1, 1])
 
     sp_out = reflectivity_for_pol("sp", refl, qvals, q_s, q_p)
     assert sp_out.shape == (len(q_s) + len(q_p),)
@@ -154,7 +152,7 @@ def test_patch_pyref_replaces_reflect_model_model(
             return qvals, q_s, q_p, refl, None, []
 
     fake_model = types.ModuleType("pyref.fitting.model")
-    fake_model.ReflectModel = _ReflectModel
+    fake_model.ReflectModel = _ReflectModel  # ty: ignore[unresolved-attribute]
     fake_uni = types.ModuleType("pyref.fitting.uniaxial")
     monkeypatch.setitem(sys.modules, "pyref", types.ModuleType("pyref"))
     monkeypatch.setitem(sys.modules, "pyref.fitting", types.ModuleType("pyref.fitting"))
@@ -167,7 +165,7 @@ def test_patch_pyref_replaces_reflect_model_model(
     adapter.patch_pyref(use_rust=True, parallel=False)
 
     stub = _ReflectModel()
-    out = stub.model(np.concatenate([q_s, q_p]))
+    out = stub.model(np.concatenate([q_s, q_p]))  # ty: ignore[unresolved-attribute]
     assert np.allclose(out[: len(q_s)], 0.72)
     assert np.allclose(out[len(q_s) :], 0.31)
 
@@ -239,10 +237,10 @@ def test_pyref_patched_marker(monkeypatch: pytest.MonkeyPatch) -> None:
     import types
 
     fake_model = types.ModuleType("pyref.fitting.model")
-    fake_model.ReflectModel = type(
+    fake_model.ReflectModel = type(  # ty: ignore[unresolved-attribute]
         "ReflectModel",
         (),
-        {"model": lambda *a, **k: None, "__refloxide_model_patched__": False},
+        {"model": lambda *_a, **_k: None, "__refloxide_model_patched__": False},
     )
     fake_uni = types.ModuleType("pyref.fitting.uniaxial")
     monkeypatch.setitem(sys.modules, "pyref", types.ModuleType("pyref"))

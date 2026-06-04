@@ -6,13 +6,19 @@
 //! through [`error::RefloxideError`] so callers can recover or surface
 //! diagnostics. Shared numerics used by stratified solvers live in [`math`].
 
+pub mod bookended;
 mod c4x4;
 pub mod error;
 pub mod math;
+pub mod optics;
 pub mod uniaxial;
 
 #[cfg(feature = "python")]
 mod python;
 
+pub use bookended::{
+    adaptive_microslab_thicknesses, bookended_uniaxial_reflectivity, build_bookended_film_stack,
+    density_profile_bookended, orientation_profile_bookended, BookendedParams,
+};
 pub use error::{RefloxideError, Result};
 pub use uniaxial::{uniaxial_reflectivity, Layer, UniaxialOutput};

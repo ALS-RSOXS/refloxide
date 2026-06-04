@@ -77,6 +77,7 @@ compatibility = "pypi"
 target-version = "py313"
 line-length = 88
 src = ["src", "tests"]
+extend-exclude = ["examples"]
 
 [tool.ruff.lint]
 select = [

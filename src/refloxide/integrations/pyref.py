@@ -337,6 +337,97 @@ def _smeared_reflectivity(
     return smeared_output, tran, list(components)
 
 
+def _reflectmodel_q_grid(
+    model: Any,
+    x: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Mirror pyref ``ReflectModel`` q/theta adjustments before the kernel."""
+    wavelength = 12398.42 / float(model.energy)
+    if model.pol in ("sp", "ps"):
+        concat_loc = int(np.argmax(np.abs(np.diff(x))))
+        qvals_1 = x[: concat_loc + 1]
+        qvals_2 = x[concat_loc + 1 :]
+        num_q = max(len(x), concat_loc + 50)
+        theta_s = np.arcsin(qvals_1 * wavelength / (4 * np.pi)) * 180 / np.pi
+        theta_p = np.arcsin(qvals_2 * wavelength / (4 * np.pi)) * 180 / np.pi
+        theta_s += float(model.theta_offset_s.value or 0.0)
+        theta_p += float(model.theta_offset_p.value or 0.0)
+        qvals_1 = (4 * np.pi / wavelength) * np.sin(theta_s * np.pi / 180)
+        qvals_2 = (4 * np.pi / wavelength) * np.sin(theta_p * np.pi / 180)
+        x_out = np.concatenate([qvals_1, qvals_2])
+        qvals = np.linspace(float(np.min(x_out)), float(np.max(x_out)), num_q)
+        return qvals, qvals_1, qvals_2
+    if model.pol == "s":
+        theta = np.arcsin(x * wavelength / (4 * np.pi)) * 180 / np.pi
+        theta += float(model.theta_offset_s.value or 0.0)
+        qvals = (4 * np.pi / wavelength) * np.sin(theta * np.pi / 180)
+        return qvals, qvals, qvals
+    if model.pol == "p":
+        theta = np.arcsin(x * wavelength / (4 * np.pi)) * 180 / np.pi
+        theta += float(model.theta_offset_p.value or 0.0)
+        qvals = (4 * np.pi / wavelength) * np.sin(theta * np.pi / 180)
+        return qvals, qvals, qvals
+    return x, x, x
+
+
+def _patch_reflect_model_fused(model_mod: Any, *, parallel: bool) -> None:
+    """Route book-ended stacks through the fused Rust evaluator when possible."""
+    reflect_model = model_mod.ReflectModel
+    if getattr(reflect_model, "__refloxide_fused_patched__", False):
+        return
+    if not hasattr(reflect_model, "_model"):
+        return
+    original_model = reflect_model._model
+
+    def _model(self, x, p=None, x_err=None):
+        if not hasattr(self, "energy"):
+            return original_model(self, x, p=p, x_err=x_err)
+        if p is not None and hasattr(self, "parameters"):
+            self.parameters.pvals = np.array(p)
+        if x_err is None:
+            x_err = float(getattr(self, "dq", 0.0))
+        x_arr = np.asarray(x, dtype=np.float64)
+        qvals, qvals_1, qvals_2 = _reflectmodel_q_grid(self, x_arr)
+        backend = getattr(self, "backend", "uni")
+        if backend == "uni" and float(x_err) == 0.0 and hasattr(self, "structure"):
+            from refloxide.pxr.energy.fused import evaluate_fused_bookended_reflectivity
+
+            structure_offset = 0.0
+            if hasattr(self, "energy_offset"):
+                structure_offset = float(self.energy_offset.value or 0.0)
+            q_offset = float(
+                getattr(self, "q_offset", type("Q", (), {"value": 0.0})()).value or 0.0
+            )
+            q_kernel = qvals + q_offset
+            fused = evaluate_fused_bookended_reflectivity(
+                q_kernel,
+                self.structure,
+                float(self.energy),
+                structure_energy_offset=structure_offset,
+                parallel=parallel,
+            )
+            if fused is not None:
+                refl, tran = fused
+                scale_s = float(
+                    getattr(self, "scale_s", type("S", (), {"value": 1.0})()).value
+                    or 1.0
+                )
+                scale_p = float(
+                    getattr(self, "scale_p", type("S", (), {"value": 1.0})()).value
+                    or 1.0
+                )
+                bkg = float(
+                    getattr(self, "bkg", type("S", (), {"value": 0.0})()).value or 0.0
+                )
+                apply_laboratory_scales(refl, scale_s, scale_p)
+                refl = refl + bkg
+                return qvals, qvals_1, qvals_2, refl, tran, []
+        return original_model(self, x, p=None, x_err=x_err)
+
+    reflect_model._model = _model
+    reflect_model.__refloxide_fused_patched__ = True
+
+
 def _patch_reflect_model_model(model_mod: Any) -> None:
     """Read laboratory Jones channels in :meth:`ReflectModel.model`."""
     reflect_model = model_mod.ReflectModel
@@ -344,12 +435,51 @@ def _patch_reflect_model_model(model_mod: Any) -> None:
         return
 
     def model(self, x, p=None, x_err=None):
-        qvals, qvals_1, qvals_2, refl, tran, components = self._model(x, p, x_err)
+        qvals, qvals_1, qvals_2, refl, _tran, _components = self._model(x, p, x_err)
         output = reflectivity_for_pol(self.pol, refl, qvals, qvals_1, qvals_2)
         return output
 
     reflect_model.model = model
     reflect_model.__refloxide_model_patched__ = True
+
+
+def _is_bookended_profile(other: Any) -> bool:
+    from refloxide.pxr.energy.bookended import (
+        EnergyBookendedOrientationDensityProfile,
+    )
+
+    return isinstance(other, EnergyBookendedOrientationDensityProfile)
+
+
+def _patch_pyref_structure_ior() -> None:
+    """Allow refloxide book-ended profiles in pyref ``Structure`` stacks."""
+    import importlib
+    from collections import UserList
+
+    try:
+        st_mod = importlib.import_module("pyref.fitting.structure")
+    except ModuleNotFoundError:
+        return
+    if getattr(st_mod.Structure, "__refloxide_ior_patched__", False):
+        return
+    original_ior = st_mod.Structure.__ior__
+    original_append = st_mod.Structure.append
+
+    def append(self, item):
+        if _is_bookended_profile(item):
+            UserList.append(self, item)
+            return
+        return original_append(self, item)
+
+    def __ior__(self, other):
+        if _is_bookended_profile(other):
+            UserList.append(self, other)
+            return self
+        return original_ior(self, other)
+
+    st_mod.Structure.append = append  # ty: ignore[invalid-assignment]
+    st_mod.Structure.__ior__ = __ior__  # ty: ignore[invalid-assignment]
+    st_mod.Structure.__refloxide_ior_patched__ = True  # ty: ignore[unresolved-attribute]
 
 
 def patch_pyref(
@@ -415,8 +545,10 @@ def patch_pyref(
             use_rust=use_rust,
             parallel=parallel,
         )
-        model_mod.reflectivity = patched_refl  # ty: ignore[unresolved-attribute]
+        model_mod.reflectivity = patched_refl  # ty: ignore[invalid-assignment, unresolved-attribute]
     _patch_reflect_model_model(model_mod)
+    _patch_reflect_model_fused(model_mod, parallel=parallel)
+    _patch_pyref_structure_ior()
     model_mod.__refloxide_patched__ = True  # ty: ignore[unresolved-attribute]
 
 
