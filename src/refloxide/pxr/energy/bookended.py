@@ -355,6 +355,43 @@ class BookendedOrientationProfile(Component):
         out[0, 3] = float(self.surface_roughness.value or 0.0)
         return out
 
+    @classmethod
+    def from_slabs(
+        cls,
+        surface_slab,
+        bulk_slab,
+        interface_slab,
+        ooc: pd.DataFrame | OocAnchor | None = None,
+        *,
+        energy: float | None = None,
+        energy_offset: float = 0.0,
+        num_slabs: int = 24,
+        mesh_constant: float = 0.1,
+        name: str = "",
+        interp: Literal["linear", "pchip"] = "linear",
+    ) -> BookendedOrientationProfile:
+        """Build from three template slabs (surface, bulk, substrate interface).
+
+        Thin classmethod wrapper over the module-level
+        :func:`bookended_from_three_slabs` builder — see that function's
+        docstring for the full parameter contract. Provided so
+        construction reads as ``BookendedOrientationProfile.from_slabs(...)``,
+        matching this codebase's other ``from_*`` classmethod constructors
+        (``OocAnchor.from_dataframe``, ``OpticalConstants.from_file``, ...).
+        """
+        return bookended_from_three_slabs(
+            surface_slab,
+            bulk_slab,
+            interface_slab,
+            ooc,
+            energy=energy,
+            energy_offset=energy_offset,
+            num_slabs=num_slabs,
+            mesh_constant=mesh_constant,
+            name=name,
+            interp=interp,
+        )
+
 
 def bookended_from_three_slabs(
     surface_slab,
