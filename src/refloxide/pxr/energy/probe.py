@@ -8,7 +8,7 @@ from refnx.analysis import Parameter, possibly_create_parameter
 
 
 @dataclass(frozen=True, slots=True)
-class EnergyProbe:
+class Probe:
     """Effective photon energy for tabulated or dispersive optical models.
 
     Parameters
@@ -42,7 +42,7 @@ class EnergyProbe:
         base_energy_ev: float,
         structure_offset: float | Parameter | None = None,
         component_offset: float | Parameter | None = None,
-    ) -> EnergyProbe:
+    ) -> Probe:
         """Build a probe from refnx :class:`~refnx.analysis.Parameter` values."""
         struct_off = 0.0
         if structure_offset is not None:
@@ -57,3 +57,6 @@ class EnergyProbe:
             structure_offset_ev=struct_off,
             component_offset_ev=comp_off,
         )
+
+
+EnergyProbe = Probe

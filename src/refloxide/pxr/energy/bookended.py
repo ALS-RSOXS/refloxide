@@ -170,6 +170,8 @@ class BookendedOrientationProfile(Component):
         self._nominal_energy_ev = None if energy is None else float(energy)
         self._ooc_cache_energy: float | None = None
         self._ooc_cache_values: tuple[float, float, float, float] | None = None
+        self._mesh_cache_key: tuple[float, int, float] | None = None
+        self._mesh_cache_thick: NDArray[np.float64] | None = None
         self._parameters = super().parameters
         self._parameters.extend(
             [
@@ -261,12 +263,25 @@ class BookendedOrientationProfile(Component):
 
     @property
     def slab_thick(self) -> NDArray[np.float64]:
-        """Microslab thicknesses (angstrom)."""
-        return adaptive_microslab_thicknesses(
-            float(self.total_thick.value or 0.0),
-            self.num_slabs,
-            self.mesh_constant,
-        )
+        """Microslab thicknesses (angstrom).
+
+        Cached on `(total_thick, num_slabs, mesh_constant)` -- `tensor()` and
+        `BookendedComponent.slab_rows_at` each ask for this independently
+        within one model evaluation, and the geometric mesh construction
+        itself doesn't depend on energy, orientation, or density, so
+        recomputing it every time is pure waste whenever the geometry
+        hasn't changed since the last call.
+        """
+        total_thick = float(self.total_thick.value or 0.0)
+        key = (total_thick, self.num_slabs, self.mesh_constant)
+        cached = self._mesh_cache_thick
+        if self._mesh_cache_key != key or cached is None:
+            cached = adaptive_microslab_thicknesses(
+                total_thick, self.num_slabs, self.mesh_constant
+            )
+            self._mesh_cache_key = key
+            self._mesh_cache_thick = cached
+        return cached
 
     @property
     def mid_points(self) -> NDArray[np.float64]:
