@@ -24,7 +24,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 keywords = []
-dependencies = []
+dependencies = [
+    "tqdm>=4.68.4",
+]
 
 [dependency-groups]
 dev = [
