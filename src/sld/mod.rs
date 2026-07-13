@@ -13,10 +13,7 @@ type C = Complex<f64>;
 
 /// Density-scaled uniaxial molecular indices from tabulated OOC components.
 pub fn molecular_index(density: f64, n_xx: f64, n_ixx: f64, n_zz: f64, n_izz: f64) -> (C, C) {
-    (
-        density * C::new(n_xx, n_ixx),
-        density * C::new(n_zz, n_izz),
-    )
+    (density * C::new(n_xx, n_ixx), density * C::new(n_zz, n_izz))
 }
 
 /// Linear OOC lookup followed by :func:`molecular_index` at ``query_ev``.
@@ -108,6 +105,10 @@ mod tests {
             "delta={} looks like it went through `1 - n`, not delta+i*beta directly",
             row[1]
         );
-        assert!(row[1] > 0.0, "expected a positive delta on the order of 1e-6, got {}", row[1]);
+        assert!(
+            row[1] > 0.0,
+            "expected a positive delta on the order of 1e-6, got {}",
+            row[1]
+        );
     }
 }

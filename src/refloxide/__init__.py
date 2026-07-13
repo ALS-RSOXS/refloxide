@@ -22,4 +22,4 @@ __all__ = [
     "__version__",
     "pxr",
 ]
-__version__ = "0.1.4"
+__version__ = "0.1.5"

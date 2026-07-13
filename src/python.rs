@@ -7,7 +7,10 @@
 use nalgebra::Matrix3;
 use num_complex::Complex;
 use numpy::ndarray::{Array3, Array4};
-use numpy::{IntoPyArray, PyArray3, PyArray4, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3, PyReadonlyArray4};
+use numpy::{
+    IntoPyArray, PyArray3, PyArray4, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
+    PyReadonlyArray4,
+};
 use pyo3::prelude::*;
 
 use crate::bookended::{bookended_uniaxial_reflectivity as core_bookended, BookendedParams};
@@ -17,8 +20,7 @@ use crate::optics::{
 };
 use crate::sld::{
     molecular_index_at_ooc as core_molecular_index_at_ooc,
-    tensor_to_slab_row as core_tensor_to_slab_row,
-    uniaxial_lab_tensor as core_uniaxial_lab_tensor,
+    tensor_to_slab_row as core_tensor_to_slab_row, uniaxial_lab_tensor as core_uniaxial_lab_tensor,
 };
 use crate::uniaxial::{
     uniaxial_reflectivity as core_solve, uniaxial_reflectivity_batch as core_solve_batch, Layer,
@@ -247,6 +249,7 @@ fn isotropic_lab_tensor(n: C) -> [[C; 3]; 3] {
 
 /// Density-scaled molecular indices from a linear OOC table at one energy (eV).
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 fn molecular_index_at_ooc<'py>(
     py: Python<'py>,
     energy_ev: PyReadonlyArray1<'py, f64>,
