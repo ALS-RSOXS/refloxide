@@ -1,7 +1,9 @@
 //! Composable SLD primitives for deferred-energy uniaxial stacks.
 //!
-//! Owns OOC lookup, density scaling, laboratory-frame rotation, and refnx slab
-//! row packing so Python scatterers stay thin parameter wrappers.
+//! Thin single-point wrappers over [`crate::optics`]: density scaling,
+//! laboratory-frame rotation, and refnx slab-row packing. Batch OOC
+//! interpolation and diagonal packing stay in [`crate::optics`]; this
+//! module does not reimplement them.
 
 use num_complex::Complex;
 

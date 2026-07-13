@@ -48,37 +48,37 @@ type UnpackedBatchInputs = (Vec<f64>, Vec<Vec<Layer>>, Vec<Vec<Matrix3<C>>>, Vec
 /// process-wide by setting the environment variable `RAYON_NUM_THREADS=1`
 /// before importing `refloxide`.
 #[pyfunction]
-#[pyo3(signature = (q, layers, tensor, energy, parallel = true))]
+#[pyo3(signature = (q, layers, tensor, energy_ev, parallel = true))]
 fn uniaxial_reflectivity<'py>(
     py: Python<'py>,
     q: PyReadonlyArray1<'py, f64>,
     layers: PyReadonlyArray2<'py, f64>,
     tensor: PyReadonlyArray3<'py, C>,
-    energy: f64,
+    energy_ev: f64,
     parallel: bool,
 ) -> PyResult<UniaxialPyArrays<'py>> {
     let (q_vec, layers_rust, tensor_rust) =
         unpack_inputs(&q, &layers, &tensor).map_err(PyErr::from)?;
 
     let out = py
-        .detach(|| core_solve(&q_vec, &layers_rust, &tensor_rust, energy, parallel))
+        .detach(|| core_solve(&q_vec, &layers_rust, &tensor_rust, energy_ev, parallel))
         .map_err(PyErr::from)?;
     pack_uniaxial_output(py, &out)
 }
 
 /// Batched uniaxial reflectivity over shared ``q`` and many energies.
 #[pyfunction]
-#[pyo3(signature = (q, layers, tensor, energies, parallel = true))]
+#[pyo3(signature = (q, layers, tensor, energies_ev, parallel = true))]
 fn uniaxial_reflectivity_batch<'py>(
     py: Python<'py>,
     q: PyReadonlyArray1<'py, f64>,
     layers: PyReadonlyArray3<'py, f64>,
     tensor: PyReadonlyArray4<'py, C>,
-    energies: PyReadonlyArray1<'py, f64>,
+    energies_ev: PyReadonlyArray1<'py, f64>,
     parallel: bool,
 ) -> PyResult<UniaxialBatchPyArrays<'py>> {
     let (q_vec, layers_rust, tensor_rust, energies_rust) =
-        unpack_batch_inputs(&q, &layers, &tensor, &energies).map_err(PyErr::from)?;
+        unpack_batch_inputs(&q, &layers, &tensor, &energies_ev).map_err(PyErr::from)?;
 
     let out = py
         .detach(|| core_solve_batch(&q_vec, &layers_rust, &tensor_rust, &energies_rust, parallel))
@@ -91,7 +91,7 @@ fn unpack_batch_inputs(
     q: &PyReadonlyArray1<'_, f64>,
     layers: &PyReadonlyArray3<'_, f64>,
     tensor: &PyReadonlyArray4<'_, C>,
-    energies: &PyReadonlyArray1<'_, f64>,
+    energies_ev: &PyReadonlyArray1<'_, f64>,
 ) -> Result<UnpackedBatchInputs> {
     let layers_view = layers.as_array();
     let tensor_view = tensor.as_array();
@@ -109,10 +109,10 @@ fn unpack_batch_inputs(
             tensor_view.shape()
         )));
     }
-    let energies_vec: Vec<f64> = energies.as_array().iter().copied().collect();
+    let energies_vec: Vec<f64> = energies_ev.as_array().iter().copied().collect();
     if energies_vec.len() != n_e {
         return Err(RefloxideError::InvalidShape(format!(
-            "energies length {n} must match layers batch {n_e}",
+            "energies_ev length {n} must match layers batch {n_e}",
             n = energies_vec.len()
         )));
     }

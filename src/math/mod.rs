@@ -1,7 +1,7 @@
 //! Reusable numerical kernels for transfer-matrix solvers.
 //!
-//! This module must not depend on [`crate::matrix`]. Stratified code in
-//! [`crate::matrix`] may import from here.
+//! This module must not depend on [`crate::uniaxial`]. Stratified code in
+//! [`crate::uniaxial`] may import from here.
 
 mod exact_inv4;
 

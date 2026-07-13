@@ -15,7 +15,7 @@ def uniaxial_reflectivity(
     q: NDArray[np.float64],
     layers: NDArray[np.float64],
     tensor: NDArray[np.complex128],
-    energy: float,
+    energy_ev: float,
     parallel: bool = True,
 ) -> tuple[NDArray[np.float64], NDArray[np.complex128]]:
     """Compute uniaxial 4x4 reflection and transmission for a stratified medium.
@@ -31,7 +31,7 @@ def uniaxial_reflectivity(
     tensor
         Per-layer 3x3 dispersion tensor of shape ``(nlayers, 3, 3)``. The
         Berreman dielectric is built as ``eps = conj(I - 2 * tensor)``.
-    energy
+    energy_ev
         Photon energy in eV.
     parallel
         When ``True`` (the default), the q-point loop runs on rayon's global
@@ -55,7 +55,7 @@ def uniaxial_reflectivity(
     ------
     ValueError
         Layer count mismatch, fewer than two slabs, malformed input shapes,
-        or non-finite or non-positive ``energy``.
+        or non-finite or non-positive ``energy_ev``.
     RuntimeError
         Dynamic matrix is singular at some (layer, q-index), with the
         offending indices reported in the exception message.
@@ -66,7 +66,7 @@ def uniaxial_reflectivity_batch(
     q: NDArray[np.float64],
     layers: NDArray[np.float64],
     tensor: NDArray[np.complex128],
-    energies: NDArray[np.float64],
+    energies_ev: NDArray[np.float64],
     parallel: bool = True,
 ) -> tuple[NDArray[np.float64], NDArray[np.complex128]]:
     """Batched uniaxial reflectivity over shared ``q`` and many energies.
@@ -79,7 +79,7 @@ def uniaxial_reflectivity_batch(
         Per-energy slab rows, shape ``(n_E, N, 4)``.
     tensor
         Per-energy tensors, shape ``(n_E, N, 3, 3)``.
-    energies
+    energies_ev
         Photon energies in eV, shape ``(n_E,)``.
     parallel
         When ``True``, parallelize over flattened ``(energy, q)`` indices.

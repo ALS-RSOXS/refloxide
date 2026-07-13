@@ -123,7 +123,7 @@ impl QScratch {
 ///   entries describe the fronting and the backing.
 /// - `tensor`: per-slab 3x3 dispersion tensor, length `nlayers`. The
 ///   Berreman dielectric is built as `eps = conj(I - 2 * tensor)`.
-/// - `energy`: photon energy in eV. Must be strictly positive.
+/// - `energy_ev`: photon energy in eV. Must be strictly positive.
 /// - `parallel`: when true, distribute q-points across rayon's global thread
 ///   pool. When false, run sequentially. Callers driving the kernel from a
 ///   Python fitting routine that is itself multi-threaded or multi-process
@@ -138,7 +138,7 @@ pub fn uniaxial_reflectivity(
     q: &[f64],
     layers: &[Layer],
     tensor: &[Matrix3<C>],
-    energy: f64,
+    energy_ev: f64,
     parallel: bool,
 ) -> Result<UniaxialOutput> {
     if layers.len() != tensor.len() {
@@ -150,11 +150,11 @@ pub fn uniaxial_reflectivity(
     if layers.len() < 2 {
         return Err(RefloxideError::InsufficientLayers(layers.len()));
     }
-    if !energy.is_finite() || energy <= 0.0 {
-        return Err(RefloxideError::InvalidEnergy(energy));
+    if !energy_ev.is_finite() || energy_ev <= 0.0 {
+        return Err(RefloxideError::InvalidEnergy(energy_ev));
     }
 
-    let wl = HC_EV_ANGSTROM / energy;
+    let wl = HC_EV_ANGSTROM / energy_ev;
     let k0 = 2.0 * std::f64::consts::PI / wl;
 
     let eps: Vec<Matrix3<C>> = tensor.iter().map(berreman_dielectric).collect();
@@ -190,7 +190,7 @@ pub fn uniaxial_reflectivity(
 /// - `q`: scattering wavevectors in `1/Angstrom`, length `n_q`.
 /// - `layers`: per-energy slab rows with shape conceptually `(n_E, N, 4)`.
 /// - `tensor`: per-energy tensors with shape `(n_E, N, 3, 3)`.
-/// - `energies`: photon energies in eV, length `n_E`.
+/// - `energies_ev`: photon energies in eV, length `n_E`.
 /// - `parallel`: distribute flattened `(energy, q)` pairs across rayon.
 ///
 /// # Errors
@@ -200,13 +200,13 @@ pub fn uniaxial_reflectivity_batch(
     q: &[f64],
     layers: &[Vec<Layer>],
     tensor: &[Vec<Matrix3<C>>],
-    energies: &[f64],
+    energies_ev: &[f64],
     parallel: bool,
 ) -> Result<UniaxialBatchOutput> {
-    let n_e = energies.len();
+    let n_e = energies_ev.len();
     if layers.len() != n_e || tensor.len() != n_e {
         return Err(RefloxideError::InvalidShape(format!(
-            "layers and tensor batch length must match energies ({n_e}), got layers={}, tensor={}",
+            "layers and tensor batch length must match energies_ev ({n_e}), got layers={}, tensor={}",
             layers.len(),
             tensor.len()
         )));
@@ -216,9 +216,9 @@ pub fn uniaxial_reflectivity_batch(
             "uniaxial_reflectivity_batch requires at least one energy".into(),
         ));
     }
-    for (ei, energy) in energies.iter().enumerate() {
-        if !energy.is_finite() || *energy <= 0.0 {
-            return Err(RefloxideError::InvalidEnergy(*energy));
+    for (ei, energy_ev) in energies_ev.iter().enumerate() {
+        if !energy_ev.is_finite() || *energy_ev <= 0.0 {
+            return Err(RefloxideError::InvalidEnergy(*energy_ev));
         }
         if layers[ei].len() != tensor[ei].len() {
             return Err(RefloxideError::LayerCountMismatch {
@@ -235,9 +235,9 @@ pub fn uniaxial_reflectivity_batch(
         .iter()
         .map(|stack| stack.iter().map(berreman_dielectric).collect())
         .collect();
-    let k0: Vec<f64> = energies
+    let k0: Vec<f64> = energies_ev
         .iter()
-        .map(|&energy| 2.0 * std::f64::consts::PI / (HC_EV_ANGSTROM / energy))
+        .map(|&energy_ev| 2.0 * std::f64::consts::PI / (HC_EV_ANGSTROM / energy_ev))
         .collect();
 
     let pairs: Vec<(usize, usize)> = (0..n_e)
@@ -548,18 +548,18 @@ mod tests {
                 Complex::new(1.0 - 2e-6, 0.0),
             )),
         ];
-        let energies = [250.0, 284.4];
-        let single: Vec<_> = energies
+        let energies_ev = [250.0, 284.4];
+        let single: Vec<_> = energies_ev
             .iter()
-            .map(|&energy| {
-                uniaxial_reflectivity(&q, &layers_a, &tensor_a, energy, false).unwrap()
+            .map(|&energy_ev| {
+                uniaxial_reflectivity(&q, &layers_a, &tensor_a, energy_ev, false).unwrap()
             })
             .collect();
         let batch = uniaxial_reflectivity_batch(
             &q,
             &[layers_a.clone(), layers_a],
             &[tensor_a.clone(), tensor_a],
-            &energies,
+            &energies_ev,
             false,
         )
         .unwrap();
