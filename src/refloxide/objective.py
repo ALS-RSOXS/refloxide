@@ -12,7 +12,7 @@ mixed-polarization `ReflectDataset` uniformly: there is no separate
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 from refnx.analysis import Objective as _RefnxObjective
@@ -23,8 +23,65 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-    from refloxide.data import ReflectDataset
+    from refloxide.data import Pol, ReflectDataset
     from refloxide.model import ReflectModel
+
+
+class _KernelBatch(NamedTuple):
+    """One or more `(energy, pol)` groups sharing an identical `q` array.
+
+    All energies in one batch are evaluated in a single `ReflectModel`
+    call (the array-energy path) rather than one call per energy.
+    """
+
+    pol: Pol
+    q: NDArray[np.float64]
+    energies: tuple[float, ...]
+    row_indices: tuple[NDArray[np.intp], ...]
+
+
+def _build_kernel_batches(dataset: ReflectDataset) -> list[_KernelBatch]:
+    """Group dataset rows so identical-`q`-grid energies share one kernel call.
+
+    Real memory/speed fix, not cosmetic: without this, `Objective` would
+    call `ReflectModel` once per `(energy, pol)` group even when many
+    energies share the same `q` grid (a common multi-energy experimental
+    setup), each call independently re-materializing the structure's
+    layers/tensor arrays. Batching them lets `ReflectModel` use the Rust
+    batch kernel (`uniaxial_reflectivity_batch`) directly, mirroring what
+    `refloxide.pxr.objective.ReflectivityObjective`'s
+    `_build_reflectivity_eval_batches` already did for the old Objective
+    generation. Grouping is computed once here (data doesn't change across
+    `logl()` calls), not per-evaluation.
+    """
+    batches: list[_KernelBatch] = []
+    for pol in ("s", "p"):
+        pol_entries = [
+            (energy, indices)
+            for energy, group_pol, indices in dataset.groups()
+            if group_pol == pol
+        ]
+        buckets: list[
+            tuple[NDArray[np.float64], list[tuple[float, NDArray[np.intp]]]]
+        ] = []
+        for energy, indices in pol_entries:
+            q_vals = dataset.q[indices]
+            for bucket_q, bucket_entries in buckets:
+                if bucket_q.shape == q_vals.shape and np.array_equal(bucket_q, q_vals):
+                    bucket_entries.append((energy, indices))
+                    break
+            else:
+                buckets.append((q_vals, [(energy, indices)]))
+        for q_vals, entries in buckets:
+            batches.append(
+                _KernelBatch(
+                    pol=pol,  # type: ignore[arg-type]
+                    q=q_vals,
+                    energies=tuple(e for e, _ in entries),
+                    row_indices=tuple(idx for _, idx in entries),
+                )
+            )
+    return batches
 
 
 def gaussian_logl(
@@ -67,10 +124,12 @@ def gaussian_logl(
 class Objective(_RefnxObjective):
     """Ties a `ReflectModel` to a `ReflectDataset` and a Gaussian log-likelihood.
 
-    Groups the dataset by `(energy, pol)` so each distinct energy triggers
-    at most one `ReflectModel` evaluation regardless of how many rows share
-    it, and reads each row's predicted value off the `s` or `p` channel its
-    `pol` selects — the model itself never chooses a channel.
+    Groups the dataset by `(energy, pol)`, then further batches groups that
+    share an identical `q` grid into a single `ReflectModel` call using its
+    array-energy path (`_build_kernel_batches`) — N energies measured on
+    the same q grid become one Rust batch-kernel call, not N. Each row's
+    predicted value is read off the `s` or `p` channel its `pol` selects —
+    the model itself never chooses a channel.
 
     Parameters
     ----------
@@ -105,6 +164,7 @@ class Objective(_RefnxObjective):
             raise ValueError(msg)
         self._dataset = data
         self._groups = list(data.groups())
+        self._batches = _build_kernel_batches(data)
         stub = Data1D(
             data=(data.q, data.r, data.r_err), name=name or "reflectivity"
         )
@@ -119,12 +179,25 @@ class Objective(_RefnxObjective):
     def _predicted(
         self, pvals: NDArray[np.float64] | None = None
     ) -> NDArray[np.float64]:
-        """Model reflectivity for every row, in the dataset's original order."""
+        """Model reflectivity for every row, in the dataset's original order.
+
+        Evaluates `self._batches`, precomputed once at construction — each
+        batch is one `ReflectModel` call, covering every energy that shares
+        that batch's `q` grid (see `_build_kernel_batches`).
+        """
         self.setp(pvals)
         predicted = np.empty(len(self._dataset), dtype=np.float64)
-        for energy, pol, indices in self._groups:
-            result = self.model(self._dataset.q[indices], energy)
-            predicted[indices] = result.s if pol == "s" else result.p
+        for batch in self._batches:
+            if len(batch.energies) == 1:
+                result = self.model(batch.q, batch.energies[0])
+                predicted[batch.row_indices[0]] = (
+                    result.s if batch.pol == "s" else result.p
+                )
+                continue
+            result = self.model(batch.q, np.asarray(batch.energies, dtype=np.float64))
+            matrix = result.s if batch.pol == "s" else result.p
+            for col, indices in enumerate(batch.row_indices):
+                predicted[indices] = matrix[:, col]
         return predicted
 
     def generative(

@@ -15,7 +15,7 @@ from refnx.analysis import CurveFitter, Transform
 
 from refloxide.data import ReflectDataset
 from refloxide.model import MaterialSLD, ReflectModel
-from refloxide.objective import Objective, gaussian_logl
+from refloxide.objective import Objective, _build_kernel_batches, gaussian_logl
 
 
 def _si_on_si_structure():
@@ -156,3 +156,41 @@ def test_objective_plugs_into_refnx_curvefitter():
     )
     assert result is not None
     assert np.isfinite(objective.logl())
+
+
+def test_energies_sharing_one_q_grid_collapse_to_one_kernel_batch():
+    """Real memory/speed contract, not cosmetic: a future edit that
+    reintroduces one ReflectModel call per energy (instead of one batched
+    call per shared q grid) would still be correct, just slower and more
+    memory-hungry -- a pure value-correctness test wouldn't catch that
+    regression, so the batch count itself is pinned.
+    """
+    model = ReflectModel(_si_on_si_structure())
+    q_shared = np.linspace(0.03, 0.15, 15)
+    energies = [250.0, 284.4, 700.0]
+
+    rows_q, rows_e, rows_pol, rows_r, rows_err = [], [], [], [], []
+    for energy in energies:
+        r = model(q_shared, energy).s
+        rows_q.append(q_shared)
+        rows_e.append(np.full_like(q_shared, energy))
+        rows_pol.append(np.full(q_shared.shape, "s", dtype=object))
+        rows_r.append(r)
+        rows_err.append(np.full_like(q_shared, 0.01))
+
+    data = ReflectDataset(
+        q=np.concatenate(rows_q),
+        energy=np.concatenate(rows_e),
+        pol=np.concatenate(rows_pol),
+        r=np.concatenate(rows_r),
+        r_err=np.concatenate(rows_err),
+    )
+
+    batches = _build_kernel_batches(data)
+    assert len(batches) == 1
+    assert len(batches[0].energies) == 3
+
+    objective = Objective(model, data)
+    np.testing.assert_allclose(
+        objective._predicted(), data.r, rtol=1e-10, atol=1e-12
+    )
