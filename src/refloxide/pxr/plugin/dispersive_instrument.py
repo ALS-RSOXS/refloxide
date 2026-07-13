@@ -382,9 +382,7 @@ class InstrumentParameterView:
         else:
             anchor = float(anchor_energy if anchor_energy is not None else matched[0])
             if anchor not in matched:
-                msg = (
-                    f"anchor_energy {anchor} is not among matched energies {matched}"
-                )
+                msg = f"anchor_energy {anchor} is not among matched energies {matched}"
                 raise ValueError(msg)
             master = self._model.instrument_at(anchor).parameter(self._field)
             slaves = [

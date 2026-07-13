@@ -227,9 +227,7 @@ class Objective(_RefnxObjective):
                     "matching s/p rows sharing the same q grid"
                 )
                 raise ValueError(msg)
-        stub = Data1D(
-            data=(data.q, data.r, data.r_err), name=name or "reflectivity"
-        )
+        stub = Data1D(data=(data.q, data.r, data.r_err), name=name or "reflectivity")
         super().__init__(
             model,
             stub,

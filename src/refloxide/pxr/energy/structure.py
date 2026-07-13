@@ -88,9 +88,9 @@ class DispersiveStructure(Structure):
             vary=True,
             bounds=(-1.0, 1.0),
         )
-        self._materialization_cache: (
-            dict[tuple[float, float], StackSnapshot] | None
-        ) = None
+        self._materialization_cache: dict[tuple[float, float], StackSnapshot] | None = (
+            None
+        )
 
     @property
     def structure_energy_offset(self) -> Parameter:

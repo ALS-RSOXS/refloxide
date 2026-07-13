@@ -74,8 +74,13 @@ def test_different_materials_are_not_merged(tmp_path):
 
 def test_from_dataframe_shares_by_identity_not_by_equal_content():
     table_a = pl.DataFrame(
-        {"energy": [500.0, 700.0], "n_xx": [4e-6, 5e-6], "n_ixx": [1e-7, 1.2e-7],
-         "n_zz": [8e-6, 9e-6], "n_izz": [2e-7, 2.2e-7]}
+        {
+            "energy": [500.0, 700.0],
+            "n_xx": [4e-6, 5e-6],
+            "n_ixx": [1e-7, 1.2e-7],
+            "n_zz": [8e-6, 9e-6],
+            "n_izz": [2e-7, 2.2e-7],
+        }
     )
     table_b = table_a.clone()  # equal content, distinct object
 

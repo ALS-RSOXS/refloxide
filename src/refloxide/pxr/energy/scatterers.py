@@ -114,6 +114,7 @@ class _TensorParamGroup:
     def parameters(self) -> Parameters:
         return self._parameters
 
+
 EnergyDependentScatterer = DeferredScatterer
 EnergyDependentUniTensorSLD = OocUniTensorScatterer
 TabulatedUniTensorSLD = OocUniTensorScatterer

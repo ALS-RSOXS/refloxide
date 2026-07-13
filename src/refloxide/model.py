@@ -298,7 +298,8 @@ class MultiRowComponent(Component):
         raise TypeError(msg)
 
     def row_and_tensor_at(
-        self, energy_ev: float  # noqa: ARG002
+        self,
+        energy_ev: float,  # noqa: ARG002
     ) -> tuple[NDArray[np.float64], NDArray[np.complex128]]:
         msg = (
             f"{type(self).__name__} is a MultiRowComponent -- "

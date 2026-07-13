@@ -87,9 +87,7 @@ class Structure(UserList):
 
         # if you provide a list of components to start with, then initialise
         # the structure from that
-        self.data: list[Component] = [
-            c for c in components if isinstance(c, Component)
-        ]
+        self.data: list[Component] = [c for c in components if isinstance(c, Component)]
 
     def __copy__(self) -> Structure:
         """Create a shallow copy of the structure."""

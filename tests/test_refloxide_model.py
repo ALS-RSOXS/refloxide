@@ -145,9 +145,7 @@ def test_unitensorsld_shares_one_cached_opticalconstants_across_instances(tmp_pa
     ooc_path = tmp_path / "znpc_ooc.csv"
     _ooc_table().write_csv(ooc_path)
 
-    surface = UniTensorSLD(
-        str(ooc_path), density=1.61, rotation=1.35, name="surface"
-    )
+    surface = UniTensorSLD(str(ooc_path), density=1.61, rotation=1.35, name="surface")
     bulk = UniTensorSLD(str(ooc_path), density=1.61, rotation=0.0, name="bulk")
     interface = UniTensorSLD(
         str(ooc_path), density=1.55, rotation=0.5, name="interface"

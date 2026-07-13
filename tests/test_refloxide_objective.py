@@ -28,16 +28,17 @@ def _si_on_si_structure():
 def test_reflectdataset_rejects_mismatched_lengths():
     with pytest.raises(ValueError, match="same length"):
         ReflectDataset(
-            q=[0.1, 0.2, 0.3], energy=[700.0, 700.0], pol=["s", "s", "s"],
-            r=[0.5, 0.4, 0.3], r_err=[0.01, 0.01, 0.01],
+            q=[0.1, 0.2, 0.3],
+            energy=[700.0, 700.0],
+            pol=["s", "s", "s"],
+            r=[0.5, 0.4, 0.3],
+            r_err=[0.01, 0.01, 0.01],
         )
 
 
 def test_reflectdataset_rejects_invalid_pol():
     with pytest.raises(ValueError, match="'s' or 'p'"):
-        ReflectDataset(
-            q=[0.1], energy=[700.0], pol=["sp"], r=[0.5], r_err=[0.01]
-        )
+        ReflectDataset(q=[0.1], energy=[700.0], pol=["sp"], r=[0.5], r_err=[0.01])
 
 
 def test_reflectdataset_from_arrays_broadcasts_energy_and_pol():
@@ -191,6 +192,4 @@ def test_energies_sharing_one_q_grid_collapse_to_one_kernel_batch():
     assert len(batches[0].energies) == 3
 
     objective = Objective(model, data)
-    np.testing.assert_allclose(
-        objective._predicted(), data.r, rtol=1e-10, atol=1e-12
-    )
+    np.testing.assert_allclose(objective._predicted(), data.r, rtol=1e-10, atol=1e-12)

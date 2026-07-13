@@ -353,13 +353,9 @@ class DispersiveReflectModel:
             qvals = np.linspace(float(np.min(x)), float(np.max(x)), num_q)
             return x, qvals, qvals_1, qvals_2
         if pol == "s":
-            qvals = self._q_with_theta_offset(
-                x, wavelength, instrument.theta_offset_s
-            )
+            qvals = self._q_with_theta_offset(x, wavelength, instrument.theta_offset_s)
         elif pol == "p":
-            qvals = self._q_with_theta_offset(
-                x, wavelength, instrument.theta_offset_p
-            )
+            qvals = self._q_with_theta_offset(x, wavelength, instrument.theta_offset_p)
         else:
             qvals = x
         return x, qvals, qvals, qvals
