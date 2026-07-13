@@ -65,6 +65,15 @@ class OpticalConstants:
             raise ValueError(f"optical constants table missing columns: {columns}")
         self.table = table
         self.source = source
+        # `table` is immutable for the lifetime of this (cached, shared)
+        # instance, so converting each column to numpy once here -- instead
+        # of on every `lookup`/`molecular_index_at` call -- avoids re-paying
+        # polars' Series-to-numpy conversion on every single energy query.
+        self._energy = table["energy"].to_numpy()
+        self._n_xx = table["n_xx"].to_numpy()
+        self._n_ixx = table["n_ixx"].to_numpy()
+        self._n_zz = table["n_zz"].to_numpy()
+        self._n_izz = table["n_izz"].to_numpy()
 
     @classmethod
     def from_file(cls, path: str | Path) -> OpticalConstants:
@@ -173,12 +182,7 @@ class OpticalConstants:
             a `uniaxial_lab_tensor` call expects.
         """
         return optics.interp_ooc_linear(
-            self.table["energy"].to_numpy(),
-            self.table["n_xx"].to_numpy(),
-            self.table["n_ixx"].to_numpy(),
-            self.table["n_zz"].to_numpy(),
-            self.table["n_izz"].to_numpy(),
-            energy_ev,
+            self._energy, self._n_xx, self._n_ixx, self._n_zz, self._n_izz, energy_ev
         )
 
     def molecular_index_at(
@@ -200,11 +204,11 @@ class OpticalConstants:
             `refloxide.optics.uniaxial_lab_tensor`.
         """
         return optics.molecular_index_at_ooc(
-            self.table["energy"].to_numpy(),
-            self.table["n_xx"].to_numpy(),
-            self.table["n_ixx"].to_numpy(),
-            self.table["n_zz"].to_numpy(),
-            self.table["n_izz"].to_numpy(),
+            self._energy,
+            self._n_xx,
+            self._n_ixx,
+            self._n_zz,
+            self._n_izz,
             energy_ev,
             density,
         )
