@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from refloxide.integrations.pyref import uniaxial_reflectivity
 from refloxide.pxr.energy.bookended import (
     BookendedOrientationProfile,
     bookended_from_three_slabs,
@@ -22,6 +21,7 @@ from refloxide.pxr.energy.bookended import (
 from refloxide.pxr.energy.fused import evaluate_fused_bookended_reflectivity
 from refloxide.pxr.energy.ooc import OocAnchor
 from refloxide.pxr.plugin.structure import MaterialSLD, Slab, Structure, UniTensorSLD
+from refloxide.tmm import uniaxial_reflectivity
 
 
 def _ooc_frame() -> pd.DataFrame:

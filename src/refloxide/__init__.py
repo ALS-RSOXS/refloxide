@@ -1,25 +1,32 @@
 """Public Python interface for refloxide.
 
-The native extension lives in :mod:`refloxide.rust` (Rust / PyO3). Prefer the
-flat package surface for new work:
+Default surface is the Rust-backed transfer-matrix method. Import modeling
+and other surfaces by submodule name; they are not re-exported here.
 
-* :mod:`refloxide.tmm` — uniaxial and book-ended reflectivity kernels.
-* :mod:`refloxide.optics` — OOC interpolation and laboratory-frame tensors.
+* :mod:`refloxide.tmm` — uniaxial and book-ended reflectivity kernels (Rust).
+* :mod:`refloxide.optics` — OOC interpolation and laboratory-frame tensors (Rust).
 * :mod:`refloxide.data` — cached optical constants and reflectivity datasets.
 * :mod:`refloxide.model` — energy-deferred ``Structure`` / ``ReflectModel``.
 * :mod:`refloxide.objective` — multi-energy ``Objective`` for refnx fitters.
+* :mod:`refloxide.python.tmm` — opt-in pure-Python TMM (import by submodule).
+* :mod:`refloxide.python.model` — opt-in pure-Python modeling (pyref.fitting-shaped).
 
-Legacy deferred-energy stacks and fitting glue remain under :mod:`refloxide.pxr`
-(``pxr.energy``, ``pxr.plugin``, ``pxr.objective``) for existing notebooks until
-that surface is retired.
+Legacy helpers remain under :mod:`refloxide.pxr` and emit a deprecation warning
+until they relocate into the top-level modules above.
 """
 
 from __future__ import annotations
 
-from refloxide import pxr
+from refloxide.tmm import (
+    bookended_uniaxial_reflectivity,
+    uniaxial_reflectivity,
+    uniaxial_reflectivity_batch,
+)
 
 __all__ = [
     "__version__",
-    "pxr",
+    "bookended_uniaxial_reflectivity",
+    "uniaxial_reflectivity",
+    "uniaxial_reflectivity_batch",
 ]
 __version__ = "0.1.5"

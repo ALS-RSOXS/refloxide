@@ -57,19 +57,15 @@ class Structure(UserList):
     Example
     -------
     ```python
-    import pyref.fitting as fit
+    from refloxide.pxr.plugin.structure import MaterialSLD, SLD
 
     en = 284.4  # [eV]
-    # Create the materials for a given energy
-    vac = fit.PXR_MaterialSLD("", density=1, energy=en, name="vacuum")
-    si = fit.PXR_MaterialSLD("Si", density=2.33, energy=en, name="Si")
-    sio2 = fit.PXR_MaterialSLD("SiO2", density=2.4, energy=en, name="SiO2")
-    # Specify the complex index of refraction for a molecule
-    n_xx = complex(-0.0035, 0.0004)  # [unitless] #Ordinary Axis
-    n_zz = complex(-0.0045, 0.0009)  # [unitless] #Extraordinary Axis
-    molecule = fit.SLD(np.array([n_xx, n_zz]), name="material")  # molecule
-    # Make the structure
-    # See 'PXR_Slab' for details on building layers
+    vac = MaterialSLD("", density=1, energy=en, name="vacuum")
+    si = MaterialSLD("Si", density=2.33, energy=en, name="Si")
+    sio2 = MaterialSLD("SiO2", density=2.4, energy=en, name="SiO2")
+    n_xx = complex(-0.0035, 0.0004)  # ordinary axis
+    n_zz = complex(-0.0045, 0.0009)  # extraordinary axis
+    molecule = SLD(np.array([n_xx, n_zz]), name="material")
     structure = vac(0, 0) | molecule(100, 2) | sio2(15, 1.5) | si(1, 1.5)
     ```
     """
@@ -1935,7 +1931,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import pandas as pd  # ty: ignore[unresolved-import]
     import seaborn as sns  # ty: ignore[unresolved-import]
-    from pyref.fitting.model import ReflectModel  # ty: ignore[unresolved-import]
+
+    from refloxide.pxr.plugin.model import ReflectModel
 
     sns.set_palette("blend:#00829c,#ff9d8d", n_colors=3)
 
@@ -1967,7 +1964,7 @@ if __name__ == "__main__":
         name="ZnPc",
     )(196.441, 7.216)
 
-    struct: Structure = vac | znpc_slab | si
-    model = ReflectModel(struct)  # type: ignore
+    struct = vac | znpc_slab | si
+    model = ReflectModel(struct)
     model.energy_offset = 2
     print(struct)

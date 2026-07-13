@@ -2,7 +2,7 @@
 
 The native implementation is produced from ``src/lib.rs`` via PyO3 and
 ``maturin``. Function shapes and conventions mirror
-``refloxide.pxr.tjf4x4.uniaxial_reflectivity`` so the two implementations
+``refloxide.python.tmm.uniaxial_reflectivity`` so the two implementations
 can be exchanged without changing call sites.
 """
 
@@ -45,7 +45,7 @@ def uniaxial_reflectivity(
     -------
     refl
         Real power reflectance with shape ``(numpnts, 2, 2)``. Index
-        layout matches ``refloxide.pxr.tjf4x4.uniaxial_reflectivity``:
+        layout matches ``refloxide.python.tmm.uniaxial_reflectivity``:
         ``refl[:, 0, 0] = R_ss``, ``refl[:, 1, 1] = R_pp``,
         ``refl[:, 0, 1] = R_sp``, ``refl[:, 1, 0] = R_ps``.
     tran

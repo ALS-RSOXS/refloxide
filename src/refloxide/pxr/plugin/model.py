@@ -10,7 +10,7 @@ from refnx.analysis import Parameters, possibly_create_parameter
 from scipy.interpolate import splev, splrep
 
 from refloxide.pxr.layout import apply_laboratory_scales, reflectivity_for_pol
-from refloxide.pxr.tjf4x4 import uniaxial_reflectivity
+from refloxide.python.tmm import uniaxial_reflectivity as _python_uniaxial_reflectivity
 
 if TYPE_CHECKING:
     from refnx.analysis import Parameter
@@ -20,6 +20,25 @@ if TYPE_CHECKING:
 
 # some definitions for resolution smearing
 _FWHM = 2 * np.sqrt(2 * np.log(2.0))
+
+
+def _uniaxial_reflectivity(
+    q: np.ndarray,
+    slabs: np.ndarray,
+    tensor: np.ndarray,
+    energy: float,
+    *,
+    parallel: bool = False,
+) -> tuple[np.ndarray, np.ndarray, list[Any]]:
+    """Pure-Python TMM kernel for the plugin / ``refloxide.python.model`` path."""
+    _ = parallel
+    refl, tran, *components = _python_uniaxial_reflectivity(
+        np.asarray(q, dtype=np.float64),
+        np.asarray(slabs, dtype=np.float64),
+        np.asarray(tensor, dtype=np.complex128),
+        float(energy),
+    )
+    return np.asarray(refl, dtype=np.float64), tran, list(components)
 
 
 class ReflectModel:
@@ -598,6 +617,8 @@ def reflectivity(
     bkg: float = 0.0,
     dq: float = 0.0,
     backend: Literal["uni", "bi"] = "uni",
+    *,
+    parallel: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, list[Any]] | None:
     r"""
     Full calculation for anisotropic reflectivity of a stratified medium.
@@ -693,32 +714,39 @@ def reflectivity(
     # constant dq/q smearing
     if isinstance(dq, numbers.Real):
         if float(dq) == 0:
-            if backend == "uni":
-                refl, tran, *components = uniaxial_reflectivity(
-                    q, slabs, tensor, energy
-                )
-            else:
-                refl, tran, *components = uniaxial_reflectivity(
-                    q,
-                    slabs,
-                    tensor,
-                    energy,
-                    phi,  # type: ignore
-                )
-            refl = np.asarray(refl, dtype=np.float64)
+            _ = (phi, backend)
+            refl, tran, components = _uniaxial_reflectivity(
+                q, slabs, tensor, energy, parallel=parallel
+            )
             apply_laboratory_scales(refl, scale_s, scale_p)
             return (refl + bkg), tran, components
-        else:
-            smear_refl, smear_tran, *components = _smeared_reflectivity(
-                q, slabs, tensor, energy, phi, dq, backend=backend
-            )
-            apply_laboratory_scales(smear_refl, scale_s, scale_p)
-            return (smear_refl + bkg), smear_tran, components
+        smear_refl, smear_tran, components = _smeared_reflectivity(
+            q,
+            slabs,
+            tensor,
+            energy,
+            phi,
+            dq,
+            backend=backend,
+            parallel=parallel,
+        )
+        apply_laboratory_scales(smear_refl, scale_s, scale_p)
+        return (smear_refl + bkg), smear_tran, components
 
     return None
 
 
-def _smeared_reflectivity(q, w, tensor, energy, phi, resolution, backend="uni"):
+def _smeared_reflectivity(
+    q,
+    w,
+    tensor,
+    energy,
+    phi,
+    resolution,
+    backend="uni",
+    *,
+    parallel: bool = False,
+):
     """
     Fast resolution smearing for constant dQ/Q.
 
@@ -736,13 +764,9 @@ def _smeared_reflectivity(q, w, tensor, energy, phi, resolution, backend="uni"):
     -------
     reflectivity: np.ndarray, np.ndarray, np.ndarray,
     """
+    _ = (phi, backend)
     if resolution < 0.5:
-        if backend == "uni":
-            refl, tran, *components = uniaxial_reflectivity(q, w, tensor, energy)
-        else:
-            refl, tran, *components = uniaxial_reflectivity(q, w, tensor, energy, phi)  # type: ignore
-        refl = np.asarray(refl, dtype=np.float64)
-        return refl, tran, components
+        return _uniaxial_reflectivity(q, w, tensor, energy, parallel=parallel)
 
     resolution /= 100
     gaussnum = 51
@@ -767,11 +791,9 @@ def _smeared_reflectivity(q, w, tensor, energy, phi, resolution, backend="uni"):
     # resolution smear over [-4 sigma, 4 sigma]
     gauss_x = np.linspace(-1.7 * resolution, 1.7 * resolution, gaussnum)
     gauss_y = gauss(gauss_x, resolution / _FWHM)
-    if backend == "uni":
-        refl, tran, *components = uniaxial_reflectivity(xlin, w, tensor, energy)
-    else:
-        refl, tran, *components = uniaxial_reflectivity(xlin, w, tensor, energy)
-    refl = np.asarray(refl, dtype=np.float64)
+    refl, tran, components = _uniaxial_reflectivity(
+        xlin, w, tensor, energy, parallel=parallel
+    )
     step = gauss_x[1] - gauss_x[0]
     smeared_ss = np.convolve(refl[:, 0, 0], gauss_y, mode="same") * step  # type: ignore
     smeared_pp = np.convolve(refl[:, 1, 1], gauss_y, mode="same") * step  # type: ignore

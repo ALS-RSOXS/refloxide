@@ -1615,8 +1615,8 @@ def _smeared_uniaxial_reflectivity(
 
     Same log-grid + Gaussian-convolution + spline-interpolation technique
     `refloxide.pxr.plugin.model._smeared_reflectivity` uses, but calling
-    `refloxide.tmm.uniaxial_reflectivity` (Rust) instead of that module's
-    pure-Python `tjf4x4.uniaxial_reflectivity` fallback — the actual
+    `refloxide.tmm.uniaxial_reflectivity` (Rust) instead of
+    `refloxide.python.tmm.uniaxial_reflectivity` — the actual
     "proper Rust consideration" fix, since the smearing math itself
     (`numpy.convolve` over ~51 points, `scipy` spline evaluation) was
     already cheap and vectorized; the old bottleneck was the kernel call.
@@ -1801,10 +1801,9 @@ class ReflectModel:
     Ports the correction stages of the original, load-bearing
     `refloxide.pxr.plugin.model.ReflectModel` (scale, background,
     resolution smearing, q/theta offsets) onto the Rust-backed kernel —
-    that original never used the Rust kernel at all (only
-    `refloxide.pxr.tjf4x4`'s pure-Python port, unless patched via
-    `patch_pyref`), so this port is also a real speed fix, not just a
-    rename.
+    that original historically used only the pure-Python TMM
+    (`refloxide.python.tmm`), so this port is also a real speed fix, not
+    just a rename.
 
     Parameters
     ----------

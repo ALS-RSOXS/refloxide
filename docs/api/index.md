@@ -4,9 +4,9 @@ Python API pages are generated from source with mkdocstrings. The PyO3 extension
 
 ## Python
 
-- [refloxide](python/refloxide.md) — top-level package
-- [refloxide.pxr](python/pxr/index.md) — polarization / 4x4 helpers
-  - [refloxide.pxr.tjf4x4](python/pxr/tjf4x4.md)
+- [refloxide](python/refloxide.md) — top-level package (Rust TMM default)
+- [refloxide.python.tmm](python/python/tmm.md) — opt-in pure-Python TMM
+- [refloxide.pxr](python/pxr/index.md) — legacy path (will relocate; prefer top-level modules)
 
 ## Rust
 

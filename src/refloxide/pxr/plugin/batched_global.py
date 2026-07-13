@@ -1,4 +1,4 @@
-"""Batched multi-energy global objectives for refnx / pyref fitters.
+"""Batched multi-energy global objectives for refnx fitters.
 
 Evaluates many reflectivity datasets from one energy-parameterized
 :class:`~refloxide.pxr.plugin.model.ReflectModel` in a single ``logl`` call:
@@ -21,9 +21,9 @@ from refnx.analysis import (
 )
 from refnx.dataset import Data1D
 
-from refloxide.integrations.pyref import reflectivity as refloxide_reflectivity
-from refloxide.pxr.layout import reflectivity_for_pol
+from refloxide.pxr.layout import apply_laboratory_scales, reflectivity_for_pol
 from refloxide.pxr.plugin.dispersive_model import resolve_instrument
+from refloxide.tmm import uniaxial_reflectivity as rust_uniaxial_reflectivity
 
 if TYPE_CHECKING:
     from refloxide.pxr.energy.structure import StackSnapshot
@@ -45,7 +45,8 @@ class ReflectivityBatchTerm:
     y_err
         Uncertainties on ``y``; use ones when unweighted.
     pol
-        ``'s'`` or ``'p'`` laboratory channel (pyref ``ReflectModel`` indexing).
+        ``'s'`` or ``'p'`` laboratory channel (legacy plugin indexing via
+        :func:`~refloxide.pxr.layout.reflectivity_for_pol`).
     energy
         Photon energy in eV for dispersive structure evaluation.
     lambda_
@@ -130,7 +131,7 @@ def _q_grid_for_pol(
     theta_offset_s: float,
     theta_offset_p: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Apply pyref theta offsets and return ``(qvals, qvals_1, qvals_2)``."""
+    """Apply laboratory theta offsets and return ``(qvals, qvals_1, qvals_2)``."""
     wavelength = 12398.42 / energy
     x = np.asarray(x, dtype=np.float64)
     if pol == "s":
@@ -195,7 +196,7 @@ def _evaluate_reflectivity_term(
     parallel_kernels: bool,
     snapshot: StackSnapshot | None = None,
 ) -> np.ndarray:
-    """Evaluate one batched term's model curve on ``term.x``."""
+    """Evaluate one batched term's model curve on ``term.x`` via Rust TMM."""
     energy = float(term.energy)
     instrument = resolve_instrument(model, energy)  # type: ignore[arg-type]
     structure = model.structure  # type: ignore[union-attr]
@@ -216,23 +217,36 @@ def _evaluate_reflectivity_term(
     )
     dq_raw = term.x_err if term.x_err is not None else instrument.dq
     dq = float(np.asarray(dq_raw).flat[0])
-    result = refloxide_reflectivity(
-        qvals + instrument.q_offset,
-        slabs,
-        tensor,
-        energy,
-        scale_s=instrument.scale_s,
-        scale_p=instrument.scale_p,
-        bkg=instrument.bkg,
-        dq=dq,
-        backend="uni",
-        use_rust=True,
-        parallel=parallel_kernels,
-    )
-    if result is None:
-        msg = "reflectivity returned None; check dq / backend"
-        raise RuntimeError(msg)
-    refl, _tran, _components = result
+    q_eval = np.asarray(qvals + instrument.q_offset, dtype=np.float64)
+    if float(dq) == 0.0:
+        refl, _tran = rust_uniaxial_reflectivity(
+            q_eval,
+            np.asarray(slabs, dtype=np.float64),
+            np.asarray(tensor, dtype=np.complex128),
+            energy,
+            parallel=parallel_kernels,
+        )
+        refl = np.asarray(refl, dtype=np.float64)
+        apply_laboratory_scales(refl, instrument.scale_s, instrument.scale_p)
+        refl = refl + instrument.bkg
+    else:
+        from refloxide.pxr.plugin.model import reflectivity as plugin_reflectivity
+
+        result = plugin_reflectivity(
+            q_eval,
+            slabs,
+            tensor,
+            energy,
+            scale_s=instrument.scale_s,
+            scale_p=instrument.scale_p,
+            bkg=instrument.bkg,
+            dq=dq,
+            backend="uni",
+        )
+        if result is None:
+            msg = "reflectivity returned None; check dq / backend"
+            raise RuntimeError(msg)
+        refl, _tran, _components = result
     return reflectivity_for_pol(
         term.pol,
         refl,
@@ -343,8 +357,8 @@ class BatchedGlobalObjective(Objective):
         Per-term multipliers broadcast against ``terms`` (and anisotropy terms
         use their own ``lambda_`` fields).
     parallel_kernels
-        Forwarded to :func:`refloxide.integrations.pyref.reflectivity` as
-        ``parallel=``. Default ``False`` for nested fitters.
+        Forwarded to :func:`refloxide.tmm.uniaxial_reflectivity` as
+        ``parallel=`` when ``dq == 0``. Default ``False`` for nested fitters.
     parallel_terms
         Evaluate independent terms on a thread pool when ``True`` and
         ``parallel_kernels`` is ``False``.
@@ -436,7 +450,7 @@ class BatchedGlobalObjective(Objective):
         parallel_terms: bool = False,
         **kwargs: Any,
     ) -> BatchedGlobalObjective:
-        """Build a batched objective from pyref-style anisotropy objectives.
+        """Build a batched objective from anisotropy-style objectives.
 
         Each source objective contributes s- and p-pol reflectivity terms plus
         an optional anisotropy residual when ``data.anisotropy`` is populated.
@@ -647,8 +661,8 @@ class BatchedFitter:
     """Curve fitter entry point for :class:`BatchedGlobalObjective`.
 
     Thin wrapper around :class:`~refloxide.pxr.plugin.fitters.Fitter` so batched
-    objectives use the same ``sample``, ``fit``, and ``to_arviz`` surface as
-    pyref ``CurveFitter``.
+    objectives use the same ``sample``, ``fit``, and ``to_arviz`` surface as the
+    plugin :class:`~refloxide.pxr.plugin.fitters.Fitter`.
     """
 
     def __init__(

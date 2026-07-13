@@ -2,8 +2,9 @@
 
 Builds a vacuum / polystyrene / silicon stack with
 :class:`~refloxide.pxr.plugin.structure.MaterialSLD`, then times
-``refloxide.rust.uniaxial_reflectivity`` (sequential and parallel q), the
-pure-Python ``tjf4x4`` kernel, and the plugin ``Structure.reflectivity`` path.
+``refloxide.tmm.uniaxial_reflectivity`` (sequential and parallel q), the
+pure-Python ``refloxide.python.tmm`` kernel, and the plugin
+``Structure.reflectivity`` path.
 Run with::
 
     uv run maturin develop --release
@@ -29,8 +30,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from refloxide.pxr.plugin.structure import MaterialSLD, Structure
-from refloxide.pxr.tjf4x4 import uniaxial_reflectivity as python_uniaxial_reflectivity
-from refloxide.rust import uniaxial_reflectivity as rust_uniaxial_reflectivity
+from refloxide.python.tmm import uniaxial_reflectivity as python_uniaxial_reflectivity
+from refloxide.tmm import uniaxial_reflectivity as rust_uniaxial_reflectivity
 
 
 def _stack_at(energy_ev: float) -> Structure:
@@ -70,7 +71,7 @@ def python_reflectivity(
     q: np.ndarray,
     energy_ev: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Run the pure-Python tjf4x4 kernel on the same arrays."""
+    """Run the pure-Python TMM kernel on the same arrays."""
     slabs, tensor = _arrays_at(structure, energy_ev)
     refl, _tran, *_ = python_uniaxial_reflectivity(
         np.asarray(q, dtype=np.float64), slabs, tensor, float(energy_ev)

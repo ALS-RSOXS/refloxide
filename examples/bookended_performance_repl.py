@@ -4,12 +4,12 @@ Run cell-by-cell (each ``# %%`` marker is one cell) or top-to-bottom with::
 
     uv run python examples/bookended_performance_repl.py
 
-Forward modeling only -- no fitting, no pyref comparison. This picks up
+Forward modeling only -- no fitting. This picks up
 directly from `bookended_repl.py`'s structure/fitting showcase and the
 performance investigation that followed it: `BookendedOrientationProfile`
 composed via `refloxide.model.BookendedComponent` (see
 `tests/test_bookended_model_integration.py`) is Rust-backed and about 10x
-faster per call than the same profile run through the legacy, pure-Python
+faster per call than the same profile run through the legacy
 `pxr.plugin.model.ReflectModel` path. This script demonstrates that
 capability directly:
 
