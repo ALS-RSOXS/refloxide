@@ -62,6 +62,37 @@ def uniaxial_reflectivity(
     """
     ...
 
+def uniaxial_reflectivity_batch(
+    q: NDArray[np.float64],
+    layers: NDArray[np.float64],
+    tensor: NDArray[np.complex128],
+    energies: NDArray[np.float64],
+    parallel: bool = True,
+) -> tuple[NDArray[np.float64], NDArray[np.complex128]]:
+    """Batched uniaxial reflectivity over shared ``q`` and many energies.
+
+    Parameters
+    ----------
+    q
+        Scattering wavevectors, shape ``(n_q,)``.
+    layers
+        Per-energy slab rows, shape ``(n_E, N, 4)``.
+    tensor
+        Per-energy tensors, shape ``(n_E, N, 3, 3)``.
+    energies
+        Photon energies in eV, shape ``(n_E,)``.
+    parallel
+        When ``True``, parallelize over flattened ``(energy, q)`` indices.
+
+    Returns
+    -------
+    refl
+        Power reflectance, shape ``(n_E, n_q, 2, 2)``.
+    tran
+        Complex transmission amplitudes with the same shape.
+    """
+    ...
+
 def interp_ooc_linear(
     energy_ev: NDArray[np.float64],
     n_xx: NDArray[np.float64],
@@ -100,6 +131,34 @@ def lab_tensor_diagonals_batch(
 
 def isotropic_lab_tensor(n: complex) -> NDArray[np.complex128]:
     """Build a ``(3, 3)`` isotropic tensor with scalar index ``n`` on the diagonal."""
+    ...
+
+def molecular_index_at_ooc(
+    energy_ev: NDArray[np.float64],
+    n_xx: NDArray[np.float64],
+    n_ixx: NDArray[np.float64],
+    n_zz: NDArray[np.float64],
+    n_izz: NDArray[np.float64],
+    query_ev: float,
+    density: float,
+) -> tuple[complex, complex]:
+    """Linear OOC lookup and density scaling to molecular ``(n_xx, n_zz)``."""
+    ...
+
+def uniaxial_lab_tensor(
+    n_mol_xx: complex,
+    n_mol_zz: complex,
+    orientation_rad: float,
+) -> NDArray[np.complex128]:
+    """Laboratory ``(3, 3)`` tensor for one uniaxial orientation (radians)."""
+    ...
+
+def tensor_to_slab_row(
+    thickness: float,
+    roughness: float,
+    tensor: NDArray[np.complex128],
+) -> NDArray[np.float64]:
+    """Pack refnx ``[d, delta, beta, sigma]`` from a laboratory ``(3, 3)`` tensor."""
     ...
 
 def bookended_uniaxial_reflectivity(

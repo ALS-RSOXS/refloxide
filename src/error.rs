@@ -6,6 +6,13 @@
 
 use thiserror::Error;
 
+fn format_energy_index(energy_index: &Option<usize>) -> String {
+    match energy_index {
+        Some(index) => format!(", energy-index {index}"),
+        None => String::new(),
+    }
+}
+
 /// Errors returned by the refloxide kernel.
 #[derive(Debug, Error, Clone)]
 pub enum RefloxideError {
@@ -27,12 +34,14 @@ pub enum RefloxideError {
     InvalidEnergy(f64),
 
     /// Dynamic matrix could not be inverted at a particular layer and q-point.
-    #[error("dynamic matrix is singular at layer {layer}, q-index {q_index}")]
+    #[error("dynamic matrix is singular at layer {layer}, q-index {q_index}{}", format_energy_index(.energy_index))]
     SingularDynamicMatrix {
         /// Index of the offending slab.
         layer: usize,
         /// Index in the q-vector at which the inversion failed.
         q_index: usize,
+        /// Batch energy index when applicable.
+        energy_index: Option<usize>,
     },
 
     /// An input array did not have the expected shape at the FFI boundary.
