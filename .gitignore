@@ -146,7 +146,15 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Generated example output — never source-controlled
+examples/results/
+examples/test_structures_output/
+examples/test_structures_output.zip
+
 # Agents muck things up globally
 .cursor/
 .agents/
 .vscode/mkdocs-validate.yml
+
+# Scratch space for agent-generated plans/notes, never committed
+tmp/
