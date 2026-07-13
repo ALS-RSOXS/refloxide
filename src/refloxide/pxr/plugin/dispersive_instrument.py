@@ -221,7 +221,7 @@ def resolve_instrument(
     instrument_at = getattr(model, "instrument_at", None)
     if callable(instrument_at):
         return instrument_at(float(energy_ev)).resolved()
-    single = cast(_HasInstrument, model)
+    single = cast("_HasInstrument", model)
     energy_off = getattr(single, "energy_offset", Parameter(0.0))
     return ResolvedInstrument(
         scale_s=_float_param(single.scale_s),

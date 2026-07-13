@@ -24,9 +24,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 keywords = []
-dependencies = [
-    "ipykernel>=7.2.0",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -41,8 +39,9 @@ dev = [
     "ipykernel>=7.2.0",
     "periodictable>=2.1.0",
     "matplotlib>=3.10.9",
-    "marimo>=0.23.4",
+    "marimo>=0.23.9",
     "refnx>=0.1.63",
+    "pyarrow>=20.0.0",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -52,9 +51,10 @@ docs = [
 ]
 plugin = [
     "polars>=1.40.1",
+    "pyarrow>=20.0.0",
     "refnx>=0.1.63",
     "periodictable>=2.1.0",
-    "marimo>=0.23.4",
+    "marimo>=0.23.9",
     "arviz>=1.1.0",
 ]
 
@@ -110,7 +110,12 @@ known-first-party = ["refloxide"]
 # =============================================================================
 
 [tool.ty.src]
-include = ["**/*.py"]
+include = ["src"]
+exclude = [
+    "**/pxr/plugin/**",
+    "**/integrations/**",
+    "**/pxr/tjf4x4.py",
+]
 
 # =============================================================================
 # Pytest
