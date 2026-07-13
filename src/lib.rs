@@ -21,12 +21,11 @@ pub use bookended::{
     adaptive_microslab_thicknesses, bookended_uniaxial_reflectivity, build_bookended_film_stack,
     density_profile_bookended, orientation_profile_bookended, BookendedParams,
 };
+pub use error::{RefloxideError, Result};
 pub use sld::{
     isotropic_lab_tensor, molecular_index, molecular_index_at_ooc, tensor_to_slab_row,
     uniaxial_lab_tensor,
 };
-pub use error::{RefloxideError, Result};
 pub use uniaxial::{
-    uniaxial_reflectivity, uniaxial_reflectivity_batch, Layer, UniaxialBatchOutput,
-    UniaxialOutput,
+    uniaxial_reflectivity, uniaxial_reflectivity_batch, Layer, UniaxialBatchOutput, UniaxialOutput,
 };
