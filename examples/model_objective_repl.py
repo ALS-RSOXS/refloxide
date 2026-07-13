@@ -30,10 +30,11 @@ docs). So "pyref ``pol='s'``" corresponds to "refloxide ``.p``", and vice
 versa — accounted for explicitly below, not a bug. See
 ``tests/test_legacy_parity.py`` for the same convention pinned as a test.
 """
-
+# %%
 from __future__ import annotations
 
 import time
+import tracemalloc
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -44,7 +45,7 @@ from refloxide.data import ReflectDataset
 from refloxide.model import MaterialSLD, ReflectModel
 from refloxide.objective import Objective
 
-ENERGY_EV = 700.0
+ENERGY_EV = 250.0
 Q = np.linspace(0.03, 0.2, 150)
 
 # %% Shared physical structure, built two ways
@@ -52,7 +53,7 @@ Q = np.linspace(0.03, 0.2, 150)
 
 def build_refloxide_structure():
     vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
-    film = MaterialSLD("SiO2", density=2.2, name="film")(50, 3)
+    film = MaterialSLD("SiO2", density=2.2, name="film")(100, 3)
     substrate = MaterialSLD("Si", density=2.33, name="substrate")(0, 3)
     return vacuum | film | substrate
 
@@ -61,7 +62,7 @@ def build_pyref_structure():
     vacuum = fit.MaterialSLD("", density=0.0, energy=ENERGY_EV, name="vacuum")
     film = fit.MaterialSLD("SiO2", density=2.2, energy=ENERGY_EV, name="film")
     substrate = fit.MaterialSLD("Si", density=2.33, energy=ENERGY_EV, name="substrate")
-    return vacuum(0, 0) | film(50, 3) | substrate(0, 3)
+    return vacuum(0, 0) | film(100, 3) | substrate(0, 3)
 
 
 refloxide_model = ReflectModel(build_refloxide_structure())
@@ -99,6 +100,23 @@ ax.set_title(f"refloxide.model vs stock pyref, {ENERGY_EV:.0f} eV")
 fig.tight_layout()
 plt.show()
 
+# %% Structure visualization -- depth profile of optical constants + density
+#
+# `Structure.plot.oc` plots the depth-resolved index of refraction, each
+# interface broadened by an error function of width sigma = that
+# interface's own Nevot-Croce roughness (see `Structure.sld_profile_at`).
+# `Structure.plot.param` plots any depth-resolved quantity matching a
+# regex against `Structure.named_profiles_at`'s keys -- "density" here
+# (this structure is plain isotropic MaterialSLD, so "orientation" would
+# be NaN everywhere; see the UniTensorSLD/BookendedComponent repls for
+# structures where it isn't).
+
+refloxide_structure = refloxide_model.structure
+refloxide_structure.plot.oc(ENERGY_EV)
+plt.show()
+refloxide_structure.plot.param("density", roughness=True)
+plt.show()
+
 # %% 2. Speed comparison
 
 
@@ -118,6 +136,27 @@ t_pyref = time_it(lambda: pyref_model.model(Q))
 print(f"refloxide.model.ReflectModel:                 {t_refloxide * 1e3:.4f} ms/call")
 print(f"stock pyref.fitting.ReflectModel (unpatched):  {t_pyref * 1e3:.4f} ms/call")
 print(f"speedup: {t_pyref / t_refloxide:.1f}x\n")
+
+# %% Memory footprint -- peak Python-heap bytes per call, refloxide vs stock pyref
+
+
+def peak_memory_bytes(fn, warmup: int = 5) -> int:
+    """Peak Python-heap bytes traced during one call, after `warmup` untimed calls."""
+    for _ in range(warmup):
+        fn()
+    tracemalloc.start()
+    fn()
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return peak
+
+
+mem_refloxide = peak_memory_bytes(lambda: refloxide_model(Q, ENERGY_EV))
+mem_pyref = peak_memory_bytes(lambda: pyref_model.model(Q))
+
+print(f"refloxide.model.ReflectModel:                 {mem_refloxide:>7,} B/call")
+print(f"stock pyref.fitting.ReflectModel (unpatched):  {mem_pyref:>7,} B/call")
+print(f"memory ratio (pyref/refloxide): {mem_pyref / mem_refloxide:.2f}x\n")
 
 # %% Isolate "is it just Rust, or the new API too" by patching pyref itself
 
@@ -215,3 +254,9 @@ print(
     f"recovered thick = {pyref_film.thick.value:.2f}"
 )
 print(f"fit speedup: {t_pyref_fit / t_new_fit:.1f}x (true thickness was 50.0)")
+# %% Plot pyref structure
+refloxide_structure = new_fitter.objective.model.structure
+refloxide_structure.plot.oc(ENERGY_EV)
+plt.show()
+refloxide_structure.plot.param("density", roughness=True)
+plt.show()
