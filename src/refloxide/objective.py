@@ -84,6 +84,43 @@ def _build_kernel_batches(dataset: ReflectDataset) -> list[_KernelBatch]:
     return batches
 
 
+class _AnisotropyPair(NamedTuple):
+    """One energy's matched s/p rows, sharing an identical `q` array."""
+
+    energy: float
+    q: NDArray[np.float64]
+    s_indices: NDArray[np.intp]
+    p_indices: NDArray[np.intp]
+
+
+def _build_anisotropy_pairs(dataset: ReflectDataset) -> list[_AnisotropyPair]:
+    """Find, per energy, the s/p row pairs sharing an identical `q` array.
+
+    Anisotropy `(R_p - R_s) / (R_p + R_s)` only makes sense where s and p
+    were measured at the same q — energies with only one channel, or
+    where s/p don't share a q grid, are silently excluded rather than
+    raising, since a dataset can legitimately mix anisotropy-comparable
+    and non-comparable energies.
+    """
+    by_energy: dict[float, dict[Pol, NDArray[np.intp]]] = {}
+    for energy, pol, indices in dataset.groups():
+        by_energy.setdefault(energy, {})[pol] = indices
+
+    pairs: list[_AnisotropyPair] = []
+    for energy, channels in sorted(by_energy.items()):
+        if "s" not in channels or "p" not in channels:
+            continue
+        s_indices, p_indices = channels["s"], channels["p"]
+        q_s, q_p = dataset.q[s_indices], dataset.q[p_indices]
+        if q_s.shape == q_p.shape and np.array_equal(q_s, q_p):
+            pairs.append(
+                _AnisotropyPair(
+                    energy=energy, q=q_s, s_indices=s_indices, p_indices=p_indices
+                )
+            )
+    return pairs
+
+
 def gaussian_logl(
     y: NDArray[np.float64],
     y_err: NDArray[np.float64],
@@ -143,11 +180,25 @@ class Objective(_RefnxObjective):
         as `transform(q, y)`/`transform(q, y, y_err)` before comparing data
         to model (e.g. `refnx.analysis.Transform("logY")`).
     name : str, optional
+    anisotropy_weight : float, optional
+        When `0.0` (the default), `logl()` is the standard, unnormalized
+        Gaussian log-likelihood over every row. When nonzero (`0 < w <=
+        1`), `logl()` instead blends that base likelihood with an extra
+        term comparing `model.anisotropy(q, energy)` against the data's
+        own `(r_p - r_s) / (r_p + r_s)` at every energy where `data` has
+        matching s/p rows on the same `q` grid, then normalizes by the
+        number of rows — `ll = (1 - w) * base + w * aniso_term`, `ll /=
+        len(data)`. This exactly matches
+        `refloxide.pxr.plugin.fitters.AnisotropyObjective`'s formula
+        (including its per-point normalization, which only applies in this
+        weighted mode — the `anisotropy_weight=0.0` default stays
+        unnormalized, matching standard `refnx`/`CurveFitter` convention).
 
     Raises
     ------
     ValueError
-        If `data` is empty.
+        If `data` is empty, or `anisotropy_weight` is nonzero but no
+        energy in `data` has matching s/p rows on the same `q` grid.
     """
 
     def __init__(
@@ -158,6 +209,7 @@ class Objective(_RefnxObjective):
         use_weights: bool = True,
         transform: Callable[..., Any] | None = None,
         name: str | None = None,
+        anisotropy_weight: float = 0.0,
     ) -> None:
         if len(data) == 0:
             msg = "Objective requires a non-empty ReflectDataset"
@@ -165,6 +217,16 @@ class Objective(_RefnxObjective):
         self._dataset = data
         self._groups = list(data.groups())
         self._batches = _build_kernel_batches(data)
+        self.anisotropy_weight = float(anisotropy_weight)
+        self._anisotropy_pairs: list[_AnisotropyPair] = []
+        if self.anisotropy_weight:
+            self._anisotropy_pairs = _build_anisotropy_pairs(data)
+            if not self._anisotropy_pairs:
+                msg = (
+                    "anisotropy_weight is nonzero but no energy in data has "
+                    "matching s/p rows sharing the same q grid"
+                )
+                raise ValueError(msg)
         stub = Data1D(
             data=(data.q, data.r, data.r_err), name=name or "reflectivity"
         )
@@ -228,10 +290,35 @@ class Objective(_RefnxObjective):
         y, y_err, predicted = self._transformed(pvals)
         return (y - predicted) / y_err
 
+    def _anisotropy_term(self) -> float:
+        """`-0.5 * sum((model_anisotropy - data_anisotropy) ** 2)` over all pairs."""
+        model_vals = []
+        data_vals = []
+        for pair in self._anisotropy_pairs:
+            model_vals.append(self.model.anisotropy(pair.q, pair.energy))
+            r_s = self._dataset.r[pair.s_indices]
+            r_p = self._dataset.r[pair.p_indices]
+            data_vals.append((r_p - r_s) / (r_p + r_s))
+        model_aniso = np.concatenate(model_vals)
+        data_aniso = np.concatenate(data_vals)
+        return float(-0.5 * np.sum((model_aniso - data_aniso) ** 2))
+
     def logl(self, pvals: NDArray[np.float64] | None = None) -> float:
-        """Gaussian log-likelihood summed over every row in the dataset."""
+        """Log-likelihood over every row in the dataset.
+
+        Standard, unnormalized Gaussian log-likelihood when
+        `anisotropy_weight == 0.0` (the default). When nonzero, blends in
+        the anisotropy term and normalizes by `len(data)` — see
+        `anisotropy_weight`'s docstring on `__init__` for the exact
+        formula and why the normalization only applies in this mode.
+        """
         y, y_err, predicted = self._transformed(pvals)
-        return gaussian_logl(y, y_err, predicted, weighted=self.weighted)
+        base = gaussian_logl(y, y_err, predicted, weighted=self.weighted)
+        if not self.anisotropy_weight:
+            return base
+        weight = self.anisotropy_weight
+        ll = base * (1.0 - weight) + self._anisotropy_term() * weight
+        return ll / len(self._dataset)
 
     def __repr__(self) -> str:
         return (
