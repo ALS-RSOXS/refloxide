@@ -24,9 +24,13 @@ import periodictable.xsf as xsf
 from refnx.analysis import Parameters, possibly_create_parameter
 
 from refloxide import optics
+from refloxide.data import OpticalConstants
 from refloxide.pxr.plugin.structure import compound_density
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    import polars as pl
     from numpy.typing import NDArray
 
 
@@ -304,3 +308,79 @@ class MaterialSLD(Scatterer):
             f"MaterialSLD({self._compound!r}, density={self.density!r}, "
             f"name={self.name!r})"
         )
+
+
+class UniTensorSLD(Scatterer):
+    """Uniaxial material index of refraction from a tabulated optical-constants source.
+
+    Energy is always resolved at `tensor_at` call time via the shared,
+    cached `refloxide.data.OpticalConstants` table — N scatterers
+    referencing the same source share one loaded table instead of each
+    loading and interpolating their own copy (see tmp/USAGE.md "Verifying
+    the sharing guarantee").
+
+    Parameters
+    ----------
+    ooc : OpticalConstants, polars.DataFrame, str, or pathlib.Path
+        Optical-constants source, resolved via
+        `refloxide.data.OpticalConstants.from_source`.
+    density : float or refnx.analysis.Parameter, optional
+        Mass-density scale applied to tabulated indices (g/cm^3).
+    rotation : float or refnx.analysis.Parameter, optional
+        Polar rotation of the molecular frame in radians.
+    energy : float, optional
+        Nominal photon energy (eV) used only by `__complex__`'s quick
+        isotropic-SLD summary — not used by `tensor_at`.
+    energy_offset : float or refnx.analysis.Parameter, optional
+        Energy offset (eV) added to whatever `energy_ev` `tensor_at` is
+        called with, before the table lookup.
+    name : str, optional
+    """
+
+    def __init__(
+        self,
+        ooc: OpticalConstants | pl.DataFrame | str | Path,
+        *,
+        density: float = 1.0,
+        rotation: float = 0.0,
+        energy: float = 250.0,
+        energy_offset: float = 0.0,
+        name: str = "",
+    ) -> None:
+        super().__init__(name=name)
+        self.ooc = OpticalConstants.from_source(ooc)
+        self.density = possibly_create_parameter(
+            density, name=f"{name}_density", vary=True, bounds=(0.0, 5.0 * density)
+        )
+        self.rotation = possibly_create_parameter(
+            rotation, name=f"{name}_rotation", vary=True, bounds=(-np.pi, np.pi)
+        )
+        self.energy_offset = possibly_create_parameter(
+            energy_offset, name=f"{name}_energy_offset", vary=True, bounds=(-0.01, 0.01)
+        )
+        self.energy = float(energy)
+        self._parameters = Parameters(name=name)
+        self._parameters.extend([self.density, self.rotation, self.energy_offset])
+
+    def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
+        eff_ev = float(energy_ev) + float(self.energy_offset.value or 0.0)
+        n_mol_xx, n_mol_zz = self.ooc.molecular_index_at(
+            eff_ev, float(self.density.value or 0.0)
+        )
+        tensor = optics.uniaxial_lab_tensor(
+            n_mol_xx, n_mol_zz, float(self.rotation.value or 0.0)
+        )
+        return np.asarray(tensor, dtype=np.complex128)
+
+    @property
+    def parameters(self) -> Parameters:
+        self._parameters.name = self.name
+        return self._parameters
+
+    def __complex__(self) -> complex:
+        """Isotropic SLD (`delta + i*beta`) at this scatterer's nominal `energy`."""
+        tensor = self.tensor_at(self.energy)
+        return complex((2 * tensor[0, 0] + tensor[2, 2]) / 3)
+
+    def __repr__(self) -> str:
+        return f"UniTensorSLD(name={self.name!r})"
