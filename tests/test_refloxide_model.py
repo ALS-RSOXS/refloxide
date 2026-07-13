@@ -12,11 +12,14 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
+from refloxide import tmm
 from refloxide.data import OpticalConstants
-from refloxide.model import MaterialSLD, Slab, Structure, UniTensorSLD
+from refloxide.model import MaterialSLD, ReflectModel, Slab, Structure, UniTensorSLD
+from refloxide.pxr.energy.compile import compile_structure
 from refloxide.pxr.energy.probe import Probe
 from refloxide.pxr.energy.scatterer import OocUniTensorScatterer
 from refloxide.pxr.energy.scatterers import DispersiveMaterialSLD
+from refloxide.pxr.plugin.structure import MaterialSLD as LegacyMaterialSLD
 
 
 def _ooc_table() -> pl.DataFrame:
@@ -170,3 +173,99 @@ def test_unitensorsld_accepts_pandas_or_polars_or_path(tmp_path):
         assert tensor.shape == (3, 3)
     assert from_path.ooc is from_existing.ooc
     OpticalConstants._cache.clear()
+
+
+def _new_si_structure() -> Structure:
+    vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
+    film = MaterialSLD("Si", density=2.33, name="film")(50, 2)
+    substrate = MaterialSLD("Si", density=2.33, name="substrate")(0, 3)
+    return vacuum | film | substrate
+
+
+def _legacy_si_structure():
+    vac = LegacyMaterialSLD("", density=0.0, name="vac")
+    film = LegacyMaterialSLD("Si", density=2.33, name="film")
+    sub = LegacyMaterialSLD("Si", density=2.33, name="Si")
+    return compile_structure(vac(0, 0) | film(50, 2) | sub(0, 3))
+
+
+def test_reflectmodel_returns_reflectivity_with_s_and_p_attributes():
+    model = ReflectModel(_new_si_structure())
+    q = np.linspace(0.03, 0.15, 20)
+
+    r = model(q, 700.0)
+
+    assert r.s.shape == (20,)
+    assert r.p.shape == (20,)
+    # tuple-unpacking still works (Reflectivity is a NamedTuple)
+    r_s, r_p = model(q, 700.0)
+    np.testing.assert_allclose(r_s, r.s)
+    np.testing.assert_allclose(r_p, r.p)
+
+
+def test_reflectmodel_array_energy_shape_is_q_by_energy():
+    model = ReflectModel(_new_si_structure())
+    q = np.linspace(0.03, 0.15, 20)
+    energies = np.array([250.0, 284.4, 700.0])
+
+    r = model(q, energies)
+
+    assert r.s.shape == (20, 3)
+    assert r.p.shape == (20, 3)
+    # each energy column matches the scalar-energy call for that energy
+    for i, energy in enumerate(energies):
+        scalar = model(q, float(energy))
+        np.testing.assert_allclose(r.s[:, i], scalar.s, rtol=1e-10, atol=1e-12)
+        np.testing.assert_allclose(r.p[:, i], scalar.p, rtol=1e-10, atol=1e-12)
+
+
+def test_reflectmodel_matches_raw_kernel_on_legacy_materialized_layers():
+    """Parity vs the legacy DispersiveStructure's materialized layers/tensor.
+
+    DispersiveReflectModel itself applies default instrument correction
+    stages (resolution smearing, background, scale) that refloxide.model's
+    ReflectModel deliberately doesn't own (see tmp/USAGE.md -- correction
+    stages are out of scope for this pass), so comparing against
+    DispersiveReflectModel.model() directly would be comparing smeared vs
+    unsmeared curves, not a real parity check. Instead, bypass instrument
+    correction on both sides: materialize the legacy DispersiveStructure's
+    raw layers/tensor and feed them into the same raw
+    refloxide.tmm.uniaxial_reflectivity kernel ReflectModel calls.
+    """
+    energy_ev = 700.0
+    q = np.linspace(0.03, 0.15, 20)
+
+    new_model = ReflectModel(_new_si_structure())
+    new_curve = new_model(q, energy_ev).s
+
+    legacy_structure = _legacy_si_structure()
+    snap = legacy_structure.materialize(energy_ev, structure_offset_ev=0.0)
+    legacy_refl, _tran = tmm.uniaxial_reflectivity(
+        q, snap.layers, snap.tensors, energy_ev, parallel=False
+    )
+
+    np.testing.assert_allclose(new_curve, legacy_refl[:, 0, 0], rtol=1e-10, atol=1e-12)
+
+
+def test_reflectmodel_setp_on_structure_affects_every_energy():
+    # film (SiO2) and substrate (Si) are genuinely different materials here --
+    # a Si-on-Si structure would make film thickness optically invisible
+    # (no index contrast at that interface), which isn't what this test
+    # means to exercise.
+    vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
+    film = MaterialSLD("SiO2", density=2.2, name="film")(50, 2)
+    substrate = MaterialSLD("Si", density=2.33, name="substrate")(0, 3)
+    structure = vacuum | film | substrate
+    model = ReflectModel(structure)
+    q = np.linspace(0.03, 0.15, 20)
+
+    before = model(q, 700.0).s
+    film.thick.value = 200.0  # same Parameter used at every energy, no per-energy copy
+    after_700 = model(q, 700.0).s
+    after_250 = model(q, 250.0).s
+
+    assert not np.allclose(before, after_700)
+    # changing thick affected the 250 eV evaluation too -- same object, not per-energy
+    film.thick.value = 50.0
+    reverted_250 = model(q, 250.0).s
+    assert not np.allclose(after_250, reverted_250)

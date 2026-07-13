@@ -16,14 +16,14 @@ own energy-dependent scatterer in Python" for a full worked example.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 import periodictable as pt
 import periodictable.xsf as xsf
 from refnx.analysis import Parameters, possibly_create_parameter
 
-from refloxide import optics
+from refloxide import optics, tmm
 from refloxide.data import OpticalConstants
 from refloxide.pxr.plugin.structure import compound_density
 
@@ -133,6 +133,11 @@ class Component(ABC):
         """This component's packed `[thickness, delta, beta, roughness]` row."""
         raise NotImplementedError
 
+    @abstractmethod
+    def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
+        """This component's `(3, 3)` laboratory tensor at `energy_ev`."""
+        raise NotImplementedError
+
     @property
     @abstractmethod
     def parameters(self) -> Parameters:
@@ -178,6 +183,10 @@ class Slab(Component):
             float(self.thick.value or 0.0),
             float(self.rough.value or 0.0),
         )
+
+    def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
+        """Delegate to `sld.tensor_at` — geometry doesn't affect the tensor itself."""
+        return self.sld.tensor_at(energy_ev)
 
     @property
     def parameters(self) -> Parameters:
@@ -229,10 +238,30 @@ class Structure:
         -------
         NDArray[np.float64]
             One `[thickness, delta, beta, roughness]` row per component, in
-            stack order — ready for `refloxide.tmm.uniaxial_reflectivity`.
+            stack order — the `layers` argument
+            `refloxide.tmm.uniaxial_reflectivity` expects.
         """
         rows = [component.slab_row_at(energy_ev) for component in self.components]
         return np.asarray(rows, dtype=np.float64)
+
+    def tensor_rows_at(self, energy_ev: float) -> NDArray[np.complex128]:
+        """Stacked `(len(components), 3, 3)` laboratory tensors at `energy_ev`.
+
+        Parameters
+        ----------
+        energy_ev : float
+            Photon energy in eV.
+
+        Returns
+        -------
+        NDArray[np.complex128]
+            One `(3, 3)` tensor per component, in stack order — the
+            `tensor` argument `refloxide.tmm.uniaxial_reflectivity` expects
+            (the full anisotropic tensor, not `slab_rows_at`'s isotropic
+            average).
+        """
+        tensors = [component.tensor_at(energy_ev) for component in self.components]
+        return np.asarray(tensors, dtype=np.complex128)
 
 
 class MaterialSLD(Scatterer):
@@ -384,3 +413,94 @@ class UniTensorSLD(Scatterer):
 
     def __repr__(self) -> str:
         return f"UniTensorSLD(name={self.name!r})"
+
+
+class Reflectivity(NamedTuple):
+    """Both polarization channels from one `ReflectModel` evaluation.
+
+    Parameters
+    ----------
+    s, p : NDArray[np.float64]
+        Power reflectance for the s- and p-polarization channels. Shape
+        `(len(q),)` for scalar `energy`; shape `(len(q), len(energy))` for
+        array `energy`, one column per energy in `energy`'s order.
+    """
+
+    s: NDArray[np.float64]
+    p: NDArray[np.float64]
+
+
+class ReflectModel:
+    """Turn a `Structure` into predicted reflectivity for `(q, energy)` pairs.
+
+    No energy or polarization channel is required at construction: energy
+    is a call-time argument to `__call__`, and both s and p channels are
+    always returned together as a `Reflectivity` — which channel a fit
+    actually uses is inferred from the measured dataset an `Objective` is
+    built against (see `refloxide.objective`), not chosen here.
+
+    Parameters
+    ----------
+    structure : Structure
+    parallel : bool, optional
+        Forwarded to the Rust kernel. Keep `False` (the default) when
+        calling from inside an already-parallel fitting loop (refnx
+        workers, emcee walkers, `multiprocessing.Pool`) to avoid thread
+        oversubscription; parallelize at the outer loop instead.
+    name : str, optional
+    """
+
+    def __init__(
+        self, structure: Structure, *, parallel: bool = False, name: str = ""
+    ) -> None:
+        self.structure = structure
+        self.parallel = parallel
+        self.name = name
+
+    @property
+    def parameters(self) -> Parameters:
+        """The wrapped `Structure`'s parameters."""
+        return self.structure.parameters
+
+    def __call__(
+        self, q: NDArray[np.float64] | float, energy: NDArray[np.float64] | float
+    ) -> Reflectivity:
+        """Evaluate reflectivity for `q` at `energy`.
+
+        Parameters
+        ----------
+        q : float or NDArray[np.float64]
+            Scattering wavevector(s) in inverse angstrom.
+        energy : float or NDArray[np.float64]
+            Photon energy in eV. Scalar or array — the `Structure` is
+            re-materialized (via `Structure.slab_rows_at`/`tensor_rows_at`)
+            fresh at every distinct energy, there is no cached,
+            construction-time energy anywhere in this call.
+
+        Returns
+        -------
+        Reflectivity
+            Both polarization channels; see `Reflectivity`'s shape rules.
+        """
+        q_arr = np.atleast_1d(np.asarray(q, dtype=np.float64))
+        if np.ndim(energy) == 0:
+            energy_ev = float(energy)  # type: ignore[arg-type]
+            layers = self.structure.slab_rows_at(energy_ev)
+            tensor = self.structure.tensor_rows_at(energy_ev)
+            refl, _tran = tmm.uniaxial_reflectivity(
+                q_arr, layers, tensor, energy_ev, parallel=self.parallel
+            )
+            return Reflectivity(s=refl[:, 0, 0], p=refl[:, 1, 1])
+
+        energies_arr = np.atleast_1d(np.asarray(energy, dtype=np.float64))
+        layers = np.stack(
+            [self.structure.slab_rows_at(float(e)) for e in energies_arr], axis=0
+        )
+        tensor = np.stack(
+            [self.structure.tensor_rows_at(float(e)) for e in energies_arr], axis=0
+        )
+        refl, _tran = tmm.uniaxial_reflectivity_batch(
+            q_arr, layers, tensor, energies_arr, parallel=self.parallel
+        )
+        # refl is (n_E, n_q, 2, 2); Reflectivity wants (n_q, n_E)
+        return Reflectivity(s=refl[:, :, 0, 0].T, p=refl[:, :, 1, 1].T)
