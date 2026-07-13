@@ -30,7 +30,7 @@ def _is_stack_component(other: object) -> bool:
     """True when ``other`` is a leaf component with ``slabs``/``tensor`` rows."""
     if isinstance(other, (Structure, Stack)):
         return False
-    if isinstance(other, PXR_Component):
+    if isinstance(other, Component):
         return True
     slabs = getattr(other, "slabs", None)
     tensor = getattr(other, "tensor", None)
@@ -46,7 +46,7 @@ class Structure(UserList):
 
     Parameters
     ----------
-    components : tuple[Component | PXR_Component]
+    components : tuple[Component | Component]
         Initial components of the structure.
     name : str, optional
         Name of the structure.
@@ -76,7 +76,7 @@ class Structure(UserList):
 
     def __init__(
         self,
-        *components: PXR_Component,
+        *components: Component,
         name="",
         reverse_structure=False,
     ) -> None:
@@ -87,8 +87,8 @@ class Structure(UserList):
 
         # if you provide a list of components to start with, then initialise
         # the structure from that
-        self.data: list[PXR_Component] = [
-            c for c in components if isinstance(c, PXR_Component)
+        self.data: list[Component] = [
+            c for c in components if isinstance(c, Component)
         ]
 
     def __copy__(self) -> Structure:
@@ -123,7 +123,7 @@ class Structure(UserList):
 
     def append(self, item) -> None:
         """
-        Append a :class:`PXR_Component` to the Structure.
+        Append a :class:`Component` to the Structure.
 
         Parameters
         ----------
@@ -135,18 +135,18 @@ class Structure(UserList):
             return
 
         if not _is_stack_component(item):
-            e = "You can only add PXR_Component objects to a structure"
+            e = "You can only add Component objects to a structure"
             raise TypeError(e)
         super().append(item)
 
     @property
-    def substrate(self) -> PXR_Component:
+    def substrate(self) -> Component:
         """
         The substrate of the structure.
 
         Returns
         -------
-        substrate : :class:`PXR_Component`
+        substrate : :class:`Component`
             The substrate component of the structure.
         """
         if not self.data:
@@ -222,7 +222,7 @@ class Structure(UserList):
             return None
 
         if not (isinstance(self.data[-1], Slab) and isinstance(self.data[0], Slab)):
-            e = "The first and last PXR_Components in a PXR_Structure need to be PXR_slabs"  # noqa: E501
+            e = "The first and last Components in a Structure need to be Slabs"
             raise TypeError(e)
 
         sl = [
@@ -399,7 +399,7 @@ class Structure(UserList):
 
         Parameters
         ----------
-        other: :class:`PXR_Structure`, :class:`PXR_Component`, :class:`PXR_SLD`
+        other: :class:`PXR_Structure`, :class:`Component`, :class:`PXR_SLD`
             The object to add to the structure.
 
         Examples
@@ -430,7 +430,7 @@ class Structure(UserList):
 
         Parameters
         ----------
-        other: :class:`PXR_Structure`, :class:`PXR_Component`, :class:`PXR_SLD`
+        other: :class:`PXR_Structure`, :class:`Component`, :class:`PXR_SLD`
             The object to add to the structure.
 
         Examples
@@ -449,7 +449,7 @@ class Structure(UserList):
         return p
 
     @property
-    def components(self) -> list[PXR_Component]:
+    def components(self) -> list[Component]:
         """
         The list of components in the sample.
         """
@@ -708,7 +708,7 @@ class Scatterer:
         return slab | other
 
 
-class PXR_Component:
+class Component:
     """
     A base class for describing the structure of a subset of an interface.
 
@@ -854,7 +854,7 @@ class PXR_Component:
         return np.array([self.sld.tensor])
 
 
-class Slab(PXR_Component):
+class Slab(Component):
     """
     A slab component has with tensor index of refraction associated over its thickness.
 
@@ -870,19 +870,37 @@ class Slab(PXR_Component):
         Name of this slab
     """
 
-    def __init__(self, thick, sld: Scatterer, rough, name=""):
+    def __init__(
+        self,
+        thick,
+        sld: Scatterer,
+        rough,
+        name="",
+        *,
+        enforce_nevot_croce=False,
+    ):
         super().__init__(name=name)
         self.thick = possibly_create_parameter(thick, name=f"{name}_thick")
         _sld = sld if isinstance(sld, Scatterer) else SLD(sld)
         self.sld: Scatterer = _sld
 
         self.rough = possibly_create_parameter(rough, name=f"{name}_rough")
+        self._enforce_nevot_croce = bool(enforce_nevot_croce)
 
         p: Parameters = Parameters(name=self.name)
         p.extend([Parameters([self.thick, self.rough], name=f"{name}_slab")])
         p.extend(self.sld.parameters)
 
         self._parameters = p
+
+    @property
+    def enforce_nevot_croce(self) -> bool:
+        """When ``True``, Nevot-Croce thickness bounds apply in structure ``logp``."""
+        return self._enforce_nevot_croce
+
+    @enforce_nevot_croce.setter
+    def enforce_nevot_croce(self, value: bool) -> None:
+        self._enforce_nevot_croce = bool(value)
 
     def __repr__(self):
         """Representation of the slab."""
@@ -1420,7 +1438,7 @@ class UniTensorSLD(Scatterer):
         return self._tensor
 
 
-class MixedMaterialSlab(PXR_Component):
+class MixedMaterialSlab(Component):
     """
     A slab component made of several components.
 
@@ -1564,17 +1582,17 @@ class MixedMaterialSlab(PXR_Component):
         return combinetensor  # self.sld.tensor
 
 
-class Stack(PXR_Component, UserList):
+class Stack(Component, UserList):
     r"""
-    Stack of PXR_Components.
+    Stack of Components.
 
-    A series of PXR_Components that are considered as a single item. When
+    A series of Components that are considered as a single item. When
     incorporated into a PXR_Structure the PXR_Stack will be repeated as a multilayer
 
     Parameters
     ----------
     components : sequence
-        A series of PXR_Components to repeat in a structure
+        A series of Components to repeat in a structure
     name: str
         Human readable name for the stack
     repeats: number, Parameter
@@ -1583,7 +1601,7 @@ class Stack(PXR_Component, UserList):
     """
 
     def __init__(self, components=(), name="", repeats=1):
-        PXR_Component.__init__(self, name=name)
+        Component.__init__(self, name=name)
         UserList.__init__(self)
 
         self.repeats = possibly_create_parameter(repeats, "repeat")
@@ -1591,10 +1609,10 @@ class Stack(PXR_Component, UserList):
 
         # Construct the list of components
         for c in components:
-            if isinstance(c, PXR_Component):
+            if isinstance(c, Component):
                 self.data.append(c)
             else:
-                e = "You can only initialise a PXR_Stack with PXR_Components"
+                e = "You can only initialise a PXR_Stack with Components"
                 raise TypeError(e)
 
     def __setitem__(self, i, item):
@@ -1623,12 +1641,12 @@ class Stack(PXR_Component, UserList):
 
     def append(self, item):
         """
-        Append a PXR_Component to the Stack.
+        Append a Component to the Stack.
 
         Parameters
         ----------
         item: PXR_Compponent
-            PXR_Component to be added to the PXR_Stack
+            Component to be added to the PXR_Stack
 
         """
         if isinstance(item, Scatterer):
@@ -1636,7 +1654,7 @@ class Stack(PXR_Component, UserList):
             return
 
         if not _is_stack_component(item):
-            e = "You can only add PXR_Components"
+            e = "You can only add Components"
             raise TypeError(e)
         self.data.append(item)
 
@@ -1802,6 +1820,13 @@ def birefringence_profile(slabs, tensor, z=None, step=False):
         )  # Broadcast into a single item
 
     return zed, tensor_erf if step is False else tensor_step
+
+
+PXR_Component = Component
+PXR_Structure = Structure
+PXR_Slab = Slab
+PXR_SLD = SLD
+PXR_MaterialSLD = MaterialSLD
 
 
 # Taken from Kas's code.
