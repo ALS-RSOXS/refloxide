@@ -34,7 +34,13 @@ def apply_laboratory_scales(
     scale_s: float,
     scale_p: float,
 ) -> None:
-    """Apply ``scale_s`` and ``scale_p`` to ``R_ss`` and ``R_pp`` diagonals in place."""
+    """Apply ``scale_s`` / ``scale_p`` to native ``R_ss`` / ``R_pp`` diagonals in place.
+
+    Native layout is ``[:,0,0] = R_ss`` and ``[:,1,1] = R_pp``. When paired with
+    :func:`reflectivity_for_pol` (which inverts labels for pyref compatibility),
+    ``scale_s`` therefore scales the channel exposed as ``pol='p'`` and
+    ``scale_p`` scales the channel exposed as ``pol='s'``.
+    """
     refl[:, 0, 0] = scale_s * refl[:, 0, 0]
     refl[:, 1, 1] = scale_p * refl[:, 1, 1]
 
@@ -46,7 +52,7 @@ def reflectivity_for_pol(
     qvals_1: NDArray[np.float64],
     qvals_2: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    """Extract reflectivity for ``pol`` from a native refloxide Jones power matrix.
+    """Extract reflectivity for ``pol`` with legacy pyref channel labels.
 
     Parameters
     ----------
@@ -56,8 +62,8 @@ def reflectivity_for_pol(
         the first segment is p-in/p-out.
     refl
         Power reflectance ``(n_q, 2, 2)`` as returned by the uniaxial kernel
-        (``[:,0,0] = R_ss``, ``[:,1,1] = R_pp``). Channel extraction follows
-        :class:`pyref.fitting.model.ReflectModel` so ``pol='s'`` reads
+        (native ``[:,0,0] = R_ss``, ``[:,1,1] = R_pp``). Channel extraction
+        follows :class:`pyref.fitting.model.ReflectModel` so ``pol='s'`` reads
         ``[:,1,1]`` and ``pol='p'`` reads ``[:,0,0]``, matching pyref datasets
         and combined ``sp`` / ``ps`` objectives.
     qvals, qvals_1, qvals_2

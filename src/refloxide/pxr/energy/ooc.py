@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pandas as pd
 
 _OOC_COLUMNS = ("energy", "n_xx", "n_ixx", "n_zz", "n_izz")
@@ -56,6 +58,19 @@ class OocAnchor:
             n_izz=np.asarray(ordered["n_izz"], dtype=np.float64),
             interp=interp,
         )
+
+    @classmethod
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        interp: Literal["linear", "pchip"] = "linear",
+    ) -> OocAnchor:
+        """Load sorted OOC columns from a CSV file at ``path``."""
+        import pandas as pd
+
+        frame = pd.read_csv(path)
+        return cls.from_dataframe(frame, interp=interp)
 
     def values_at(self, energy_ev: float) -> tuple[float, float, float, float]:
         """Return ``(n_xx, n_ixx, n_zz, n_izz)`` at ``energy_ev``."""

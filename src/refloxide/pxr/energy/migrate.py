@@ -8,12 +8,14 @@ import numpy as np
 
 from refloxide.pxr.energy.ooc import OocAnchor
 from refloxide.pxr.energy.scatterers import (
-    EnergyDependentMaterialSLD,
-    EnergyDependentUniTensorSLD,
+    DispersiveMaterialSLD,
     FixedTensorScatterer,
+    FreeTensorScatterer,
+    TabulatedUniTensorSLD,
 )
-from refloxide.pxr.energy.structure import EnergyDependentStructure
+from refloxide.pxr.energy.structure import DispersiveStructure
 from refloxide.pxr.plugin.structure import (
+    SLD,
     MaterialSLD,
     Scatterer,
     Slab,
@@ -22,33 +24,38 @@ from refloxide.pxr.plugin.structure import (
 )
 
 if TYPE_CHECKING:
-    from refloxide.pxr.plugin.structure import PXR_Component
+    from refloxide.pxr.plugin.structure import Component
 
 
 def upgrade_scatterer(scatterer: Scatterer):
-    """Map a plugin scatterer to its energy-deferred counterpart.
+    """Map a plugin scatterer to its deferred-energy counterpart.
 
     Parameters
     ----------
     scatterer
         :class:`~refloxide.pxr.plugin.structure.MaterialSLD`,
         :class:`~refloxide.pxr.plugin.structure.UniTensorSLD`, or an existing
-        energy-dependent scatterer (returned unchanged).
+        deferred scatterer (returned unchanged).
 
     Returns
     -------
-    EnergyDependentMaterialSLD, EnergyDependentUniTensorSLD, or FixedTensorScatterer
+    DispersiveMaterialSLD, TabulatedUniTensorSLD, or FixedTensorScatterer
         Deferred-energy scatterer preserving parameters where possible.
     """
     if isinstance(
         scatterer,
-        (EnergyDependentMaterialSLD, EnergyDependentUniTensorSLD, FixedTensorScatterer),
+        (
+            DispersiveMaterialSLD,
+            TabulatedUniTensorSLD,
+            FixedTensorScatterer,
+            FreeTensorScatterer,
+        ),
     ):
         return scatterer
     if isinstance(scatterer, MaterialSLD):
         density = float(scatterer.density.value or 1.0)
         off = float(scatterer.energy_offset.value or 0.0)
-        out = EnergyDependentMaterialSLD(
+        out = DispersiveMaterialSLD(
             scatterer.formula,
             density=density,
             energy_offset=off,
@@ -71,7 +78,7 @@ def upgrade_scatterer(scatterer: Scatterer):
         density = float(scatterer.density.value or 1.0)
         rotation = float(scatterer.rotation.value or 0.0)
         off = float(scatterer.energy_offset.value or 0.0)
-        out = EnergyDependentUniTensorSLD(
+        out = TabulatedUniTensorSLD(
             anchor,
             rotation=rotation,
             density=density,
@@ -88,13 +95,15 @@ def upgrade_scatterer(scatterer: Scatterer):
             bounds=scatterer.energy_offset.bounds,
         )
         return out
+    if isinstance(scatterer, SLD):
+        return FreeTensorScatterer.from_sld(scatterer)
     if scatterer._tensor is not None:
         return FixedTensorScatterer(np.asarray(scatterer.tensor), name=scatterer.name)
     msg = f"Cannot migrate scatterer type {type(scatterer)!r}"
     raise TypeError(msg)
 
 
-def _upgrade_component(component: PXR_Component) -> PXR_Component:
+def _upgrade_component(component: Component) -> Component:
     if isinstance(component, Slab) and isinstance(component.sld, Scatterer):
         upgraded = upgrade_scatterer(component.sld)
         if upgraded is component.sld:
@@ -104,11 +113,12 @@ def _upgrade_component(component: PXR_Component) -> PXR_Component:
             upgraded,
             component.rough.value,
             name=component.name,
+            enforce_nevot_croce=getattr(component, "enforce_nevot_croce", False),
         )
     return component
 
 
-def upgrade_structure(structure: Structure) -> EnergyDependentStructure:
+def upgrade_structure(structure: Structure) -> DispersiveStructure:
     """Clone a plugin :class:`~refloxide.pxr.plugin.structure.Structure`.
 
     Scatterers are converted to deferred-energy types.
@@ -120,11 +130,11 @@ def upgrade_structure(structure: Structure) -> EnergyDependentStructure:
 
     Returns
     -------
-    EnergyDependentStructure
+    DispersiveStructure
         New structure with migrated scatterers and preserved ``reverse_structure``.
     """
     components = [_upgrade_component(c) for c in structure.components]
-    out = EnergyDependentStructure(
+    out = DispersiveStructure(
         *components,
         name=structure.name,
         reverse_structure=structure.reverse_structure,

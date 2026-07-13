@@ -8,8 +8,8 @@ import numpy as np
 from refnx.analysis import possibly_create_parameter
 
 from refloxide.pxr.energy.ooc import OocAnchor
-from refloxide.pxr.energy.probe import EnergyProbe
-from refloxide.pxr.plugin.structure import PXR_Component
+from refloxide.pxr.energy.probe import Probe
+from refloxide.pxr.plugin.structure import Component
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -109,7 +109,7 @@ def _lab_tensor_diagonals(
     return n_o, n_e
 
 
-class EnergyBookendedOrientationDensityProfile(PXR_Component):
+class BookendedOrientationProfile(Component):
     """Adaptive ZnPc film with book-ended angle and density on a refined grid.
 
     Drop-in replacement for ``AdaptiveBookendedOrientationDensityProfile`` that stores
@@ -121,7 +121,8 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
 
     def __init__(
         self,
-        ooc: pd.DataFrame | OocAnchor,
+        *,
+        ooc: pd.DataFrame | OocAnchor | None = None,
         total_thick: float,
         surface_roughness: float,
         density_bulk: float,
@@ -132,21 +133,23 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
         alpha_bulk: float,
         alpha_si: float,
         alpha_vac: float,
-        energy: float,
+        energy: float | None = None,
         energy_offset: float = 0.0,
         name: str = "",
         num_slabs: int = 20,
         mesh_constant: float = 0.1,
-        *,
         interp: Literal["linear", "pchip"] = "linear",
     ) -> None:
         super().__init__(name=name)
         self.mesh_constant = mesh_constant
         self.num_slabs = int(num_slabs)
-        if isinstance(ooc, OocAnchor):
-            self._anchor = ooc
-        else:
-            self._anchor = OocAnchor.from_dataframe(ooc, interp=interp)
+        self._anchor: OocAnchor | None = None
+        if ooc is not None:
+            self._anchor = (
+                ooc
+                if isinstance(ooc, OocAnchor)
+                else OocAnchor.from_dataframe(ooc, interp=interp)
+            )
         self.total_thick = possibly_create_parameter(total_thick, name="total_thick")
         self.surface_roughness = possibly_create_parameter(
             surface_roughness,
@@ -164,9 +167,11 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
             energy_offset,
             name="energy_offset",
         )
-        self._nominal_energy_ev = float(energy)
+        self._nominal_energy_ev = None if energy is None else float(energy)
         self._ooc_cache_energy: float | None = None
         self._ooc_cache_values: tuple[float, float, float, float] | None = None
+        self._mesh_cache_key: tuple[float, int, float] | None = None
+        self._mesh_cache_thick: NDArray[np.float64] | None = None
         self._parameters = super().parameters
         self._parameters.extend(
             [
@@ -186,26 +191,97 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
 
     @property
     def anchor(self) -> OocAnchor:
-        """Tabulated optical constants."""
+        """Tabulated optical constants.
+
+        Raises
+        ------
+        RuntimeError
+            If no optical constants have been bound yet (neither `ooc=` at
+            construction nor a later `bind_ooc` call) — energy/optical
+            constants are deferred by default, this is not an oversight.
+        """
+        if self._anchor is None:
+            msg = (
+                "BookendedOrientationProfile has no optical constants bound yet — "
+                "pass ooc= at construction or call bind_ooc(ooc) before evaluating."
+            )
+            raise RuntimeError(msg)
         return self._anchor
 
-    def probe_at(self, base_energy_ev: float | None = None) -> EnergyProbe:
-        """Build the energy probe including this component's offset."""
+    def bind_ooc(
+        self,
+        ooc: pd.DataFrame | OocAnchor,
+        *,
+        energy: float | None = None,
+        interp: Literal["linear", "pchip"] = "linear",
+    ) -> None:
+        """Attach optical constants (and optionally a nominal energy) post-construction.
+
+        Parameters
+        ----------
+        ooc : polars/pandas DataFrame or OocAnchor
+            Optical-constants source, same shape `__init__`'s `ooc` accepts.
+        energy : float, optional
+            If given, also sets/updates the nominal energy `probe_at`/
+            `tensor`/`slabs` use when called without an explicit energy.
+        interp : {"linear", "pchip"}, optional
+            Interpolation mode when `ooc` is a raw table; ignored if `ooc`
+            is already an `OocAnchor`.
+        """
+        self._anchor = (
+            ooc
+            if isinstance(ooc, OocAnchor)
+            else OocAnchor.from_dataframe(ooc, interp=interp)
+        )
+        if energy is not None:
+            self._nominal_energy_ev = float(energy)
+        self.clear_ooc_cache()
+
+    def probe_at(self, base_energy_ev: float | None = None) -> Probe:
+        """Build the energy probe including this component's offset.
+
+        Raises
+        ------
+        RuntimeError
+            If `base_energy_ev` is omitted and no nominal energy has been
+            bound yet (neither `energy=` at construction nor a later
+            `bind_ooc(ooc, energy=...)` call).
+        """
         if base_energy_ev is None:
+            if self._nominal_energy_ev is None:
+                msg = (
+                    "BookendedOrientationProfile has no energy bound yet — pass "
+                    "energy= at construction, bind_ooc(ooc, energy=...), or an "
+                    "explicit base_energy_ev here."
+                )
+                raise RuntimeError(msg)
             base = float(self._nominal_energy_ev)
         else:
             base = float(base_energy_ev)
         off = float(self.energy_offset.value or 0.0)
-        return EnergyProbe(base_energy_ev=base, component_offset_ev=off)
+        return Probe(base_energy_ev=base, component_offset_ev=off)
 
     @property
     def slab_thick(self) -> NDArray[np.float64]:
-        """Microslab thicknesses (angstrom)."""
-        return adaptive_microslab_thicknesses(
-            float(self.total_thick.value or 0.0),
-            self.num_slabs,
-            self.mesh_constant,
-        )
+        """Microslab thicknesses (angstrom).
+
+        Cached on `(total_thick, num_slabs, mesh_constant)` -- `tensor()` and
+        `BookendedComponent.slab_rows_at` each ask for this independently
+        within one model evaluation, and the geometric mesh construction
+        itself doesn't depend on energy, orientation, or density, so
+        recomputing it every time is pure waste whenever the geometry
+        hasn't changed since the last call.
+        """
+        total_thick = float(self.total_thick.value or 0.0)
+        key = (total_thick, self.num_slabs, self.mesh_constant)
+        cached = self._mesh_cache_thick
+        if self._mesh_cache_key != key or cached is None:
+            cached = adaptive_microslab_thicknesses(
+                total_thick, self.num_slabs, self.mesh_constant
+            )
+            self._mesh_cache_key = key
+            self._mesh_cache_thick = cached
+        return cached
 
     @property
     def mid_points(self) -> NDArray[np.float64]:
@@ -257,7 +333,7 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
         eff = probe.effective_ev
         if self._ooc_cache_energy == eff and self._ooc_cache_values is not None:
             return self._ooc_cache_values
-        values = self._anchor.values_at(eff)
+        values = self.anchor.values_at(eff)
         self._ooc_cache_energy = eff
         self._ooc_cache_values = values
         return values
@@ -294,40 +370,91 @@ class EnergyBookendedOrientationDensityProfile(PXR_Component):
         out[0, 3] = float(self.surface_roughness.value or 0.0)
         return out
 
+    @classmethod
+    def from_slabs(
+        cls,
+        surface_slab,
+        bulk_slab,
+        interface_slab,
+        ooc: pd.DataFrame | OocAnchor | None = None,
+        *,
+        energy: float | None = None,
+        energy_offset: float = 0.0,
+        num_slabs: int = 24,
+        mesh_constant: float = 0.1,
+        name: str = "",
+        interp: Literal["linear", "pchip"] = "linear",
+    ) -> BookendedOrientationProfile:
+        """Build from three template slabs (surface, bulk, substrate interface).
+
+        Thin classmethod wrapper over the module-level
+        :func:`bookended_from_three_slabs` builder — see that function's
+        docstring for the full parameter contract. Provided so
+        construction reads as ``BookendedOrientationProfile.from_slabs(...)``,
+        matching this codebase's other ``from_*`` classmethod constructors
+        (``OocAnchor.from_dataframe``, ``OpticalConstants.from_file``, ...).
+        """
+        return bookended_from_three_slabs(
+            surface_slab,
+            bulk_slab,
+            interface_slab,
+            ooc,
+            energy=energy,
+            energy_offset=energy_offset,
+            num_slabs=num_slabs,
+            mesh_constant=mesh_constant,
+            name=name,
+            interp=interp,
+        )
+
 
 def bookended_from_three_slabs(
-    vacuum_slab,
     surface_slab,
     bulk_slab,
     interface_slab,
-    ooc: pd.DataFrame | OocAnchor,
+    ooc: pd.DataFrame | OocAnchor | None = None,
     *,
-    energy: float,
+    energy: float | None = None,
     energy_offset: float = 0.0,
     num_slabs: int = 24,
     mesh_constant: float = 0.1,
     name: str = "",
     interp: Literal["linear", "pchip"] = "linear",
-) -> EnergyBookendedOrientationDensityProfile:
-    """Build a book-ended film from the three legacy ``UniTensorSLD`` slabs.
+) -> BookendedOrientationProfile:
+    """Build a book-ended film from three template slabs.
+
+    Fixes a real signature bug: this function used to take a fourth,
+    entirely unused ``vacuum_slab`` argument despite its name — a
+    book-ended profile has exactly two book-ends (surface-adjacent,
+    substrate-adjacent) and one bulk value it interpolates between, so
+    three slabs is correct and now genuinely all it takes.
 
     Parameters
     ----------
-    vacuum_slab, surface_slab, bulk_slab, interface_slab
-        Template slabs in vacuum-to-substrate order (surface = vacuum side).
+    surface_slab, bulk_slab, interface_slab
+        Template slabs in vacuum-to-substrate order: ``surface_slab`` sets
+        the vacuum-side book-end, ``interface_slab`` the substrate-side
+        book-end, and ``bulk_slab`` the interior value the profile
+        interpolates between across ``num_slabs`` microslabs.
     ooc
-        Full OOC table; not cropped at construction.
-    energy, energy_offset, num_slabs, mesh_constant, name, interp
-        Forwarded to :class:`EnergyBookendedOrientationDensityProfile`.
+        Full OOC table; not cropped at construction. Omit to defer binding
+        optical constants until later via
+        :meth:`BookendedOrientationProfile.bind_ooc`, matching ``energy``'s
+        own deferred-by-default behavior.
+    energy
+        Nominal photon energy (eV). Omit to defer, same as ``ooc`` — the
+        resulting profile raises a clear error if evaluated before either
+        is bound, rather than silently using a wrong energy.
+    energy_offset, num_slabs, mesh_constant, name, interp
+        Forwarded to :class:`BookendedOrientationProfile`.
     """
-    del vacuum_slab
     total_thick = (
         float(surface_slab.thick.value or 0.0)
         + float(bulk_slab.thick.value or 0.0)
         + float(interface_slab.thick.value or 0.0)
     )
-    return EnergyBookendedOrientationDensityProfile(
-        ooc,
+    return BookendedOrientationProfile(
+        ooc=ooc,
         total_thick=total_thick,
         surface_roughness=float(surface_slab.rough.value or 0.0),
         density_bulk=float(bulk_slab.sld.density.value or 1.0),
@@ -338,10 +465,13 @@ def bookended_from_three_slabs(
         alpha_bulk=float(bulk_slab.sld.rotation.value or 0.0),
         alpha_si=float(interface_slab.sld.rotation.value or 0.0),
         alpha_vac=float(surface_slab.sld.rotation.value or 0.0),
-        energy=float(energy),
+        energy=energy,
         energy_offset=energy_offset,
-        name=name or f"ZnPc_{energy:.1f}",
+        name=name or (f"ZnPc_{energy:.1f}" if energy is not None else "ZnPc"),
         num_slabs=num_slabs,
         mesh_constant=mesh_constant,
         interp=interp,
     )
+
+
+EnergyBookendedOrientationDensityProfile = BookendedOrientationProfile

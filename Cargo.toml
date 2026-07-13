@@ -1,6 +1,6 @@
 [package]
 name = "refloxide"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "4x4 transfer matrix reflectivity for stratified media"
 license = "GPL-3.0"
@@ -21,7 +21,6 @@ nalgebra = "0.33"
 num-complex = "0.4"
 thiserror = "1.0"
 physical_constants = "0.5"
-lapack = { version = "0.20.0", default-features = false }
 rayon = "1.10"
 
 [dev-dependencies]

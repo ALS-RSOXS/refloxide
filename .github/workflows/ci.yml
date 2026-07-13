@@ -118,6 +118,68 @@ jobs:
       - name: Run Rust tests
         run: cargo test --all-targets
 
+  wheels:
+    name: Wheel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64
+            manylinux: "2_28"
+          - os: macos-latest
+            target: aarch64
+            manylinux: auto
+          - os: windows-latest
+            target: x64
+            manylinux: auto
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --compatibility pypi -i python3.13
+          manylinux: ${{ matrix.manylinux }}
+
+      - name: Assert Linux manylinux tag
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import glob
+          import sys
+
+          wheels = sorted(glob.glob("dist/*.whl"))
+          if not wheels:
+              sys.exit("no wheel in dist/")
+          for path in wheels:
+              name = path.rsplit("/", 1)[-1]
+              if name.endswith("linux_x86_64.whl"):
+                  sys.exit(f"unsupported platform tag in {name}")
+              if "manylinux" not in name and "musllinux" not in name:
+                  sys.exit(f"expected manylinux/musllinux tag in {name}")
+              print(f"OK: {name}")
+          PY
+
+      - name: Smoke import
+        shell: bash
+        run: |
+          python -m venv .smoke-venv
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            .smoke-venv/Scripts/pip install --no-deps dist/*.whl
+            .smoke-venv/Scripts/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
+          else
+            .smoke-venv/bin/pip install --no-deps dist/*.whl
+            .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
+          fi
+
   dependency_scan:
     name: Dependency Scan
     runs-on: ubuntu-latest

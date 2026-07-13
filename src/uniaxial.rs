@@ -74,6 +74,15 @@ pub struct UniaxialOutput {
     pub tran: Vec<[[C; 2]; 2]>,
 }
 
+/// Batched polarized reflectance and transmission over energies and q-points.
+#[derive(Debug, Clone)]
+pub struct UniaxialBatchOutput {
+    /// Power reflectance with shape `(n_energies, n_q, 2, 2)`.
+    pub refl: Vec<Vec<[[f64; 2]; 2]>>,
+    /// Complex amplitude transmission with the same layout.
+    pub tran: Vec<Vec<[[C; 2]; 2]>>,
+}
+
 /// Snapshot of per-layer state retained across the streaming chain.
 #[derive(Debug, Clone, Copy)]
 struct LayerSnapshot {
@@ -114,7 +123,7 @@ impl QScratch {
 ///   entries describe the fronting and the backing.
 /// - `tensor`: per-slab 3x3 dispersion tensor, length `nlayers`. The
 ///   Berreman dielectric is built as `eps = conj(I - 2 * tensor)`.
-/// - `energy`: photon energy in eV. Must be strictly positive.
+/// - `energy_ev`: photon energy in eV. Must be strictly positive.
 /// - `parallel`: when true, distribute q-points across rayon's global thread
 ///   pool. When false, run sequentially. Callers driving the kernel from a
 ///   Python fitting routine that is itself multi-threaded or multi-process
@@ -129,7 +138,7 @@ pub fn uniaxial_reflectivity(
     q: &[f64],
     layers: &[Layer],
     tensor: &[Matrix3<C>],
-    energy: f64,
+    energy_ev: f64,
     parallel: bool,
 ) -> Result<UniaxialOutput> {
     if layers.len() != tensor.len() {
@@ -141,11 +150,11 @@ pub fn uniaxial_reflectivity(
     if layers.len() < 2 {
         return Err(RefloxideError::InsufficientLayers(layers.len()));
     }
-    if !energy.is_finite() || energy <= 0.0 {
-        return Err(RefloxideError::InvalidEnergy(energy));
+    if !energy_ev.is_finite() || energy_ev <= 0.0 {
+        return Err(RefloxideError::InvalidEnergy(energy_ev));
     }
 
-    let wl = HC_EV_ANGSTROM / energy;
+    let wl = HC_EV_ANGSTROM / energy_ev;
     let k0 = 2.0 * std::f64::consts::PI / wl;
 
     let eps: Vec<Matrix3<C>> = tensor.iter().map(berreman_dielectric).collect();
@@ -175,10 +184,118 @@ pub fn uniaxial_reflectivity(
     Ok(UniaxialOutput { refl, tran })
 }
 
+/// Computes polarized reflectance for many energies sharing one q-grid.
+///
+/// # Parameters
+/// - `q`: scattering wavevectors in `1/Angstrom`, length `n_q`.
+/// - `layers`: per-energy slab rows with shape conceptually `(n_E, N, 4)`.
+/// - `tensor`: per-energy tensors with shape `(n_E, N, 3, 3)`.
+/// - `energies_ev`: photon energies in eV, length `n_E`.
+/// - `parallel`: distribute flattened `(energy, q)` pairs across rayon.
+///
+/// # Errors
+/// Same contract as [`uniaxial_reflectivity`], with energy index included in
+/// singularity messages.
+pub fn uniaxial_reflectivity_batch(
+    q: &[f64],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+    parallel: bool,
+) -> Result<UniaxialBatchOutput> {
+    let n_e = energies_ev.len();
+    if layers.len() != n_e || tensor.len() != n_e {
+        return Err(RefloxideError::InvalidShape(format!(
+            "layers and tensor batch length must match energies_ev ({n_e}), got layers={}, tensor={}",
+            layers.len(),
+            tensor.len()
+        )));
+    }
+    if n_e == 0 {
+        return Err(RefloxideError::InvalidShape(
+            "uniaxial_reflectivity_batch requires at least one energy".into(),
+        ));
+    }
+    for (ei, energy_ev) in energies_ev.iter().enumerate() {
+        if !energy_ev.is_finite() || *energy_ev <= 0.0 {
+            return Err(RefloxideError::InvalidEnergy(*energy_ev));
+        }
+        if layers[ei].len() != tensor[ei].len() {
+            return Err(RefloxideError::LayerCountMismatch {
+                layers: layers[ei].len(),
+                tensor: tensor[ei].len(),
+            });
+        }
+        if layers[ei].len() < 2 {
+            return Err(RefloxideError::InsufficientLayers(layers[ei].len()));
+        }
+    }
+
+    let eps: Vec<Vec<Matrix3<C>>> = tensor
+        .iter()
+        .map(|stack| stack.iter().map(berreman_dielectric).collect())
+        .collect();
+    let k0: Vec<f64> = energies_ev
+        .iter()
+        .map(|&energy_ev| 2.0 * std::f64::consts::PI / (HC_EV_ANGSTROM / energy_ev))
+        .collect();
+
+    let pairs: Vec<(usize, usize)> = (0..n_e)
+        .flat_map(|ei| (0..q.len()).map(move |qi| (ei, qi)))
+        .collect();
+
+    let solve = |(ei, qi): (usize, usize)| {
+        let result = solve_q(q[qi], &layers[ei], &eps[ei], k0[ei]);
+        result.map_err(|err| annotate_batch(err, ei, qi))
+    };
+
+    let solved: Vec<PolBlock> = if parallel {
+        pairs
+            .par_iter()
+            .copied()
+            .map(solve)
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        pairs
+            .iter()
+            .copied()
+            .map(solve)
+            .collect::<Result<Vec<_>>>()?
+    };
+
+    let n_q = q.len();
+    let mut refl = vec![vec![[[0.0; 2]; 2]; n_q]; n_e];
+    let mut tran = vec![vec![[[C::new(0.0, 0.0); 2]; 2]; n_q]; n_e];
+    for (idx, (ei, qi)) in pairs.iter().enumerate() {
+        let (r, t) = solved[idx];
+        refl[*ei][*qi] = r;
+        tran[*ei][*qi] = t;
+    }
+
+    Ok(UniaxialBatchOutput { refl, tran })
+}
+
 fn annotate(err: RefloxideError, q_index: usize) -> RefloxideError {
     match err {
         RefloxideError::SingularDynamicMatrix { layer, .. } => {
-            RefloxideError::SingularDynamicMatrix { layer, q_index }
+            RefloxideError::SingularDynamicMatrix {
+                layer,
+                q_index,
+                energy_index: None,
+            }
+        }
+        other => other,
+    }
+}
+
+fn annotate_batch(err: RefloxideError, energy_index: usize, q_index: usize) -> RefloxideError {
+    match err {
+        RefloxideError::SingularDynamicMatrix { layer, .. } => {
+            RefloxideError::SingularDynamicMatrix {
+                layer,
+                q_index,
+                energy_index: Some(energy_index),
+            }
         }
         other => other,
     }
@@ -298,6 +415,7 @@ fn invert_dynamic(layer_idx: usize, d: &Matrix4<C>) -> Result<Mat4> {
         None => Err(RefloxideError::SingularDynamicMatrix {
             layer: layer_idx,
             q_index: usize::MAX,
+            energy_index: None,
         }),
     }
 }
@@ -402,6 +520,60 @@ mod tests {
             for c in 0..4 {
                 assert_relative_eq!(out[r][c].re, ref_prod[(r, c)].re, epsilon = 1e-12);
                 assert_relative_eq!(out[r][c].im, ref_prod[(r, c)].im, epsilon = 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn batch_matches_sequential_uniaxial() {
+        use nalgebra::Vector3;
+
+        let q = vec![0.02, 0.05, 0.1];
+        let layers_a = vec![
+            Layer::new(0.0, 0.0, 0.0, 0.0),
+            Layer::new(100.0, 1e-6, 1e-8, 2.0),
+            Layer::new(0.0, 2e-6, 0.0, 0.0),
+        ];
+        let n = Complex::new(1.0 - 1e-6, -1e-8);
+        let tensor_a = vec![
+            Matrix3::from_diagonal(&Vector3::new(n, n, n)),
+            Matrix3::from_diagonal(&Vector3::new(
+                Complex::new(1.0 - 2e-6, -2e-8),
+                Complex::new(1.0 - 2e-6, -2e-8),
+                Complex::new(1.0 - 3e-6, -3e-8),
+            )),
+            Matrix3::from_diagonal(&Vector3::new(
+                Complex::new(1.0 - 2e-6, 0.0),
+                Complex::new(1.0 - 2e-6, 0.0),
+                Complex::new(1.0 - 2e-6, 0.0),
+            )),
+        ];
+        let energies_ev = [250.0, 284.4];
+        let single: Vec<_> = energies_ev
+            .iter()
+            .map(|&energy_ev| {
+                uniaxial_reflectivity(&q, &layers_a, &tensor_a, energy_ev, false).unwrap()
+            })
+            .collect();
+        let batch = uniaxial_reflectivity_batch(
+            &q,
+            &[layers_a.clone(), layers_a],
+            &[tensor_a.clone(), tensor_a],
+            &energies_ev,
+            false,
+        )
+        .unwrap();
+        for (ei, one) in single.iter().enumerate() {
+            for qi in 0..q.len() {
+                for r in 0..2 {
+                    for c in 0..2 {
+                        assert_relative_eq!(
+                            batch.refl[ei][qi][r][c],
+                            one.refl[qi][r][c],
+                            epsilon = 1e-12
+                        );
+                    }
+                }
             }
         }
     }

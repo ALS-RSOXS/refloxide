@@ -2,10 +2,9 @@
 
 Evaluates many reflectivity datasets from one energy-parameterized
 :class:`~refloxide.pxr.plugin.model.ReflectModel` in a single ``logl`` call:
-structure and dispersive tensors are materialized once per distinct energy,
-then each dataset term reuses the kernel with explicit ``parallel=False`` by
-default so the objective is safe inside emcee, ``scipy`` differential evolution,
-and ``L-BFGS-B`` worker pools.
+for :class:`~refloxide.pxr.energy.structure.DispersiveStructure` stacks the
+objective materializes slabs and tensors once per distinct photon energy per
+parameter vector, then reuses those snapshots for every term at that energy.
 """
 
 from __future__ import annotations
@@ -24,8 +23,10 @@ from refnx.dataset import Data1D
 
 from refloxide.integrations.pyref import reflectivity as refloxide_reflectivity
 from refloxide.pxr.layout import reflectivity_for_pol
+from refloxide.pxr.plugin.dispersive_model import resolve_instrument
 
 if TYPE_CHECKING:
+    from refloxide.pxr.energy.structure import StackSnapshot
     from refloxide.pxr.plugin.model import ReflectModel
 
 PolKind = Literal["s", "p"]
@@ -164,33 +165,65 @@ def _gaussian_logl(
     return float(-0.5 * np.sum(terms))
 
 
+def _materialize_structure(
+    structure: Any,
+    energy: float,
+    *,
+    structure_offset_ev: float | None = None,
+) -> StackSnapshot:
+    """Materialize ``structure`` at ``energy`` with optional offset override."""
+    if hasattr(structure, "materialize"):
+        return structure.materialize(  # type: ignore[union-attr]
+            energy,
+            structure_offset_ev=structure_offset_ev,
+        )
+    layers = structure.slabs()  # type: ignore[union-attr]
+    tensors = structure.tensor(energy=energy)  # type: ignore[union-attr]
+    from refloxide.pxr.energy.structure import StackSnapshot
+
+    return StackSnapshot(
+        layers=np.asarray(layers, dtype=np.float64),
+        tensors=np.asarray(tensors, dtype=np.complex128),
+        energy_ev=float(energy),
+    )
+
+
 def _evaluate_reflectivity_term(
     model: ReflectModel,
     term: ReflectivityBatchTerm,
     *,
     parallel_kernels: bool,
+    snapshot: StackSnapshot | None = None,
 ) -> np.ndarray:
     """Evaluate one batched term's model curve on ``term.x``."""
     energy = float(term.energy)
-    slabs = model.structure.slabs()  # type: ignore[union-attr]
-    tensor = model.structure.tensor(energy=energy)  # type: ignore[union-attr]
+    instrument = resolve_instrument(model, energy)  # type: ignore[arg-type]
+    structure = model.structure  # type: ignore[union-attr]
+    if snapshot is None:
+        snapshot = _materialize_structure(
+            structure,
+            energy,
+            structure_offset_ev=instrument.energy_offset_ev,
+        )
+    slabs = snapshot.layers
+    tensor = snapshot.tensors
     qvals, qvals_1, qvals_2 = _q_grid_for_pol(
         term.x,
         term.pol,
         energy,
-        theta_offset_s=float(model.theta_offset_s.value),  # type: ignore[arg-type]
-        theta_offset_p=float(model.theta_offset_p.value),  # type: ignore[arg-type]
+        theta_offset_s=instrument.theta_offset_s,
+        theta_offset_p=instrument.theta_offset_p,
     )
-    dq_raw = term.x_err if term.x_err is not None else float(model.dq)  # type: ignore[arg-type, union-attr]
+    dq_raw = term.x_err if term.x_err is not None else instrument.dq
     dq = float(np.asarray(dq_raw).flat[0])
     result = refloxide_reflectivity(
-        qvals + float(model.q_offset.value),  # type: ignore[arg-type]
+        qvals + instrument.q_offset,
         slabs,
         tensor,
         energy,
-        scale_s=float(model.scale_s.value),  # type: ignore[arg-type]
-        scale_p=float(model.scale_p.value),  # type: ignore[arg-type]
-        bkg=float(model.bkg.value),  # type: ignore[arg-type]
+        scale_s=instrument.scale_s,
+        scale_p=instrument.scale_p,
+        bkg=instrument.bkg,
         dq=dq,
         backend="uni",
         use_rust=True,
@@ -217,7 +250,7 @@ def evaluate_reflectivity_batch(
     parallel_terms: bool = False,
     max_workers: int | None = None,
 ) -> dict[int, np.ndarray]:
-    """Evaluate all reflectivity terms, grouping work by energy when possible.
+    """Evaluate all reflectivity terms, materializing each distinct energy once.
 
     Parameters
     ----------
@@ -244,10 +277,40 @@ def evaluate_reflectivity_batch(
     if not terms:
         return {}
 
+    structure = model.structure  # type: ignore[union-attr]
+    snapshots: dict[tuple[float, float], StackSnapshot] = {}
+    batch_begin = getattr(structure, "begin_materialization_batch", None)
+    batch_end = getattr(structure, "end_materialization_batch", None)
+    if hasattr(structure, "materialize"):
+        if batch_begin is not None:
+            batch_begin()
+        try:
+            seen: set[tuple[float, float]] = set()
+            for term in terms:
+                instrument = resolve_instrument(model, float(term.energy))  # type: ignore[arg-type]
+                key = (float(term.energy), instrument.energy_offset_ev)
+                if key in seen:
+                    continue
+                seen.add(key)
+                snapshots[key] = _materialize_structure(
+                    structure,
+                    key[0],
+                    structure_offset_ev=key[1],
+                )
+        finally:
+            if batch_end is not None:
+                batch_end()
+
     def _one(idx_term: tuple[int, ReflectivityBatchTerm]) -> tuple[int, np.ndarray]:
         idx, term = idx_term
+        instrument = resolve_instrument(model, float(term.energy))  # type: ignore[arg-type]
+        snap_key = (float(term.energy), instrument.energy_offset_ev)
+        snap = snapshots.get(snap_key)
         return idx, _evaluate_reflectivity_term(
-            model, term, parallel_kernels=parallel_kernels
+            model,
+            term,
+            parallel_kernels=parallel_kernels,
+            snapshot=snap,
         )
 
     if parallel_terms and not parallel_kernels and len(terms) > 1:
@@ -261,6 +324,10 @@ def evaluate_reflectivity_batch(
 
 class BatchedGlobalObjective(Objective):
     """Global objective that evaluates reflectivity terms in one batched pass.
+
+    .. deprecated::
+        Prefer :class:`~refloxide.pxr.objective.ReflectivityObjective` with
+        :class:`~refloxide.pxr.energy.model.CompiledReflectivityModel`.
 
     Parameters
     ----------

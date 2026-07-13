@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from refloxide.pxr.energy.bookended import EnergyBookendedOrientationDensityProfile
+from refloxide.pxr.energy.bookended import BookendedOrientationProfile
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 
 def find_bookended_profile(
     structure: Any,
-) -> tuple[int, EnergyBookendedOrientationDensityProfile] | None:
-    """Locate the single energy book-ended profile in a pyref/refnx structure."""
+) -> tuple[int, BookendedOrientationProfile] | None:
+    """Locate the single book-ended profile in a pyref/refnx structure."""
     for i, component in enumerate(structure.components):
-        if isinstance(component, EnergyBookendedOrientationDensityProfile):
+        if isinstance(component, BookendedOrientationProfile):
             return i, component
     return None
 
@@ -53,7 +53,7 @@ def stack_backing_rows(structure: Any, bookended_index: int) -> NDArray[np.float
 
 
 def bookended_profile_params(
-    profile: EnergyBookendedOrientationDensityProfile,
+    profile: BookendedOrientationProfile,
 ) -> dict[str, float | int]:
     """Scalar book-ended parameters for the Rust fused kernel."""
     return {
@@ -73,7 +73,7 @@ def bookended_profile_params(
 
 
 def effective_energy_ev(
-    profile: EnergyBookendedOrientationDensityProfile,
+    profile: BookendedOrientationProfile,
     base_energy_ev: float,
     structure_energy_offset: float = 0.0,
 ) -> float:
@@ -93,7 +93,7 @@ def evaluate_fused_bookended_reflectivity(
     """Evaluate reflectivity on the fused Rust path when the stack qualifies.
 
     Returns ``None`` when ``structure`` is not a single
-    :class:`~refloxide.pxr.energy.bookended.EnergyBookendedOrientationDensityProfile`
+    :class:`~refloxide.pxr.energy.bookended.BookendedOrientationProfile`
     between a fronting slab and one or more backing slabs.
     """
     located = find_bookended_profile(structure)

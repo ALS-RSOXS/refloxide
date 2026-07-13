@@ -7,7 +7,10 @@ top-level :mod:`refloxide` package.
 
 from refloxide.integrations import pyref
 from refloxide.integrations.pyref import (
+    PyrefPatchReport,
     patch_pyref,
+    patch_pyref_if_needed,
+    pyref_patch_report,
     pyref_patched,
     reflectivity,
     require_pyref_patched,
@@ -15,8 +18,11 @@ from refloxide.integrations.pyref import (
 )
 
 __all__ = [
+    "PyrefPatchReport",
     "patch_pyref",
+    "patch_pyref_if_needed",
     "pyref",
+    "pyref_patch_report",
     "pyref_patched",
     "reflectivity",
     "require_pyref_patched",
