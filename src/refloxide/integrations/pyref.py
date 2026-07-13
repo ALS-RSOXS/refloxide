@@ -12,7 +12,9 @@ this adapter for biaxial or general-incidence claims.
 
 from __future__ import annotations
 
+import contextvars
 import numbers
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -25,6 +27,27 @@ from refloxide.pxr.layout import apply_laboratory_scales, reflectivity_for_pol
 from refloxide.pxr.tjf4x4 import uniaxial_reflectivity as _python_uniaxial
 
 _FWHM = 2 * np.sqrt(2 * np.log(2.0))
+_DEFAULT_PROBE_ENERGY_EV = 250.0
+_eval_energy: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "refloxide_pyref_eval_energy",
+    default=None,
+)
+
+SldClassesMode = Literal["legacy", "energy", "both"]
+
+
+@dataclass(frozen=True, slots=True)
+class PyrefPatchReport:
+    """Snapshot of which refloxide hooks are active on ``pyref.fitting``."""
+
+    kernels: bool
+    reflectivity: bool
+    model_layout: bool
+    fused_path: bool
+    structure_ior: bool
+    structure_materialization: bool
+    sld_classes: SldClassesMode
+    sld_exports: tuple[str, ...]
 
 
 def _swap_sp_block(matrix: NDArray[Any]) -> NDArray[Any]:
@@ -337,12 +360,129 @@ def _smeared_reflectivity(
     return smeared_output, tran, list(components)
 
 
+def _structure_energy_offset_ev(structure: Any | None) -> float:
+    """Read the structure-level energy offset (eV) when present."""
+    if structure is None:
+        return 0.0
+    for attr in ("structure_energy_offset", "energy_offset"):
+        candidate = getattr(structure, attr, None)
+        if candidate is not None and hasattr(candidate, "value"):
+            return float(candidate.value or 0.0)
+    return 0.0
+
+
+def _resolve_reflectmodel_energy(
+    model: Any,
+    *,
+    default: float = _DEFAULT_PROBE_ENERGY_EV,
+) -> float:
+    """Resolve a finite photon energy (eV) for ``ReflectModel`` q/theta adjustments.
+
+    Stock pyref allows ``ReflectModel.energy is None`` at construction; this helper
+    falls back to scatterer ``get_energy()``/``.energy`` on the attached structure,
+    then ``default``.
+    """
+    energy = getattr(model, "energy", None)
+    if energy is not None:
+        return float(energy)
+    structure = getattr(model, "structure", None)
+    if structure is not None:
+        for component in getattr(structure, "components", []):
+            sld = getattr(component, "sld", None)
+            if sld is None:
+                continue
+            get_energy = getattr(sld, "get_energy", None)
+            if callable(get_energy):
+                return float(get_energy())
+            scatterer_energy = getattr(sld, "energy", None)
+            if scatterer_energy is not None:
+                return float(scatterer_energy)
+    return float(default)
+
+
+def _slab_energy_probe(
+    _slab: Any,
+    energy: float | None,
+    *,
+    structure: Any | None = None,
+) -> Any:
+    """Build a :class:`~refloxide.pxr.energy.probe.Probe` for one slab."""
+    from refloxide.pxr.energy.probe import Probe
+
+    ctx_energy = _eval_energy.get()
+    if energy is not None:
+        base = float(energy)
+    elif ctx_energy is not None:
+        base = float(ctx_energy)
+    else:
+        base = _DEFAULT_PROBE_ENERGY_EV
+    return Probe(
+        base_energy_ev=base,
+        structure_offset_ev=_structure_energy_offset_ev(structure),
+    )
+
+
+def _tensor_to_slab_row(
+    thick: float,
+    rough: float,
+    tensor: NDArray[Any],
+) -> NDArray[np.float64]:
+    """Convert a diagonal tensor to refnx ``[d, delta, beta, sigma]`` layout."""
+    n_avg = (tensor[0, 0] + tensor[1, 1] + tensor[2, 2]) / 3.0
+    delta = float((1.0 - n_avg).real)
+    beta = float((1.0 - n_avg).imag)
+    return np.array([thick, delta, beta, rough], dtype=np.float64)
+
+
+def _refloxide_sld_exports() -> dict[str, Any]:
+    """Scatterer symbols registered on ``pyref.fitting.structure``."""
+    from refloxide.pxr.energy import (
+        BookendedOrientationProfile,
+        DeferredScatterer,
+        DispersiveMaterialSLD,
+        DispersiveStructure,
+        EnergyBookendedOrientationDensityProfile,
+        EnergyDependentMaterialSLD,
+        EnergyDependentScatterer,
+        EnergyDependentStructure,
+        EnergyDependentUniTensorSLD,
+        EnergyProbe,
+        OocUniTensorScatterer,
+        Probe,
+        RefloxideScatterer,
+        TabulatedUniTensorSLD,
+        upgrade_scatterer,
+        upgrade_structure,
+    )
+
+    return {
+        "BookendedOrientationProfile": BookendedOrientationProfile,
+        "DeferredScatterer": DeferredScatterer,
+        "DispersiveMaterialSLD": DispersiveMaterialSLD,
+        "DispersiveStructure": DispersiveStructure,
+        "EnergyBookendedOrientationDensityProfile": (
+            EnergyBookendedOrientationDensityProfile
+        ),
+        "EnergyDependentMaterialSLD": EnergyDependentMaterialSLD,
+        "EnergyDependentScatterer": EnergyDependentScatterer,
+        "EnergyDependentStructure": EnergyDependentStructure,
+        "EnergyDependentUniTensorSLD": EnergyDependentUniTensorSLD,
+        "EnergyProbe": EnergyProbe,
+        "OocUniTensorScatterer": OocUniTensorScatterer,
+        "Probe": Probe,
+        "RefloxideScatterer": RefloxideScatterer,
+        "TabulatedUniTensorSLD": TabulatedUniTensorSLD,
+        "upgrade_scatterer": upgrade_scatterer,
+        "upgrade_structure": upgrade_structure,
+    }
+
+
 def _reflectmodel_q_grid(
     model: Any,
     x: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Mirror pyref ``ReflectModel`` q/theta adjustments before the kernel."""
-    wavelength = 12398.42 / float(model.energy)
+    wavelength = 12398.42 / _resolve_reflectmodel_energy(model)
     if model.pol in ("sp", "ps"):
         concat_loc = int(np.argmax(np.abs(np.diff(x))))
         qvals_1 = x[: concat_loc + 1]
@@ -380,7 +520,7 @@ def _patch_reflect_model_fused(model_mod: Any, *, parallel: bool) -> None:
     original_model = reflect_model._model
 
     def _model(self, x, p=None, x_err=None):
-        if not hasattr(self, "energy"):
+        if getattr(self, "energy", None) is None and not hasattr(self, "structure"):
             return original_model(self, x, p=p, x_err=x_err)
         if p is not None and hasattr(self, "parameters"):
             self.parameters.pvals = np.array(p)
@@ -389,6 +529,7 @@ def _patch_reflect_model_fused(model_mod: Any, *, parallel: bool) -> None:
         x_arr = np.asarray(x, dtype=np.float64)
         qvals, qvals_1, qvals_2 = _reflectmodel_q_grid(self, x_arr)
         backend = getattr(self, "backend", "uni")
+        model_energy = _resolve_reflectmodel_energy(self)
         if backend == "uni" and float(x_err) == 0.0 and hasattr(self, "structure"):
             from refloxide.pxr.energy.fused import evaluate_fused_bookended_reflectivity
 
@@ -402,7 +543,7 @@ def _patch_reflect_model_fused(model_mod: Any, *, parallel: bool) -> None:
             fused = evaluate_fused_bookended_reflectivity(
                 q_kernel,
                 self.structure,
-                float(self.energy),
+                model_energy,
                 structure_energy_offset=structure_offset,
                 parallel=parallel,
             )
@@ -422,7 +563,7 @@ def _patch_reflect_model_fused(model_mod: Any, *, parallel: bool) -> None:
                 apply_laboratory_scales(refl, scale_s, scale_p)
                 refl = refl + bkg
                 return qvals, qvals_1, qvals_2, refl, tran, []
-        return original_model(self, x, p=None, x_err=x_err)
+        return original_model(self, x, p=p, x_err=x_err)
 
     reflect_model._model = _model
     reflect_model.__refloxide_fused_patched__ = True
@@ -444,11 +585,9 @@ def _patch_reflect_model_model(model_mod: Any) -> None:
 
 
 def _is_bookended_profile(other: Any) -> bool:
-    from refloxide.pxr.energy.bookended import (
-        EnergyBookendedOrientationDensityProfile,
-    )
+    from refloxide.pxr.energy.bookended import BookendedOrientationProfile
 
-    return isinstance(other, EnergyBookendedOrientationDensityProfile)
+    return isinstance(other, BookendedOrientationProfile)
 
 
 def _patch_pyref_structure_ior() -> None:
@@ -482,12 +621,87 @@ def _patch_pyref_structure_ior() -> None:
     st_mod.Structure.__refloxide_ior_patched__ = True  # ty: ignore[unresolved-attribute]
 
 
+def _patch_pyref_slab_materialization(st_mod: Any) -> None:
+    """Materialize refloxide energy scatterers inside stock pyref ``Slab`` rows."""
+    from refloxide.pxr.energy.scatterers import EnergyDependentScatterer
+
+    if getattr(st_mod.Slab, "__refloxide_slab_patched__", False):
+        return
+    if not hasattr(st_mod, "Slab") or not hasattr(st_mod.Slab, "tensor"):
+        return
+    original_tensor = st_mod.Slab.tensor
+    original_slabs = st_mod.Slab.slabs
+
+    def tensor(self, energy=None):
+        if isinstance(self.sld, EnergyDependentScatterer):
+            probe = _slab_energy_probe(self, energy, structure=None)
+            layer = self.sld.tensor_at(probe)
+            return np.asarray([layer], dtype=np.complex128)
+        return original_tensor(self, energy=energy)
+
+    def slabs(self, structure=None):
+        if isinstance(self.sld, EnergyDependentScatterer):
+            probe = _slab_energy_probe(self, None, structure=structure)
+            layer = self.sld.tensor_at(probe)
+            thick = float(self.thick.value or 0.0)
+            rough = float(self.rough.value or 0.0)
+            row = _tensor_to_slab_row(thick, rough, layer)
+            return np.asarray([row], dtype=np.float64)
+        return original_slabs(self, structure=structure)
+
+    st_mod.Slab.tensor = tensor  # ty: ignore[invalid-assignment]
+    st_mod.Slab.slabs = slabs  # ty: ignore[invalid-assignment]
+    st_mod.Slab.__refloxide_slab_patched__ = True  # ty: ignore[unresolved-attribute]
+
+
+def _patch_pyref_sld_exports(
+    st_mod: Any,
+    mode: SldClassesMode,
+) -> tuple[str, ...]:
+    """Expose refloxide energy-deferred scatterers on ``pyref.fitting.structure``."""
+    if mode == "legacy":
+        return ()
+    if getattr(st_mod, "__refloxide_sld_exports__", False):
+        return tuple(getattr(st_mod, "__refloxide_sld_export_names__", ()))
+    exports = _refloxide_sld_exports()
+    for name, symbol in exports.items():
+        setattr(st_mod, name, symbol)
+    st_mod.__refloxide_sld_exports__ = True  # ty: ignore[unresolved-attribute]
+    names = tuple(exports)
+    st_mod.__refloxide_sld_export_names__ = names  # ty: ignore[unresolved-attribute]
+    if mode == "energy":
+        st_mod.MaterialSLD = exports["EnergyDependentMaterialSLD"]  # ty: ignore[invalid-assignment]
+        st_mod.UniTensorSLD = exports["OocUniTensorScatterer"]  # ty: ignore[invalid-assignment]
+    return names
+
+
+def _patch_reflect_model_eval_energy(model_mod: Any) -> None:
+    """Set evaluation energy context around every ``ReflectModel._model`` call."""
+    reflect_model = model_mod.ReflectModel
+    if getattr(reflect_model, "__refloxide_eval_energy_patched__", False):
+        return
+    if not hasattr(reflect_model, "_model"):
+        return
+    inner_model = reflect_model._model
+
+    def _model(self, x, p=None, x_err=None):
+        token = _eval_energy.set(_resolve_reflectmodel_energy(self))
+        try:
+            return inner_model(self, x, p=p, x_err=x_err)
+        finally:
+            _eval_energy.reset(token)
+
+    reflect_model._model = _model
+    reflect_model.__refloxide_eval_energy_patched__ = True
+
+
 def patch_pyref(
     *,
     use_rust: bool = True,
     parallel: bool = False,
     patch_reflectivity: bool = True,
-) -> None:
+    sld_classes: SldClassesMode = "both",
+) -> PyrefPatchReport:
     """Install refloxide uniaxial kernels into an imported ``pyref.fitting`` stack.
 
     Replaces ``pyref.fitting.uniaxial.uniaxial_reflectivity`` with a partial
@@ -507,6 +721,19 @@ def patch_pyref(
     patch_reflectivity
         When ``True`` (default), also patch
         ``pyref.fitting.model.reflectivity``.
+    sld_classes
+        Controls refloxide scatterer exposure on ``pyref.fitting.structure``:
+
+        - ``"legacy"`` — stock ``MaterialSLD`` / ``SLD`` / ``UniTensorSLD`` only.
+        - ``"both"`` (default) — keep stock classes and add ``EnergyDependent*``
+          symbols plus ``upgrade_scatterer`` / ``upgrade_structure``.
+        - ``"energy"`` — same exports as ``"both"``, and alias ``MaterialSLD`` /
+          ``UniTensorSLD`` to the energy-deferred implementations.
+
+    Returns
+    -------
+    PyrefPatchReport
+        Idempotent snapshot of which hooks were installed.
 
     Raises
     ------
@@ -525,6 +752,7 @@ def patch_pyref(
     try:
         uni_mod = importlib.import_module("pyref.fitting.uniaxial")
         model_mod = importlib.import_module("pyref.fitting.model")
+        st_mod = importlib.import_module("pyref.fitting.structure")
     except ModuleNotFoundError as exc:
         msg = (
             "pyref.fitting is not importable; install pyref or add it to "
@@ -548,8 +776,102 @@ def patch_pyref(
         model_mod.reflectivity = patched_refl  # ty: ignore[invalid-assignment, unresolved-attribute]
     _patch_reflect_model_model(model_mod)
     _patch_reflect_model_fused(model_mod, parallel=parallel)
+    _patch_reflect_model_eval_energy(model_mod)
     _patch_pyref_structure_ior()
+    _patch_pyref_slab_materialization(st_mod)
+    export_names: tuple[str, ...] = ()
+    if sld_classes != "legacy":
+        export_names = _patch_pyref_sld_exports(st_mod, sld_classes)
     model_mod.__refloxide_patched__ = True  # ty: ignore[unresolved-attribute]
+    model_mod.__refloxide_sld_classes__ = sld_classes  # ty: ignore[unresolved-attribute]
+    return PyrefPatchReport(
+        kernels=True,
+        reflectivity=patch_reflectivity,
+        model_layout=getattr(
+            model_mod.ReflectModel, "__refloxide_model_patched__", False
+        ),
+        fused_path=getattr(
+            model_mod.ReflectModel, "__refloxide_fused_patched__", False
+        ),
+        structure_ior=getattr(st_mod.Structure, "__refloxide_ior_patched__", False),
+        structure_materialization=getattr(
+            st_mod.Slab, "__refloxide_slab_patched__", False
+        ),
+        sld_classes=sld_classes,
+        sld_exports=export_names,
+    )
+
+
+def patch_pyref_if_needed(
+    *,
+    use_rust: bool = True,
+    parallel: bool = False,
+    patch_reflectivity: bool = True,
+    sld_classes: SldClassesMode = "both",
+    force: bool = False,
+) -> PyrefPatchReport:
+    """Apply :func:`patch_pyref` once per process unless already configured.
+
+    Parameters
+    ----------
+    use_rust, parallel, patch_reflectivity, sld_classes
+        Forwarded to :func:`patch_pyref`.
+    force
+        When ``True``, re-run the patch even if :func:`pyref_patched` is ``True``.
+
+    Returns
+    -------
+    PyrefPatchReport
+        Status after this call (existing report when skipped, fresh report when
+        applied).
+    """
+    if pyref_patched() and not force:
+        return pyref_patch_report()
+    return patch_pyref(
+        use_rust=use_rust,
+        parallel=parallel,
+        patch_reflectivity=patch_reflectivity,
+        sld_classes=sld_classes,
+    )
+
+
+def pyref_patch_report() -> PyrefPatchReport:
+    """Return the current refloxide hook status on ``pyref.fitting``."""
+    import importlib
+
+    try:
+        model_mod = importlib.import_module("pyref.fitting.model")
+        st_mod = importlib.import_module("pyref.fitting.structure")
+        uni_mod = importlib.import_module("pyref.fitting.uniaxial")
+    except ModuleNotFoundError:
+        return PyrefPatchReport(
+            kernels=False,
+            reflectivity=False,
+            model_layout=False,
+            fused_path=False,
+            structure_ior=False,
+            structure_materialization=False,
+            sld_classes="legacy",
+            sld_exports=(),
+        )
+    sld_classes = getattr(model_mod, "__refloxide_sld_classes__", "legacy")
+    return PyrefPatchReport(
+        kernels=bool(getattr(uni_mod, "__refloxide_patched__", False)),
+        reflectivity=getattr(model_mod, "reflectivity", None) is not None
+        and getattr(uni_mod, "__refloxide_patched__", False),
+        model_layout=getattr(
+            model_mod.ReflectModel, "__refloxide_model_patched__", False
+        ),
+        fused_path=getattr(
+            model_mod.ReflectModel, "__refloxide_fused_patched__", False
+        ),
+        structure_ior=getattr(st_mod.Structure, "__refloxide_ior_patched__", False),
+        structure_materialization=getattr(
+            st_mod.Slab, "__refloxide_slab_patched__", False
+        ),
+        sld_classes=sld_classes,
+        sld_exports=tuple(getattr(st_mod, "__refloxide_sld_export_names__", ())),
+    )
 
 
 def pyref_patched() -> bool:
