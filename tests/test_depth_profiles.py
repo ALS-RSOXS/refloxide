@@ -248,6 +248,88 @@ def test_named_profiles_at_gives_each_mixed_layer_its_own_vf_trace():
     assert np.isnan(profiles["vf_0"][beyond])
 
 
+def test_named_profiles_at_broadens_bookended_component_edges():
+    """The two edges touching a BookendedComponent must broaden, not stay sharp.
+
+    Regression test: `_named_depth_walk`'s Slab-to-Slab run broadening
+    always treated a `BookendedComponent` as a hard break on both sides
+    (it's already continuous, so nothing "runs" through it), which silently
+    dropped `surface_roughness`/the neighboring `Slab.rough` from the
+    vacuum/film and film/oxide edges in every `roughness=True` plot,
+    regardless of their fitted value.
+    """
+    anchor = OocAnchor.from_dataframe(_ooc_frame())
+
+    def build(surface_roughness: float, oxide_rough: float):
+        profile = BookendedOrientationProfile(
+            ooc=anchor,
+            energy=_ENERGY,
+            num_slabs=24,
+            mesh_constant=0.1,
+            name="ZnPc",
+            total_thick=120.0,
+            surface_roughness=surface_roughness,
+            density_bulk=1.2,
+            density_si=1.0,
+            density_vac=0.85,
+            tau_si=12.0,
+            tau_vac=8.0,
+            alpha_bulk=0.35,
+            alpha_si=0.55,
+            alpha_vac=0.15,
+        )
+        vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
+        oxide = MaterialSLD("SiO2", density=2.2, name="oxide")(8, oxide_rough)
+        si = MaterialSLD("Si", density=2.33, name="si")(0, 3)
+        return vacuum | BookendedComponent(profile) | oxide | si
+
+    z = np.linspace(-30, 140, 4000)
+    sharp_structure = build(surface_roughness=16.0, oxide_rough=8.0)
+    sharp = sharp_structure.named_profiles_at(z, roughness=False)["density"]
+    rough = sharp_structure.named_profiles_at(z, roughness=True)["density"]
+
+    # sharp: vacuum's density is exactly 0 right up to z=0
+    before_edge = np.argmin(np.abs(z - (-2.0)))
+    assert sharp[before_edge] == pytest.approx(0.0)
+    # broadened: the same point already shows the film bleeding in
+    assert rough[before_edge] > 0.0
+
+    # a rougher surface broadens the vacuum/film edge further out
+    rougher_structure = build(surface_roughness=30.0, oxide_rough=8.0)
+    rougher = rougher_structure.named_profiles_at(z, roughness=True)["density"]
+    assert rougher[before_edge] > rough[before_edge]
+
+    # sharp: the film/oxide step is a hard jump exactly at total_thick=120
+    just_past_film = np.argmin(np.abs(z - 121.0))
+    assert sharp[just_past_film] == pytest.approx(2.2, rel=1e-3)
+    # broadened: same point hasn't fully reached the oxide value yet
+    assert rough[just_past_film] < 2.2
+
+    # a rougher oxide interface broadens the film/oxide edge further
+    rougher_oxide_structure = build(surface_roughness=16.0, oxide_rough=20.0)
+    rougher_oxide = rougher_oxide_structure.named_profiles_at(z, roughness=True)[
+        "density"
+    ]
+    assert rougher_oxide[just_past_film] < rough[just_past_film]
+
+    # far from either edge, broadening changes essentially nothing -- "far"
+    # is relative to sigma=16 here (z=60 is ~3.75 sigma from the leading
+    # edge), so the residual is small but not 1e-6-small
+    mid_film = np.argmin(np.abs(z - 60.0))
+    assert rough[mid_film] == pytest.approx(sharp[mid_film], abs=1e-3)
+
+    # regression guard for the exact original bug: blending against a
+    # frozen edge scalar (instead of the profile's own continuous curve)
+    # made the erf's midpoint-at-boundary value disagree with the
+    # untouched continuous side's true value, producing a real jump in
+    # `rough` exactly at the boundary grid point. No adjacent-point step
+    # anywhere should come close to that -- the largest real step is at
+    # the sharp step's own location, so broadened must be far smaller.
+    step_size = np.max(np.abs(np.diff(rough)))
+    sharp_step_size = np.max(np.abs(np.diff(sharp)))
+    assert step_size < 0.1 * sharp_step_size
+
+
 def test_structure_plot_oc_and_param_smoke():
     """`structure.plot.oc`/`.param` build real figures without raising."""
     matplotlib = pytest.importorskip("matplotlib")

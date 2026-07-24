@@ -14,7 +14,15 @@ import polars as pl
 
 from refloxide import tmm
 from refloxide.data import OpticalConstants
-from refloxide.model import MaterialSLD, ReflectModel, Slab, Structure, UniTensorSLD
+from refloxide.model import (
+    FreeTensorSLD,
+    MaterialSLD,
+    MixedUniTensorSLD,
+    ReflectModel,
+    Slab,
+    Structure,
+    UniTensorSLD,
+)
 from refloxide.pxr.energy.compile import compile_structure
 from refloxide.pxr.energy.probe import Probe
 from refloxide.pxr.energy.scatterer import OocUniTensorScatterer
@@ -267,3 +275,68 @@ def test_reflectmodel_setp_on_structure_affects_every_energy():
     film.thick.value = 50.0
     reverted_250 = model(q, 250.0).s
     assert not np.allclose(after_250, reverted_250)
+
+
+def test_materialize_batch_at_matches_looped_materialize_at():
+    """`materialize_batch_at` must exactly match calling `materialize_at` per energy.
+
+    Every dispersive `Scatterer.tensor_at_many` override replicates the
+    scalar `tensor_at` formula (OOC interpolation, density scaling, uniaxial
+    lab-frame projection) directly in numpy instead of delegating to it —
+    real, independent code paths that floating-point agreement can only
+    confirm by running both, not by reading either one.
+    """
+    energies = np.array([250.0, 275.3, 281.0, 283.7, 289.0, 300.0])
+
+    vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
+    ooc = _ooc_table()
+    uni_film = UniTensorSLD(ooc, density=1.61, rotation=0.9, name="uni")(150, 3)
+    mixed_film = MixedUniTensorSLD(
+        [ooc, ooc], vf=[0.7, 0.3], rotation=[0.2, 1.0], density=[1.61, 1.5],
+        name="mixed",
+    )(80, 3)
+    substrate = MaterialSLD("Si", density=2.33, name="substrate")(0, 3)
+    structure = vacuum | uni_film | mixed_film | substrate
+
+    looped_rows, looped_tensors = zip(
+        *(structure.materialize_at(float(e)) for e in energies), strict=True
+    )
+    looped_rows = np.stack(looped_rows, axis=0)
+    looped_tensors = np.stack(looped_tensors, axis=0)
+
+    batch_rows, batch_tensors = structure.materialize_batch_at(energies)
+
+    np.testing.assert_allclose(batch_rows, looped_rows, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(batch_tensors, looped_tensors, rtol=1e-10, atol=1e-12)
+
+
+def test_free_tensor_sld_batch_lookup_matches_looped_scalar_lookup():
+    """`FreeTensorSLD.tensor_at_many`'s vectorized nearest-energy search must
+    exactly match calling `tensor_at` (a brute-force `min()` scan) per energy.
+
+    Also pins the "fixed at construction" contract this scatterer exists
+    for: `ensure_energies` must not regenerate an already-registered
+    channel's `Parameter` objects (which would silently disconnect a
+    fitter's in-progress optimization state from what `tensor_at`/
+    `tensor_at_many` actually read).
+    """
+    registered = [250.0, 275.0, 283.7, 285.1, 289.0]
+    sld = FreeTensorSLD(registered, name="free")
+    for i, e in enumerate(registered):
+        channel = sld.channel_at(e)
+        channel.delta_o.value = float(i + 1)
+        channel.beta_o.value = 0.01 * (i + 1)
+        channel.delta_e.value = 2.0 * (i + 1)
+        channel.beta_e.value = 0.02 * (i + 1)
+
+    # off-grid queries, including one past each end of the registered range
+    queries = np.array([250.0001, 260.0, 279.0, 284.4, 287.0, 300.0, 100.0])
+    looped = np.stack([sld.tensor_at(float(q)) for q in queries], axis=0)
+    batched = sld.tensor_at_many(queries)
+    np.testing.assert_array_equal(batched, looped)
+
+    # re-registering the same energies must not recreate the Parameters --
+    # a fitter's optimization state must stay attached to the same objects
+    before = sld._channels[283.7]
+    sld.ensure_energies(registered)
+    assert sld._channels[283.7] is before
