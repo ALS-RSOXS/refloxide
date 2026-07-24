@@ -3,7 +3,9 @@
 `OpticalConstants` is the shared, polars-backed table wrapper every
 dispersive `Scatterer` (built-in or user-defined) should hold instead of
 loading and interpolating its own copy — see the caching contract on the
-class itself.
+class itself. Within one material, :meth:`OpticalConstants.cache_at` also
+memoizes the raw OOC vector per energy so N UniTensor layers (and s/p
+batches) at the same photon energy share one interp.
 
 `ReflectDataset` is the measured-data container `refloxide.objective.Objective`
 consumes: it carries its own per-row polarization labeling, so which
@@ -74,6 +76,17 @@ class OpticalConstants:
         self._n_ixx = table["n_ixx"].to_numpy()
         self._n_zz = table["n_zz"].to_numpy()
         self._n_izz = table["n_izz"].to_numpy()
+        # Per-energy raw OOC cache shared by every scatterer holding this
+        # instance: three UniTensorSLD layers at one photon energy pay one
+        # interp, and the s/p Objective batches at the same energy reuse it.
+        self._energy_cache: dict[float, tuple[float, float, float, float]] = {}
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        """Restore instance and re-register into the process-wide path cache."""
+        self.__dict__.update(state)
+        if not hasattr(self, "_energy_cache"):
+            self._energy_cache = {}
+        type(self)._cache[self.source] = self
 
     @classmethod
     def from_file(cls, path: str | Path) -> OpticalConstants:
@@ -165,6 +178,40 @@ class OpticalConstants:
         """
         return len(cls._cache)
 
+    def clear_energy_cache(self) -> None:
+        """Drop per-energy interp results after the table itself changes."""
+        self._energy_cache.clear()
+
+    def cache_at(self, energy_ev: float) -> tuple[float, float, float, float]:
+        """Interpolate (or reuse) raw OOC components at ``energy_ev``.
+
+        Parameters
+        ----------
+        energy_ev : float
+            Photon energy in eV. Out-of-range values clamp to the tabulated
+            endpoints (see `refloxide.optics.interp_ooc_linear`).
+
+        Returns
+        -------
+        tuple[float, float, float, float]
+            `(delta_xx, beta_xx, delta_zz, beta_zz)` for this energy. Values
+            are stored on this shared instance so every `UniTensorSLD` /
+            `MixedUniTensorSLD` that holds the same `OpticalConstants`
+            reuses one interp per energy instead of repeating the lookup
+            per layer.
+        """
+        key = float(energy_ev)
+        cached = self._energy_cache.get(key)
+        if cached is not None:
+            return cached
+        values = optics.interp_ooc_linear(
+            self._energy, self._n_xx, self._n_ixx, self._n_zz, self._n_izz, key
+        )
+        if len(self._energy_cache) >= 256:
+            self._energy_cache.clear()
+        self._energy_cache[key] = values
+        return values
+
     def lookup(self, energy_ev: float) -> tuple[float, float, float, float]:
         """Interpolate raw `(delta_xx, beta_xx, delta_zz, beta_zz)` at `energy_ev`.
 
@@ -181,9 +228,7 @@ class OpticalConstants:
             use `molecular_index_at` for the density-scaled molecular index
             a `uniaxial_lab_tensor` call expects.
         """
-        return optics.interp_ooc_linear(
-            self._energy, self._n_xx, self._n_ixx, self._n_zz, self._n_izz, energy_ev
-        )
+        return self.cache_at(energy_ev)
 
     def molecular_index_at(
         self, energy_ev: float, density: float
@@ -193,7 +238,8 @@ class OpticalConstants:
         Parameters
         ----------
         energy_ev : float
-            Photon energy in eV.
+            Photon energy in eV. Uses :meth:`cache_at` so concurrent layers
+            that share this table and energy pay for one interp.
         density : float
             Mass density scaling factor (g/cm^3).
 
@@ -203,14 +249,71 @@ class OpticalConstants:
             `(n_mol_xx, n_mol_zz)`, ready to pass to
             `refloxide.optics.uniaxial_lab_tensor`.
         """
-        return optics.molecular_index_at_ooc(
-            self._energy,
-            self._n_xx,
-            self._n_ixx,
-            self._n_zz,
-            self._n_izz,
-            energy_ev,
-            density,
+        n_xx, n_ixx, n_zz, n_izz = self.cache_at(energy_ev)
+        rho = float(density)
+        return rho * complex(n_xx, n_ixx), rho * complex(n_zz, n_izz)
+
+    def cache_many(
+        self, energies_ev: NDArray[np.float64]
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+    ]:
+        """Vectorized OOC lookup at many energies in one call.
+
+        Parameters
+        ----------
+        energies_ev : NDArray[np.float64]
+            Photon energies in eV, shape `(n_E,)`. Out-of-range values
+            clamp to the tabulated endpoints — `numpy.interp`'s own default
+            behavior, matching `cache_at`/`refloxide.optics.interp_ooc_linear`
+            exactly (piecewise-linear on a sorted grid, clamped past either
+            end).
+
+        Returns
+        -------
+        tuple[NDArray, NDArray, NDArray, NDArray]
+            `(delta_xx, beta_xx, delta_zz, beta_zz)`, each shape `(n_E,)`.
+            One vectorized `numpy.interp` call per component instead of
+            `len(energies_ev)` separate scalar `cache_at` calls — the real
+            win for a multi-energy fit, where every candidate parameter
+            vector needs every energy's OOC values at once. Not cached
+            (unlike `cache_at`): a full-fit `energy_offset` shifts every
+            query energy on every candidate, so a per-value cache would
+            never hit here anyway.
+        """
+        e = np.asarray(energies_ev, dtype=np.float64)
+        return (
+            np.interp(e, self._energy, self._n_xx),
+            np.interp(e, self._energy, self._n_ixx),
+            np.interp(e, self._energy, self._n_zz),
+            np.interp(e, self._energy, self._n_izz),
+        )
+
+    def molecular_index_at_many(
+        self, energies_ev: NDArray[np.float64], density: float
+    ) -> tuple[NDArray[np.complex128], NDArray[np.complex128]]:
+        """Vectorized `molecular_index_at` over many energies in one call.
+
+        Parameters
+        ----------
+        energies_ev : NDArray[np.float64]
+            Photon energies in eV, shape `(n_E,)`.
+        density : float
+            Mass density scaling factor (g/cm^3), applied to every energy.
+
+        Returns
+        -------
+        tuple[NDArray[np.complex128], NDArray[np.complex128]]
+            `(n_mol_xx, n_mol_zz)`, each shape `(n_E,)`.
+        """
+        n_xx, n_ixx, n_zz, n_izz = self.cache_many(energies_ev)
+        rho = float(density)
+        return (
+            rho * (n_xx + 1j * n_ixx),
+            rho * (n_zz + 1j * n_izz),
         )
 
 

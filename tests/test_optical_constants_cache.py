@@ -108,3 +108,17 @@ def test_missing_required_column_raises():
     incomplete = pl.DataFrame({"energy": [500.0], "n_xx": [4e-6]})
     with pytest.raises(ValueError, match="missing columns"):
         OpticalConstants(incomplete, source="<test>")
+
+
+def test_per_energy_cache_shared_across_lookups(tmp_path):
+    ooc_path = tmp_path / "znpc_ooc.csv"
+    _write_ooc_csv(ooc_path)
+    ooc = OpticalConstants.from_file(ooc_path)
+    first = ooc.cache_at(700.0)
+    second = ooc.lookup(700.0)
+    assert first == second
+    assert 700.0 in ooc._energy_cache
+    n_mol = ooc.molecular_index_at(700.0, density=2.0)
+    assert n_mol[0] == 2.0 * complex(first[0], first[1])
+    ooc.clear_energy_cache()
+    assert ooc._energy_cache == {}
