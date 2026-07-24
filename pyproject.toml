@@ -49,7 +49,7 @@ docs = [
     "mkdocs>=1.6.0",
     "mkdocs-rsoxs>=0.1.2; python_version >= '3.13'",
     "mkdocstrings-python>=2.0.1",
-    "pymdown-extensions>=10.21.3",
+    "pymdown-extensions>=11.0.0",
 ]
 plugin = [
     "polars>=1.40.1",
@@ -72,6 +72,14 @@ python-source = "src"
 module-name = "refloxide.rust"
 features = ["python"]
 compatibility = "pypi"
+
+[tool.uv]
+override-dependencies = [
+    # mkdocs-rsoxs pulls an older GitPython; force the patched floor.
+    "gitpython>=3.1.54",
+    # marimo still declares pymdown-extensions<11; override past that for GHSA-9xwg.
+    "pymdown-extensions>=11.0.0",
+]
 
 # =============================================================================
 # Ruff
