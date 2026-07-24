@@ -137,17 +137,16 @@ def test_objective_plugs_into_refnx_curvefitter():
     r_err = truth * 0.02
 
     # every other parameter defaults to vary=True too (Scatterer.__call__'s
-    # own convention) -- fix everything else so the fit has one free
-    # parameter to recover, not a 12-dimensional problem in a 5-iteration
-    # smoke test
-    structure = model.structure
-    for component in structure.parameters.flattened():
-        component.vary = False
-    film = structure.components[1]
-    film.thick.setp(vary=True, bounds=(20, 100))
-
+    # own convention, plus per-energy instrument channels) -- fix everything
+    # else so the fit has one free parameter to recover
     data = ReflectDataset.from_arrays(q, r=r, r_err=r_err, energy=700.0, pol="s")
     objective = Objective(model, data)
+    for param in model.parameters.flattened():
+        if param.constraint is None:
+            param.vary = False
+    film = model.structure.components[1]
+    film.thick.setp(vary=True, bounds=(20, 100))
+
     fitter = CurveFitter(objective)
 
     assert len(objective.varying_parameters()) == 1
