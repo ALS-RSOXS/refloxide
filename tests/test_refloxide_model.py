@@ -292,7 +292,10 @@ def test_materialize_batch_at_matches_looped_materialize_at():
     ooc = _ooc_table()
     uni_film = UniTensorSLD(ooc, density=1.61, rotation=0.9, name="uni")(150, 3)
     mixed_film = MixedUniTensorSLD(
-        [ooc, ooc], vf=[0.7, 0.3], rotation=[0.2, 1.0], density=[1.61, 1.5],
+        [ooc, ooc],
+        vf=[0.7, 0.3],
+        rotation=[0.2, 1.0],
+        density=[1.61, 1.5],
         name="mixed",
     )(80, 3)
     substrate = MaterialSLD("Si", density=2.33, name="substrate")(0, 3)

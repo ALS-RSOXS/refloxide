@@ -194,9 +194,9 @@ class Scatterer(ABC):
             once. Override this, not `tensor_at`, when adding a custom
             dispersive `Scatterer` that should share in that speedup.
         """
-        return np.stack(
-            [self.tensor_at(float(e)) for e in energies_ev], axis=0
-        ).astype(np.complex128)
+        return np.stack([self.tensor_at(float(e)) for e in energies_ev], axis=0).astype(
+            np.complex128
+        )
 
 
 class Component(ABC):
@@ -1924,7 +1924,11 @@ class MixedUniTensorSLD(Scatterer):
         n_o_sum = np.zeros(eff.shape[0], dtype=np.complex128)
         n_e_sum = np.zeros(eff.shape[0], dtype=np.complex128)
         components = zip(
-            self.oocs, self.vf, self.rotation, self.density, self.energy_offset,
+            self.oocs,
+            self.vf,
+            self.rotation,
+            self.density,
+            self.energy_offset,
             strict=True,
         )
         for ooc, vf, rotation, density, energy_offset in components:
