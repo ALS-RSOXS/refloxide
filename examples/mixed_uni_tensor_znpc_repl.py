@@ -1,4 +1,4 @@
-"""Interactive comparison: mixed-material uniaxial slabs, refloxide vs. pyref.
+"""Interactive comparison: mixed-material uniaxial slabs, refloxide vs py.
 
 Run cell-by-cell (each ``# %%`` marker is one cell) or top-to-bottom with::
 
@@ -40,28 +40,26 @@ population again -- before the isotropic SiO2/Si substrate:
     vacuum / surface / bulk_1 / mixing / bulk_2 / interface / SiO2 / Si
 
 `refloxide.model.MixedUniTensorSLD` is compared against
-`PyrefMixedUniTensorSLD`, a from-scratch pyref-side reference implementation
-defined below (pyref itself ships no mixed-material uniaxial scatterer). It
-follows the same density-scaled, rotation-mixed uniaxial formula as pyref's
+`PyMixedUniTensorSLD`, a from-scratch py-side reference implementation
+defined below (python.model itself ships no mixed-material uniaxial scatterer). It
+follows the same density-scaled, rotation-mixed uniaxial formula as python.model's
 own single-material `UniTensorSLD` and sums the result across components by
 volume fraction -- radians throughout, matching
-`pyref.fitting.structure.Scatterer.get_rotation`'s own documented convention.
+`python.model Scatterer.get_rotation`'s own documented convention.
 
 Three things (the graded film above, 285.1 eV -- the carbon K-edge pi*
 resonance):
 
-1. Correctness -- refloxide vs. the local pyref-style reference, same
+1. Correctness -- refloxide vs. the local py-side mixed reference, same
    blended tables, same volume fractions/tilts/densities.
-2. Speed -- same two, timed against stock, UNPATCHED pyref (its own
-   pure-Python kernel; pyref's optional Rust patch is being phased out and
-   isn't the focus here).
+2. Speed -- same two, timed.
 3. Fitting -- recover the mixing layer's ZnPc volume fraction from a
-   synthetic noisy dataset, refloxide.objective.Objective vs. stock
-   pyref.fitting.AnisotropyObjective built around the pyref-side reference
+   synthetic noisy dataset, refloxide.objective.Objective vs
+   refloxide.python.model.AnisotropyObjective built around the py-side reference
    model.
 
 Note on s/p labeling: identical convention/inversion as
-`model_objective_repl.py` -- stock pyref's `pol='s'` reads the kernel's
+`model_objective_repl.py` -- python.model's `pol='s'` reads the kernel's
 `[:, 1, 1]`, `pol='p'` reads `[:, 0, 0]`; `refloxide.model.Reflectivity` uses
 the native, non-inverted labeling (`.s = [:, 0, 0]`, `.p = [:, 1, 1]`).
 """
@@ -76,24 +74,14 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import pyref.fitting as fit
-from pyref.fitting.structure import Scatterer as PyrefScatterer
+import refloxide.python.model as py
+from refloxide.pxr.plugin.structure import Scatterer as PluginScatterer
 from refnx.analysis import CurveFitter, Parameters, possibly_create_parameter
 from scipy.interpolate import interp1d
 
 from refloxide.data import OpticalConstants, ReflectDataset
-from refloxide.integrations.pyref import pyref_patched
 from refloxide.model import MaterialSLD, MixedUniTensorSLD, ReflectModel
 from refloxide.objective import Objective
-
-if pyref_patched():
-    msg = (
-        "pyref.fitting.ReflectModel is already patched (patch_pyref() ran "
-        "earlier in this process/kernel). The 'unpatched' timing below would "
-        "silently measure the Rust kernel on both sides. Restart the "
-        "interpreter/kernel and rerun this script on its own."
-    )
-    raise RuntimeError(msg)
 
 # %% Locate the DFT-computed ZnPc optical constants in the sibling refl-analysis repo
 
@@ -280,18 +268,17 @@ MIXED_LAYERS = {
 }
 
 
-# %% pyref-side reference: pyref ships no mixed-material uniaxial scatterer
+# %% py-side reference: py ships no mixed-material uniaxial scatterer
 
 
-class PyrefMixedUniTensorSLD(PyrefScatterer):
-    """pyref-style volume-fraction-weighted mixture of uniaxial materials.
+class PyMixedUniTensorSLD(PluginScatterer):
+    """python.model-side volume-fraction-weighted mixture of uniaxial materials.
 
-    pyref has no built-in mixed-material uniaxial scatterer; this is a
-    from-scratch reference implementation for comparison, following the same
-    density-scaled, rotation-mixed formula as pyref's own single-material
-    `pyref.fitting.UniTensorSLD.tensor`, applied per component and then
-    summed by volume fraction. Rotation is radians throughout, matching
-    `Scatterer.get_rotation`'s own documented convention.
+    ``refloxide.python.model`` has no built-in mixed-material uniaxial
+    scatterer; this is a from-scratch reference for comparison, following the
+    same density-scaled, rotation-mixed formula as ``UniTensorSLD.tensor``,
+    applied per component and then summed by volume fraction. Rotation is
+    radians throughout, matching ``Scatterer.get_rotation``.
     """
 
     def __init__(
@@ -309,7 +296,7 @@ class PyrefMixedUniTensorSLD(PyrefScatterer):
         lengths = {len(oocs), len(vf), len(rotation), len(density)}
         if lengths != {n}:
             msg = (
-                "PyrefMixedUniTensorSLD component sequences must all be the same length"
+                "PyMixedUniTensorSLD component sequences must all be the same length"
             )
             raise ValueError(msg)
 
@@ -334,7 +321,7 @@ class PyrefMixedUniTensorSLD(PyrefScatterer):
         ]
         self.energy = energy
         # A single, shared energy_offset (not one per blended component) --
-        # `pyref.fitting.Structure.energy_offset`'s setter assumes every
+        # `python.model Structure.energy_offset`'s setter assumes every
         # component's `sld.energy_offset` is one Parameter it can `.setp(...)`
         # directly (it links every scatterer to one model-level offset), so a
         # per-component list here would break `ReflectModel.__init__` itself.
@@ -395,7 +382,7 @@ class PyrefMixedUniTensorSLD(PyrefScatterer):
         return complex((2 * t[0, 0] + t[2, 2]) / 3)
 
     def __repr__(self) -> str:
-        return f"PyrefMixedUniTensorSLD(n={len(self.volfrac)}, name={self.name!r})"
+        return f"PyMixedUniTensorSLD(n={len(self.volfrac)}, name={self.name!r})"
 
 
 # %% Shared physical structure, built two ways
@@ -421,10 +408,10 @@ def build_refloxide_structure():
     return structure | oxide | si
 
 
-def build_pyref_structure():
-    vacuum = fit.MaterialSLD("", density=0.0, energy=ENERGY_EV, name="vacuum")
+def build_py_structure():
+    vacuum = py.MaterialSLD("", density=0.0, energy=ENERGY_EV, name="vacuum")
     mixed_layers = [
-        PyrefMixedUniTensorSLD(
+        PyMixedUniTensorSLD(
             [znpc_pd, znpc_variant_pd],
             vf=cfg["vf"],
             rotation=cfg["rotation"],
@@ -434,8 +421,8 @@ def build_pyref_structure():
         )(cfg["thick"], cfg["rough"])
         for name, cfg in MIXED_LAYERS.items()
     ]
-    oxide = fit.MaterialSLD("SiO2", density=2.2, energy=ENERGY_EV, name="oxide")
-    si = fit.MaterialSLD("Si", density=2.33, energy=ENERGY_EV, name="si")
+    oxide = py.MaterialSLD("SiO2", density=2.2, energy=ENERGY_EV, name="oxide")
+    si = py.MaterialSLD("Si", density=2.33, energy=ENERGY_EV, name="si")
     structure = vacuum(0, 0)
     for layer in mixed_layers:
         structure = structure | layer
@@ -443,8 +430,8 @@ def build_pyref_structure():
 
 
 refloxide_model = ReflectModel(build_refloxide_structure())
-pyref_model = fit.ReflectModel(build_pyref_structure(), energy=ENERGY_EV, pol="sp")
-pyref_model.structure.plot()
+py_model = py.ReflectModel(build_py_structure(), energy=ENERGY_EV, pol="sp")
+py_model.structure.plot()
 
 # %% Sharing guarantee: five mixed layers, same two tables, one cache entry each
 
@@ -459,37 +446,37 @@ print(
     "its noisy variant), not ten separate copies.\n"
 )
 
-# %% 1. Correctness -- refloxide vs. the local pyref-style reference
+# %% 1. Correctness -- refloxide vs. the local py-style reference
 
-pyref_model.pol = "s"
-pyref_s = pyref_model.model(Q)  # native kernel [:, 1, 1]
-pyref_model.pol = "p"
-pyref_p = pyref_model.model(Q)  # native kernel [:, 0, 0]
+py_model.pol = "s"
+py_s = py_model.model(Q)  # native kernel [:, 1, 1]
+py_model.pol = "p"
+py_p = py_model.model(Q)  # native kernel [:, 0, 0]
 
 refloxide_r = refloxide_model(Q, ENERGY_EV)
 
-max_err_s = np.max(np.abs(refloxide_r.p - pyref_s))  # refloxide .p <-> pyref pol='s'
-max_err_p = np.max(np.abs(refloxide_r.s - pyref_p))  # refloxide .s <-> pyref pol='p'
-print(f"max |refloxide.p - pyref(pol='s')| = {max_err_s:.3e}")
-print(f"max |refloxide.s - pyref(pol='p')| = {max_err_p:.3e}")
+max_err_s = np.max(np.abs(refloxide_r.p - py_s))  # refloxide .p <-> py pol='s'
+max_err_p = np.max(np.abs(refloxide_r.s - py_p))  # refloxide .s <-> py pol='p'
+print(f"max |refloxide.p - py(pol='s')| = {max_err_s:.3e}")
+print(f"max |refloxide.s - py(pol='p')| = {max_err_p:.3e}")
 assert max_err_s < 1e-8
 assert max_err_p < 1e-8
 print(
-    "Correctness OK: refloxide.MixedUniTensorSLD matches the pyref-style reference.\n"
+    "Correctness OK: refloxide.MixedUniTensorSLD matches the py-style reference.\n"
 )
 
 # %% Plot overlay
 
 fig, ax = plt.subplots(figsize=(7, 5))
-ax.plot(Q, refloxide_r.p, label="refloxide .p (== pyref pol='s')", lw=2)
-ax.plot(Q, pyref_s, "--", label="pyref pol='s'", lw=1.5, color="k")
-ax.plot(Q, refloxide_r.s, label="refloxide .s (== pyref pol='p')", lw=2)
-ax.plot(Q, pyref_p, "--", label="pyref pol='p'", lw=1.5, color="0.4")
+ax.plot(Q, refloxide_r.p, label="refloxide .p (== py pol='s')", lw=2)
+ax.plot(Q, py_s, "--", label="py pol='s'", lw=1.5, color="k")
+ax.plot(Q, refloxide_r.s, label="refloxide .s (== py pol='p')", lw=2)
+ax.plot(Q, py_p, "--", label="py pol='p'", lw=1.5, color="0.4")
 ax.set_yscale("log")
 ax.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")
 ax.set_ylabel("Reflectivity")
 ax.legend()
-ax.set_title(f"Mixed-material ZnPc slabs, refloxide vs pyref-style, {ENERGY_EV:.1f} eV")
+ax.set_title(f"Mixed-material ZnPc slabs, refloxide vs py-style, {ENERGY_EV:.1f} eV")
 fig.tight_layout()
 plt.show()
 
@@ -514,10 +501,10 @@ refloxide_structure.plot.oc(ENERGY_EV, difference=True)
 plt.show()
 refloxide_structure.plot.param("density|orientation")
 plt.show()
-refloxide_structure.plot.param("vf_")
+refloxide_structure.plot.param("vf_", roughness=True)
 plt.show()
 
-# %% 2. Speed comparison -- vs. stock, UNPATCHED pyref (its own pure-Python kernel)
+# %% 2. Speed comparison -- vs. stock, python.model (its own pure-Python kernel)
 
 
 def time_it(fn, n: int = 200, warmup: int = 5) -> float:
@@ -531,13 +518,13 @@ def time_it(fn, n: int = 200, warmup: int = 5) -> float:
 
 
 t_refloxide = time_it(lambda: refloxide_model(Q, ENERGY_EV))
-t_pyref = time_it(lambda: pyref_model.model(Q))
+t_py = time_it(lambda: py_model.model(Q))
 
 print(f"refloxide.model.ReflectModel:                 {t_refloxide * 1e3:.4f} ms/call")
-print(f"stock pyref.fitting.ReflectModel (unpatched):  {t_pyref * 1e3:.4f} ms/call")
-print(f"speedup: {t_pyref / t_refloxide:.1f}x\n")
+print(f"refloxide.python.model.ReflectModel:  {t_py * 1e3:.4f} ms/call")
+print(f"speedup: {t_py / t_refloxide:.1f}x\n")
 
-# %% Memory footprint -- peak Python-heap bytes per call, refloxide vs stock pyref
+# %% Memory footprint -- peak Python-heap bytes per call, refloxide vs python.model
 
 
 def peak_memory_bytes(fn, warmup: int = 5) -> int:
@@ -552,20 +539,20 @@ def peak_memory_bytes(fn, warmup: int = 5) -> int:
 
 
 mem_refloxide = peak_memory_bytes(lambda: refloxide_model(Q, ENERGY_EV))
-mem_pyref = peak_memory_bytes(lambda: pyref_model.model(Q))
+mem_py = peak_memory_bytes(lambda: py_model.model(Q))
 
 print(f"refloxide.model.ReflectModel:                 {mem_refloxide:>7,} B/call")
-print(f"stock pyref.fitting.ReflectModel (unpatched):  {mem_pyref:>7,} B/call")
-print(f"memory ratio (pyref/refloxide): {mem_pyref / mem_refloxide:.2f}x\n")
+print(f"refloxide.python.model.ReflectModel:  {mem_py:>7,} B/call")
+print(f"memory ratio (py/refloxide): {mem_py / mem_refloxide:.2f}x\n")
 
 # %% 3. Fitting comparison -- recover mixed_1's ZnPc volume fraction
 
 rng_fit = np.random.default_rng(0)
-pyref_model.pol = "s"
-r_s_true = pyref_model.model(Q)
-pyref_model.pol = "p"
-r_p_true = pyref_model.model(Q)
-pyref_model.pol = "sp"
+py_model.pol = "s"
+r_s_true = py_model.model(Q)
+py_model.pol = "p"
+r_p_true = py_model.model(Q)
+py_model.pol = "sp"
 
 r_s = r_s_true * (1 + rng_fit.normal(0, 0.01, size=Q.shape))
 r_p = r_p_true * (1 + rng_fit.normal(0, 0.01, size=Q.shape))
@@ -581,7 +568,7 @@ new_data = ReflectDataset(
     pol=np.concatenate(
         [np.full(Q.shape, "s", dtype=object), np.full(Q.shape, "p", dtype=object)]
     ),
-    r=np.concatenate([r_p, r_s]),  # label swap: refloxide "s" <- pyref p-channel data
+    r=np.concatenate([r_p, r_s]),  # label swap: refloxide "s" <- py p-channel data
     r_err=np.concatenate([err_p, err_s]),
 )
 new_objective = Objective(new_model, new_data, anisotropy_weight=0.4)
@@ -594,50 +581,50 @@ new_mixing.vf[0].setp(vary=True, bounds=(0.3, 0.7))
 
 new_fitter = CurveFitter(new_objective)
 
-# %% ... pyref side (AnisotropyObjective around the pyref-style reference model)
+# %% ... py side (AnisotropyObjective around the py-style reference model)
 
-pyref_dataset = fit.XrayReflectDataset(
+py_dataset = py.XrayReflectDataset(
     (
         np.concatenate([Q, Q]),
         np.concatenate([r_s, r_p]),
         np.concatenate([err_s, err_p]),
     )
 )
-pyref_objective = fit.AnisotropyObjective(
-    pyref_model, pyref_dataset, logp_anisotropy_weight=0.4
+py_objective = py.AnisotropyObjective(
+    py_model, py_dataset, logp_anisotropy_weight=0.4
 )
 
-for p in pyref_model.structure.parameters.flattened():
+for p in py_model.structure.parameters.flattened():
     if p.constraint is None:
         p.vary = False
-pyref_mixing = pyref_model.structure[3].sld
-pyref_mixing.volfrac[0].setp(vary=True, bounds=(0.3, 0.7))
+py_mixing = py_model.structure[3].sld
+py_mixing.volfrac[0].setp(vary=True, bounds=(0.3, 0.7))
 
-pyref_fitter = fit.CurveFitter(pyref_objective)
+py_fitter = py.CurveFitter(py_objective)
 
 # %% Compare logl before fitting, then fit both and compare timing/result
 
 print("logl before fit:")
 print("  refloxide:", new_objective.logl())
-print("  pyref:    ", pyref_objective.logl())
+print("  py:    ", py_objective.logl())
 
 t0 = time.perf_counter()
 new_fitter.fit(method="differential_evolution", maxiter=40, polish=False, seed=1)
 t_new_fit = time.perf_counter() - t0
 
 t0 = time.perf_counter()
-pyref_fitter.fit(method="differential_evolution", maxiter=40, polish=False, seed=1)
-t_pyref_fit = time.perf_counter() - t0
+py_fitter.fit(method="differential_evolution", maxiter=40, polish=False, seed=1)
+t_py_fit = time.perf_counter() - t0
 
 print(
     f"\nrefloxide fit: {t_new_fit:.3f} s, "
     f"recovered mixing-layer ZnPc vf = {new_mixing.vf[0].value:.3f}"
 )
 print(
-    f"pyref fit:     {t_pyref_fit:.3f} s, "
-    f"recovered mixing-layer ZnPc vf = {pyref_mixing.volfrac[0].value:.3f}"
+    f"py fit:     {t_py_fit:.3f} s, "
+    f"recovered mixing-layer ZnPc vf = {py_mixing.volfrac[0].value:.3f}"
 )
 print(
-    f"fit speedup: {t_pyref_fit / t_new_fit:.1f}x "
+    f"fit speedup: {t_py_fit / t_new_fit:.1f}x "
     f"(true ZnPc vf was {MIXING['vf'][0]})"
 )

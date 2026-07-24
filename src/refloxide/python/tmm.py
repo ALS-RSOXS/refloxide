@@ -1,4 +1,8 @@
-"""Pure python port of the uniaxial 4x4 matrix formalism.
+"""Pure-Python uniaxial 4x4 transfer-matrix kernels.
+
+Opt-in counterpart to :mod:`refloxide.tmm` (Rust). Import this module by name::
+
+    from refloxide.python.tmm import uniaxial_reflectivity
 
 This algorithm is used for the following publications:
 - https://doi.org/10.1021/acsami.1c19948

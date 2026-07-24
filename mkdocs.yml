@@ -94,7 +94,7 @@ nav:
       - Overview: api/index.md
       - Python:
           - refloxide: api/python/refloxide.md
+          - python.tmm: api/python/python/tmm.md
           - pxr: api/python/pxr/index.md
-          - tjf4x4: api/python/pxr/tjf4x4.md
       - Rust (core): api/rust.md
   - Contributing: contributing.md

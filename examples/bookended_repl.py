@@ -4,7 +4,6 @@ Run cell-by-cell (each ``# %%`` marker is one cell) or top-to-bottom with::
 
     uv run python examples/bookended_repl.py
 
-No pyref comparison here -- this is purely about
 `refloxide.pxr.energy.bookended.BookendedOrientationProfile`: a single
 component that represents a whole graded organic film as one smoothly
 varying orientation/density profile between two book-ends (the vacuum-side
@@ -16,11 +15,8 @@ examples.
 The profile composes into `refloxide.model.Structure`/`ReflectModel` via
 `refloxide.model.BookendedComponent`, a thin adapter (see
 `tests/test_bookended_model_integration.py` for the parity check against the
-legacy `pxr.plugin` stack the profile also still supports). That matters
-here for more than API consistency: `refloxide.pxr.plugin.model.ReflectModel`
-calls the old pure-Python 4x4 matrix kernel unless separately patched to
-Rust, while `refloxide.model.ReflectModel` is Rust-backed by construction --
-about 10x faster for this exact structure.
+legacy `pxr.plugin` stack the profile also still supports).
+`refloxide.model.ReflectModel` is Rust-backed by construction.
 
 The profile has nine shape parameters (`total_thick`, `surface_roughness`,
 `density_bulk`/`density_si`/`density_vac`, `tau_si`/`tau_vac`,

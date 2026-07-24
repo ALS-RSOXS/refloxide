@@ -106,6 +106,7 @@ known-first-party = ["refloxide"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ARG001"]
 "src/refloxide/pxr/**/*.py" = ["ERA001"]
+"src/refloxide/python/tmm.py" = ["ERA001"]
 
 # =============================================================================
 # ty (Astral type checker)
@@ -115,8 +116,7 @@ known-first-party = ["refloxide"]
 include = ["src"]
 exclude = [
     "**/pxr/plugin/**",
-    "**/integrations/**",
-    "**/pxr/tjf4x4.py",
+    "**/python/tmm.py",
 ]
 
 # =============================================================================
