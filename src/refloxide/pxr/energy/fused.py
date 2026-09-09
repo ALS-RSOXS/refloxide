@@ -121,6 +121,7 @@ def evaluate_fused_bookended_reflectivity(
         anchor.n_zz,
         anchor.n_izz,
         query_ev,
+        float(energy),
         fronting=np.asarray(fronting, dtype=np.float64),
         backing=np.asarray(backing, dtype=np.float64),
         parallel=parallel,

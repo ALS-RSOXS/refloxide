@@ -45,9 +45,11 @@ def uniaxial_reflectivity(
     -------
     refl
         Real power reflectance with shape ``(numpnts, 2, 2)``. Index
-        layout matches ``refloxide.python.tmm.uniaxial_reflectivity``:
-        ``refl[:, 0, 0] = R_ss``, ``refl[:, 1, 1] = R_pp``,
-        ``refl[:, 0, 1] = R_sp``, ``refl[:, 1, 0] = R_ps``.
+        layout matches ``refloxide.python.tmm.uniaxial_reflectivity`` and
+        Fresnel vacuum/substrate checks: ``refl[:, 0, 0] = R_pp``,
+        ``refl[:, 1, 1] = R_ss``, ``refl[:, 0, 1] = R_sp``,
+        ``refl[:, 1, 0] = R_ps``. ``ReflectModel`` remaps these into
+        physically named ``Reflectivity.p`` / ``.s`` channels.
     tran
         Complex amplitude transmission with the same index layout.
 
@@ -169,6 +171,7 @@ def bookended_uniaxial_reflectivity(
     n_zz: NDArray[np.float64],
     n_izz: NDArray[np.float64],
     query_ev: float,
+    wavelength_ev: float,
     total_thick: float,
     surface_roughness: float,
     tau_si: float,
@@ -190,5 +193,10 @@ def bookended_uniaxial_reflectivity(
     Builds the adaptive microslab mesh, OOC lookup, laboratory tensors, and
     uniaxial transfer-matrix solve entirely in Rust. ``fronting`` is one row
     ``[d, delta, beta, sigma]``; ``backing`` has shape ``(n_backing, 4)``.
+
+    ``query_ev`` selects optical constants (may include ``energy_offset``).
+    ``wavelength_ev`` sets the TMM wavevector and should be the nominal
+    photon energy so fused and assembled paths stay aligned when those
+    energies differ.
     """
     ...

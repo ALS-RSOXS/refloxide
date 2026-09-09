@@ -17,14 +17,12 @@ Three things, same physical structure (vacuum / SiO2 film / Si substrate,
    s+p dataset, compared by log-likelihood and by a short
    differential_evolution fit.
 
-Note on s/p labeling: python.model's ``pol='s'``/``pol='p'`` extraction is a
-historical inversion kept for legacy dataset compatibility (``pol='s'``
-reads the kernel's ``[:, 1, 1]``, ``pol='p'`` reads ``[:, 0, 0]``).
-``refloxide.model.Reflectivity`` uses the native, non-inverted kernel
-labeling (``.s = [:, 0, 0]``, ``.p = [:, 1, 1]``, matching ``rust.pyi``'s own
-docs). So "py ``pol='s'``" corresponds to "refloxide ``.p``", and vice
-versa — accounted for explicitly below, not a bug. See
-``tests/test_legacy_parity.py`` for the same convention pinned as a test.
+Note on s/p labeling: ``refloxide.model.Reflectivity`` exposes physical
+channels (``.s`` = R_ss, ``.p`` = R_pp). The TMM kernel stores R_pp at
+``[:,0,0]`` and R_ss at ``[:,1,1]``; ReflectModel remaps those diagonals.
+Legacy ``python.model`` ``pol='s'``/``'p'`` already read the physical
+diagonals, so ``refloxide .s`` matches ``py pol='s'`` and ``.p`` matches
+``pol='p'``.
 """
 # %%
 from __future__ import annotations
@@ -34,9 +32,9 @@ import tracemalloc
 
 import matplotlib.pyplot as plt
 import numpy as np
-import refloxide.python.model as py
 from refnx.analysis import CurveFitter
 
+import refloxide.python.model as py
 from refloxide.data import ReflectDataset
 from refloxide.model import MaterialSLD, ReflectModel
 from refloxide.objective import Objective
@@ -67,16 +65,16 @@ py_model = py.ReflectModel(build_py_structure(), energy=ENERGY_EV, pol="sp")
 # %% 1. Numeric parity
 
 py_model.pol = "s"
-py_s = py_model.model(Q)  # native kernel [:, 1, 1]
+py_s = py_model.model(Q)
 py_model.pol = "p"
-py_p = py_model.model(Q)  # native kernel [:, 0, 0]
+py_p = py_model.model(Q)
 
 refloxide_r = refloxide_model(Q, ENERGY_EV)
 
-max_err_s = np.max(np.abs(refloxide_r.p - py_s))  # refloxide .p <-> py pol='s'
-max_err_p = np.max(np.abs(refloxide_r.s - py_p))  # refloxide .s <-> py pol='p'
-print(f"max |refloxide.p - py(pol='s')| = {max_err_s:.3e}")
-print(f"max |refloxide.s - py(pol='p')| = {max_err_p:.3e}")
+max_err_s = np.max(np.abs(refloxide_r.s - py_s))
+max_err_p = np.max(np.abs(refloxide_r.p - py_p))
+print(f"max |refloxide.s - py(pol='s')| = {max_err_s:.3e}")
+print(f"max |refloxide.p - py(pol='p')| = {max_err_p:.3e}")
 assert max_err_s < 1e-8
 assert max_err_p < 1e-8
 print("Numeric parity OK: refloxide.model matches python.model exactly.\n")
@@ -84,9 +82,9 @@ print("Numeric parity OK: refloxide.model matches python.model exactly.\n")
 # %% Plot overlay
 
 fig, ax = plt.subplots(figsize=(7, 5))
-ax.plot(Q, refloxide_r.p, label="refloxide .p (== py pol='s')", lw=2)
+ax.plot(Q, refloxide_r.s, label="refloxide .s", lw=2)
 ax.plot(Q, py_s, "--", label="py pol='s'", lw=1.5, color="k")
-ax.plot(Q, refloxide_r.s, label="refloxide .s (== py pol='p')", lw=2)
+ax.plot(Q, refloxide_r.p, label="refloxide .p", lw=2)
 ax.plot(Q, py_p, "--", label="py pol='p'", lw=1.5, color="0.4")
 ax.set_yscale("log")
 ax.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")

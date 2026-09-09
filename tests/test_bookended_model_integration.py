@@ -85,10 +85,10 @@ def test_bookended_component_matches_legacy_stack_exactly():
     legacy_model.pol = "p"
     legacy_p = legacy_model.model(q)  # native kernel [:, 0, 0]
 
-    # label swap (test_legacy_parity.py convention):
-    # new.s <-> legacy pol='p', new.p <-> legacy pol='s'
-    np.testing.assert_allclose(new_r.s, legacy_p, rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(new_r.p, legacy_s, rtol=1e-10, atol=1e-12)
+    # Physical channels: ReflectModel.s/p match legacy pol='s'/'p' (both are
+    # Fresnel-correct). Kernel diagonals remain [:,0,0]=R_pp, [:,1,1]=R_ss.
+    np.testing.assert_allclose(new_r.s, legacy_s, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(new_r.p, legacy_p, rtol=1e-10, atol=1e-12)
 
 
 def test_bookended_component_parameters_share_the_wrapped_profile():

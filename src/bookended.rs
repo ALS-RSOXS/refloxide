@@ -61,7 +61,42 @@ pub fn density_profile_bookended(
 }
 
 /// Symmetric refining mesh that sums to ``total_thick``.
+type MeshCacheKey = (u64, u64, u64);
+type MeshCacheEntry = (MeshCacheKey, Vec<f64>);
+
 pub fn adaptive_microslab_thicknesses(
+    total_thick: f64,
+    num_slabs: usize,
+    mesh_constant: f64,
+) -> Vec<f64> {
+    // Fits often mutate density/orientation while holding geometry fixed;
+    // cache the last mesh on this thread so repeated fused calls skip the
+    // geometric series rebuild.
+    thread_local! {
+        static CACHE: std::cell::RefCell<Option<MeshCacheEntry>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    let key: MeshCacheKey = (
+        total_thick.to_bits(),
+        num_slabs as u64,
+        mesh_constant.to_bits(),
+    );
+    if let Some(cached) = CACHE.with(|c| {
+        c.borrow()
+            .as_ref()
+            .filter(|(cached_key, _)| *cached_key == key)
+            .map(|(_, mesh)| mesh.clone())
+    }) {
+        return cached;
+    }
+    let mesh = adaptive_microslab_thicknesses_uncached(total_thick, num_slabs, mesh_constant);
+    CACHE.with(|c| {
+        *c.borrow_mut() = Some((key, mesh.clone()));
+    });
+    mesh
+}
+
+fn adaptive_microslab_thicknesses_uncached(
     total_thick: f64,
     num_slabs: usize,
     mesh_constant: f64,
@@ -196,11 +231,15 @@ pub fn bookended_uniaxial_reflectivity(
     n_zz: &[f64],
     n_izz: &[f64],
     query_ev: f64,
+    wavelength_ev: f64,
     params: &BookendedParams,
     fronting: [f64; 4],
     backing: &[[f64; 4]],
     parallel: bool,
 ) -> crate::error::Result<UniaxialOutput> {
+    // Optical constants use `query_ev` (may include energy_offset); the TMM
+    // wavevector uses nominal `wavelength_ev` so fused and assembled paths
+    // agree when those energies differ.
     let (film_layers, film_tensors) =
         build_bookended_film_stack(energy_ev, n_xx, n_ixx, n_zz, n_izz, query_ev, params);
     let (front_layer, front_tensor) = layer_row_to_parts(fronting);
@@ -213,7 +252,7 @@ pub fn bookended_uniaxial_reflectivity(
         layers.push(layer);
         tensors.push(tensor);
     }
-    uniaxial_reflectivity(q, &layers, &tensors, query_ev, parallel)
+    uniaxial_reflectivity(q, &layers, &tensors, wavelength_ev, parallel)
 }
 
 #[cfg(test)]

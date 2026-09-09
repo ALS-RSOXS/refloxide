@@ -6,16 +6,9 @@ Run cell-by-cell (each ``# %%`` marker is one cell) or top-to-bottom with::
 
 Stack: vacuum / ZnPc (200 A, 2.0 g/cm^3) / Si (2.33 g/cm^3), all interfaces
 ideally sharp, at 250 eV. Soft X-ray refractive indices sit at n = 1 - delta
-with delta << 1, so the vacuum/film Brewster angle from the surface normal is
-near 45 deg and the grazing angle is likewise near 45 deg. Only p-pol
-(R_pp) develops a deep minimum there; s-pol (R_ss) does not.
-
-Polarization labeling: ``ReflectModel`` maps ``Reflectivity.s <- refl[:,0,0]``
-and ``Reflectivity.p <- refl[:,1,1]``. Against Fresnel vacuum/Si at this
-energy, ``refl[:,0,0]`` matches physical R_pp (Brewster channel) and
-``refl[:,1,1]`` matches physical R_ss — the same pairing as
-``python.model`` ``pol='p'`` / ``pol='s'`` (see ``model_objective_repl.py``).
-This script therefore plots physical R_pp from ``r.s`` and R_ss from ``r.p``.
+with delta << 1, so the vacuum/film Brewster grazing angle is near 45 deg.
+Only p-pol (``Reflectivity.p`` / R_pp) develops a deep minimum there; s-pol
+does not.
 """
 
 # %%
@@ -50,8 +43,6 @@ wavelength_a = HC_EV_A / ENERGY_EV
 theta_deg = np.linspace(5.0, 70.0, 1401)
 q = (4.0 * np.pi / wavelength_a) * np.sin(np.deg2rad(theta_deg))
 r = model(q, ENERGY_EV)
-r_pp = r.s
-r_ss = r.p
 
 n_znpc = complex(
     index_of_refraction("C32H16N8Zn", density=ZNPC_DENSITY, energy=ENERGY_EV * 1e-3)
@@ -62,11 +53,11 @@ theta_b_theory = 90.0 - theta_b_normal
 brewster_window = (theta_deg > theta_b_theory - 8.0) & (
     theta_deg < theta_b_theory + 8.0
 )
-imin_local = int(np.argmin(r_pp[brewster_window]))
+imin_local = int(np.argmin(r.p[brewster_window]))
 theta_b_meas = float(theta_deg[brewster_window][imin_local])
 q_b_meas = float(q[brewster_window][imin_local])
-r_pp_min = float(r_pp[brewster_window][imin_local])
-r_ss_at_b = float(r_ss[brewster_window][imin_local])
+r_pp_min = float(r.p[brewster_window][imin_local])
+r_ss_at_b = float(r.s[brewster_window][imin_local])
 
 print(f"energy = {ENERGY_EV:.0f} eV, lambda = {wavelength_a:.3f} A")
 print(f"n_ZnPc = {n_znpc.real:.6f}{n_znpc.imag:+.6e}j")
@@ -90,8 +81,8 @@ assert abs(theta_b_meas - theta_b_theory) < 3.0, (
 
 fig, (ax_th, ax_q) = plt.subplots(1, 2, figsize=(10.5, 4.5), sharey=True)
 
-ax_th.semilogy(theta_deg, r_ss, label=r"$R_{ss}$ (s)", lw=2)
-ax_th.semilogy(theta_deg, r_pp, label=r"$R_{pp}$ (p)", lw=2)
+ax_th.semilogy(theta_deg, r.s, label=r"$R_{ss}$ (s)", lw=2)
+ax_th.semilogy(theta_deg, r.p, label=r"$R_{pp}$ (p)", lw=2)
 ax_th.axvline(
     theta_b_meas,
     color="0.35",
@@ -105,8 +96,8 @@ ax_th.set_ylabel("Reflectivity")
 ax_th.legend(frameon=False)
 ax_th.set_title("vs grazing angle")
 
-ax_q.semilogy(q, r_ss, label=r"$R_{ss}$ (s)", lw=2)
-ax_q.semilogy(q, r_pp, label=r"$R_{pp}$ (p)", lw=2)
+ax_q.semilogy(q, r.s, label=r"$R_{ss}$ (s)", lw=2)
+ax_q.semilogy(q, r.p, label=r"$R_{pp}$ (p)", lw=2)
 ax_q.axvline(q_b_meas, color="0.35", ls="--", lw=1.2)
 ax_q.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")
 ax_q.legend(frameon=False)

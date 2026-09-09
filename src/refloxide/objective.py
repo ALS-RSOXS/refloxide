@@ -23,6 +23,7 @@ from refnx.analysis import Objective as _RefnxObjective
 from refnx.dataset import Data1D
 
 from refloxide.data import OpticalConstants
+from refloxide.model import _plan_fused_bookended
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -580,21 +581,34 @@ class Objective(_RefnxObjective):
 
         if by_energy:
             energy_off = float(self.model.corrections.energy_offset.value or 0.0)
+            dq = float(self.model.corrections.dq.value or 0.0)
             base_energies = np.fromiter(by_energy.keys(), dtype=np.float64)
             oc_energies = base_energies + energy_off
-            batch_layers, batch_tensor = self.model.structure.materialize_batch_at(
-                oc_energies
+            # Fused bookended path rebuilds the film inside Rust and ignores
+            # pre-materialized layers. Skip the expensive Python materialize
+            # when that path will win; otherwise batch-materialize once.
+            fused_eligible = dq < 0.5 and (
+                _plan_fused_bookended(self.model.structure, float(oc_energies[0]))
+                is not None
             )
+            batch_layers = None
+            batch_tensor = None
+            if not fused_eligible:
+                batch_layers, batch_tensor = self.model.structure.materialize_batch_at(
+                    oc_energies
+                )
             for i, energy in enumerate(by_energy):
                 pols = by_energy[energy]
                 q_s = pols["s"].q if "s" in pols else None
                 q_p = pols["p"].q if "p" in pols else None
+                layers_i = None if batch_layers is None else batch_layers[i]
+                tensor_i = None if batch_tensor is None else batch_tensor[i]
                 r_s, r_p = self.model.reflectivity_channels_at_energy(
                     energy,
                     q_s=q_s,
                     q_p=q_p,
-                    layers=batch_layers[i],
-                    tensor=batch_tensor[i],
+                    layers=layers_i,
+                    tensor=tensor_i,
                     parallel=bool(self.model.parallel),
                 )
                 if r_s is not None and "s" in pols:
