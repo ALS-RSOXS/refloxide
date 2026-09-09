@@ -2732,10 +2732,7 @@ class ReflectModel:
             q_s is not None
             and q_p is not None
             and channel.theta_offset_s == channel.theta_offset_p
-            and (
-                q_s is q_p
-                or (q_s.shape == q_p.shape and np.array_equal(q_s, q_p))
-            )
+            and (q_s is q_p or (q_s.shape == q_p.shape and np.array_equal(q_s, q_p)))
         )
         if shared_q:
             q_eff = _floor_q(
