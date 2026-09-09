@@ -133,6 +133,7 @@ dataset = ReflectDataset(
 # measurable independent of any fit.
 
 BKG_ESTIMATE = r.min()
+BKG_ESTIMATE = 0
 
 # %% Shared Oxide/Substrate geometry, frozen at the resonant fit's own values
 #
@@ -215,31 +216,36 @@ _oxide_thick = layers["Oxide"]["thick"]
 _oxide_rough_ceiling = float(np.sqrt(2.0 * np.pi) * _oxide_thick / 2.0)
 
 BOUNDS = {
-    "surface_roughness": (0.0, 30.0),
+    # Lower bound of 3 A keeps the optimizer from collapsing the
+    # vacuum/film interface to a physically implausible near-zero
+    # roughness just to buy down residuals elsewhere.
+    "surface_roughness": (3.0, 20.0),
     "oxide_rough": (0.0, _oxide_rough_ceiling),
 }
 
 # %% Reference geometry: an independent discrete 5-slab (surface / bulk
 # ZnPc / interface / SiO2 / Si) fit against this SAME nonresonant dataset,
-# used here to seed the graded profile's book-end densities and
-# relaxation lengths with informed starting values instead of the
-# transplanted resonant-fit (283.7 eV) numbers, which describe a
-# different sample geometry entirely. That discrete fit's own
-# uncertainties are huge (e.g. interface_thick = 18.3 +/- 111 A) -- this
-# dataset barely constrains individual discrete-slab boundaries on their
-# own -- but the densities/lengths it settled on are still a better
-# starting point than resonant-fit values transplanted across energy AND
-# sample. "surface" (vacuum-facing) maps to the profile's density_vac/
-# tau_vac book-end; "interface" (substrate-facing) maps to density_si/
-# tau_si; "Zinc Phthalocyanine" (bulk) maps to density_bulk.
+# used here ONLY to seed `total_thick`'s starting value and the relaxation
+# lengths (tau_vac/tau_si) -- NOT the book-end densities, which stay at
+# the graded film's own resonant-fit (283.7 eV) anchors (density_vac
+# ~1.98, density_bulk ~1.64, density_si ~0.87, matching the manuscript
+# figure exactly -- confirmed directly against the source pickle). An
+# earlier version of this dict also carried "surface_rho"/"bulk_rho"/
+# "interface_rho" and used them to re-seed density_vac/density_bulk/
+# density_si, silently overwriting the correct resonant-fit densities
+# with an unrelated discrete-slab fit's own numbers -- removed. That
+# discrete fit's own uncertainties are huge (e.g. interface_thick = 18.3
+# +/- 111 A) -- this dataset barely constrains individual discrete-slab
+# boundaries on their own -- but the lengths it settled on are still a
+# better thickness starting point than resonant-fit values transplanted
+# across energy AND sample. "surface" (vacuum-facing) maps to the
+# profile's tau_vac book-end; "interface" (substrate-facing) maps to
+# tau_si.
 REFERENCE = {
     "surface_thick": 7.89151,
     "surface_rough": 6.28961,
-    "surface_rho": 1.8,
     "bulk_thick": 125.596,
-    "bulk_rho": 2.0,
     "interface_thick": 18.2626,
-    "interface_rho": 1.60845,
     "oxide_thick": 9.84672,
     "oxide_rho": 2.0692,
     "substrate_rough": 0.5,
@@ -256,11 +262,13 @@ REFERENCE_TOTAL_THICK = (
 # `BookendedOrientationProfile.__init__` uses `possibly_create_parameter`
 # with its refnx default `vary=False` for every shape parameter, so the
 # rebuilt profile already starts fully frozen -- alpha_bulk/alpha_si/
-# alpha_vac stay fixed at the resonant-fit value (orientation is
-# irrelevant at this nonresonant energy), and density_vac/density_bulk/
-# density_si/tau_vac/tau_si are explicitly re-seeded from REFERENCE below,
-# still frozen. Only total_thick and surface_roughness (confirmed to
-# actually move the predicted reflectivity, not a no-op) are reopened.
+# alpha_vac AND density_vac/density_bulk/density_si stay fixed at the
+# resonant-fit value from `film_params` (orientation is irrelevant at
+# this nonresonant energy; density is a sample property that doesn't
+# change with probe energy), while tau_vac/tau_si are explicitly
+# re-seeded from REFERENCE below, still frozen. Only total_thick and
+# surface_roughness (confirmed to actually move the predicted
+# reflectivity, not a no-op) are reopened.
 
 graded_film = BookendedOrientationProfile(
     ooc=ZNPC_OOC,
@@ -279,36 +287,41 @@ graded_structure = (
 
 graded_model = ReflectModel(graded_structure, parallel=False)
 graded_film.total_thick.setp(
-    value=REFERENCE_TOTAL_THICK, vary=True, bounds=(80.0, 200.0)
+    value=150, vary=True, bounds=(100, 180)
 )
 graded_film.surface_roughness.setp(
-    value=REFERENCE["surface_rough"], vary=True, bounds=BOUNDS["surface_roughness"]
+    value=REFERENCE["surface_rough"], vary=False, bounds=BOUNDS["surface_roughness"]
 )
-graded_film.density_vac.setp(value=REFERENCE["surface_rho"], vary=False)
-graded_film.density_bulk.setp(value=REFERENCE["bulk_rho"], vary=False)
-graded_film.density_si.setp(value=REFERENCE["interface_rho"], vary=False)
 graded_film.tau_vac.setp(value=REFERENCE["surface_thick"], vary=False)
 graded_film.tau_si.setp(value=REFERENCE["interface_thick"], vary=False)
 
 oxide_slab = graded_structure.slab("Oxide")
-oxide_slab.thick.setp(value=REFERENCE["oxide_thick"], vary=True, bounds=(0.0, 12.0))
+oxide_slab.thick.setp(value=REFERENCE["oxide_thick"], vary=True, bounds=(5, 12.0))
+oxide_slab.rough.setp(vary=True, bounds=(0, 12))
 oxide_slab.sld.density.setp(value=REFERENCE["oxide_rho"], vary=False)
 
 substrate_slab = graded_structure.slab("Substrate")
 substrate_slab.rough.value = REFERENCE["substrate_rough"]
 substrate_slab.sld.density.value = REFERENCE["substrate_rho"]
 
+# Apply the Nevot-Croce roughness constraint (thick >= sqrt(2*pi)*rough/2),
+# live against whatever thick/rough the optimizer proposes each trial, not
+# the static `oxide_rough` box bound above (that box is only a coarse
+# pre-filter; this is the real physical floor). `Slab.__init__` auto-sets
+# `enforce_nevot_croce = thick > 0` at construction, so Vacuum/Substrate
+# (thick == 0, semi-infinite fronting/backing) are skipped automatically
+# and only the Oxide slab -- the one finite-thickness slab in this
+# top-level structure with both thick and rough free -- is actually
+# constrained by turning this on.
+
 freeze_instrumentation(graded_model)
 
-# nc_constraint would fault immediately on the frozen Oxide geometry
-# (thick ~9.8 A, rough up to the NC ceiling above) even though nothing
-# here varies that slab's thick against its own rough independently, so
-# the safety check has nothing to protect against.
 graded_objective = Objective(
-    graded_model, dataset, transform=Transform("logY"), nc_constraint=False
+    graded_model, dataset, transform=Transform("logY"), nc_constraint=True
 )
 print(f"free parameters: {len(graded_objective.varying_parameters())}")
 print(f"logl before fit: {graded_objective.logl():.3f}")
+print(graded_objective.varying_parameters())
 
 # %% 2. Run the fit and report the recovered geometry
 #
@@ -352,6 +365,7 @@ ax.legend(fontsize="small")
 ax.set_title(f"ZnPc nonresonant XRR, {ENERGY_EV / 1000:.2f} keV")
 fig.tight_layout()
 plt.show()
+print(graded_objective.varying_parameters())
 # %% 4. Recovered orientation/density profile, with roughness broadening
 # applied at each interface -- confirms the fitted surface_roughness/Oxide
 # rough values are actually shaping the profile, not sitting inert.
@@ -385,5 +399,146 @@ ax.set_ylabel(r"$d(\mathrm{density})/dz$ (g cm$^{-3}$ $\mathrm{\AA}^{-1}$)")
 ax.set_title("Density gradient: interface location and width")
 fig.tight_layout()
 plt.savefig("graded_density_gradient.png")
+plt.show()
+
+# %% 6. PRL supplemental figure: fit comparison (top) + density profile
+# (bottom), single-column APS/PRL width so it drops into a supplement
+# without rescaling.
+#
+# `q_fine` is display-only -- 2000 points spanning the measured q range,
+# used ONLY to draw a smooth model curve; the objective/fit above still
+# ran against the real (sparse, 124-point) `q`, this changes nothing
+# about what was fit. Given `zorder`, the fit trace draws over the data
+# points rather than under them.
+#
+# Panel (b) is `graded_film` ON ITS OWN, not `density_grad`'s
+# whole-structure walk (cell 5) -- no flat Vacuum/Oxide/Substrate segments
+# mixed in. `nevot_croce_density` below is a direct port of the SAME
+# function used for this film in the manuscript figure
+# (`refl-analysis/notebooks/manuscript/fig_5_graded.ipynb`, cell defining
+# `nevot_croce_density`): the book-ended analytic density convolved with a
+# Gaussian of std `surface_roughness`, bounded by vacuum (0) on the
+# surface side and the film's own edge value on the substrate side. Using
+# a hand-rolled one-sided erf blend here instead (an earlier version of
+# this cell did) diverges from that reference convention -- this is the
+# same computation, not an approximation of it.
+#
+# rcParams below mirror refl-analysis's own house style
+# (`set_plotting_defaults` in `src/utils/helpers/plotting_helper.py`),
+# minus its SciencePlots style sheet -- `scienceplots` isn't a refloxide
+# dependency, so that one piece is dropped rather than added just for
+# this figure.
+
+q_fine = np.linspace(q.min(), q.max(), 2000)
+r_fine = graded_model(q_fine, ENERGY_EV).s
+
+
+def nevot_croce_density(film, *, n_points: int = 2000, n_sigma: int = 5):
+    """Book-ended density convolved with the vacuum-side Nevot-Croce term.
+
+    Verbatim port of `fig_5_graded.ipynb`'s own `nevot_croce_density`: the
+    Nevot-Croce interface is an error function, so its real-space density
+    is the analytic profile convolved with a Gaussian of standard
+    deviation `film.surface_roughness`. Vacuum (zero density) bounds the
+    surface side and the film-edge density bounds the substrate side, so
+    the convolution sees the physical boundary on each end.
+
+    Returns depth, rho_sharp, rho_rough on `[0, film.total_thick]`.
+    """
+    total = float(film.total_thick.value or 0.0)
+    sigma = float(film.surface_roughness.value or 0.0)
+    depth = np.linspace(0.0, total, n_points)
+    rho_sharp = np.asarray(film.local_density(depth), dtype=float)
+    if sigma <= 0.0:
+        return depth, rho_sharp, rho_sharp.copy()
+
+    dz = depth[1] - depth[0]
+    pad = int(np.ceil(n_sigma * sigma / dz))
+    z_ext = np.concatenate(
+        [depth[0] + dz * np.arange(-pad, 0), depth, depth[-1] + dz * np.arange(1, pad + 1)]
+    )
+    rho_ext = np.empty_like(z_ext)
+    below, above = z_ext < 0.0, z_ext > total
+    inside = ~(below | above)
+    rho_ext[below] = 0.0  # vacuum
+    rho_ext[inside] = np.asarray(film.local_density(z_ext[inside]), dtype=float)
+    rho_ext[above] = float(film.local_density(total))  # film/substrate edge
+
+    kernel = np.exp(-0.5 * (dz * np.arange(-pad, pad + 1) / sigma) ** 2)
+    kernel /= kernel.sum()
+    rho_rough = np.convolve(rho_ext, kernel, mode="same")[pad : pad + n_points]
+    return depth, rho_sharp, rho_rough
+
+
+z_film, film_density_sharp, film_density = nevot_croce_density(graded_film)
+film_total_thick = float(graded_film.total_thick.value or 0.0)
+tau_vac_anchor = float(graded_film.tau_vac.value or 0.0)
+tau_si_anchor = film_total_thick - float(graded_film.tau_si.value or 0.0)
+
+RC_OVERRIDES = {
+    "text.usetex": False,
+    "font.size": 10,
+    "font.family": "sans-serif",
+    "mathtext.fontset": "dejavusans",
+    "axes.labelsize": 10,
+    "axes.titlesize": 11,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 8,
+    "figure.titlesize": 12,
+    "grid.alpha": 0.3,
+    "grid.linestyle": "-",
+    "grid.linewidth": 0.5,
+    "axes.grid": True,
+    "axes.grid.axis": "both",
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+    "xtick.minor.visible": True,
+    "ytick.minor.visible": True,
+}
+
+with plt.rc_context(RC_OVERRIDES):
+    fig, (ax_fit, ax_density) = plt.subplots(
+        2,
+        1,
+        figsize=(3.35, 4.0),
+        dpi=400,
+        layout="constrained",
+        gridspec_kw={"height_ratios": (1.2, 1.0)},
+    )
+
+    ax_fit.errorbar(
+        q,
+        r,
+        yerr=r_err,
+        fmt=".",
+        ms=2.5,
+        lw=0.5,
+        alpha=0.5,
+        color="0.4",
+        label="data",
+        zorder=2,
+    )
+    ax_fit.plot(q_fine, r_fine, color="C0", lw=1.2, label="graded fit", zorder=10)
+    ax_fit.set_yscale("log")
+    ax_fit.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")
+    ax_fit.set_ylabel("Reflectivity")
+    ax_fit.legend(frameon=False, handlelength=1.5)
+    ax_fit.annotate("(a)", xy=(-0.2, 0.99), xycoords="axes fraction", fontsize=9, ha="left", va="top", )
+
+    ax_density.plot(z_film, film_density_sharp, color="C2", lw=0.8, ls=":")
+    ax_density.plot(z_film, film_density, color="C2", lw=1.2)
+    for z_tau in (tau_vac_anchor, tau_si_anchor):
+        ax_density.axvline(z_tau, color="0.55", lw=0.7, ls=(0, (4, 3)), zorder=1)
+    ax_density.set_xlim(0, graded_film.total_thick.value)
+    ax_density.set_ylim(.5, 2.2)
+    ax_density.set_xlabel(r"depth $z$ ($\mathrm{\AA}$)")
+    ax_density.set_ylabel(r"density (g/cm$^{3}$)")
+    ax_density.annotate("(b)", xy=(-0.2, 0.99), xycoords="axes fraction", fontsize=9, ha="left", va="top", )
+
+fig.align_ylabels()
+fig.savefig("graded_supplemental_fit_density.png", dpi=400)
 plt.show()
 

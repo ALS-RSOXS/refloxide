@@ -250,7 +250,7 @@ def test_reflectmodel_matches_raw_kernel_on_legacy_materialized_layers():
         q, snap.layers, snap.tensors, energy_ev, parallel=False
     )
 
-    np.testing.assert_allclose(new_curve, legacy_refl[:, 0, 0], rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(new_curve, legacy_refl[:, 1, 1], rtol=1e-10, atol=1e-12)
 
 
 def test_reflectmodel_setp_on_structure_affects_every_energy():

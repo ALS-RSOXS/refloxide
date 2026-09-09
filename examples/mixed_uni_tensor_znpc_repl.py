@@ -58,10 +58,8 @@ resonance):
    refloxide.python.model.AnisotropyObjective built around the py-side reference
    model.
 
-Note on s/p labeling: identical convention/inversion as
-`model_objective_repl.py` -- python.model's `pol='s'` reads the kernel's
-`[:, 1, 1]`, `pol='p'` reads `[:, 0, 0]`; `refloxide.model.Reflectivity` uses
-the native, non-inverted labeling (`.s = [:, 0, 0]`, `.p = [:, 1, 1]`).
+Note on s/p labeling: ``Reflectivity.s`` / ``.p`` are physical R_ss / R_pp
+and match ``python.model`` ``pol='s'`` / ``'p'`` one-to-one.
 """
 
 # %% 0
@@ -449,16 +447,16 @@ print(
 # %% 1. Correctness -- refloxide vs. the local py-style reference
 
 py_model.pol = "s"
-py_s = py_model.model(Q)  # native kernel [:, 1, 1]
+py_s = py_model.model(Q)
 py_model.pol = "p"
-py_p = py_model.model(Q)  # native kernel [:, 0, 0]
+py_p = py_model.model(Q)
 
 refloxide_r = refloxide_model(Q, ENERGY_EV)
 
-max_err_s = np.max(np.abs(refloxide_r.p - py_s))  # refloxide .p <-> py pol='s'
-max_err_p = np.max(np.abs(refloxide_r.s - py_p))  # refloxide .s <-> py pol='p'
-print(f"max |refloxide.p - py(pol='s')| = {max_err_s:.3e}")
-print(f"max |refloxide.s - py(pol='p')| = {max_err_p:.3e}")
+max_err_s = np.max(np.abs(refloxide_r.s - py_s))
+max_err_p = np.max(np.abs(refloxide_r.p - py_p))
+print(f"max |refloxide.s - py(pol='s')| = {max_err_s:.3e}")
+print(f"max |refloxide.p - py(pol='p')| = {max_err_p:.3e}")
 assert max_err_s < 1e-8
 assert max_err_p < 1e-8
 print(
@@ -468,9 +466,9 @@ print(
 # %% Plot overlay
 
 fig, ax = plt.subplots(figsize=(7, 5))
-ax.plot(Q, refloxide_r.p, label="refloxide .p (== py pol='s')", lw=2)
+ax.plot(Q, refloxide_r.s, label="refloxide .s", lw=2)
 ax.plot(Q, py_s, "--", label="py pol='s'", lw=1.5, color="k")
-ax.plot(Q, refloxide_r.s, label="refloxide .s (== py pol='p')", lw=2)
+ax.plot(Q, refloxide_r.p, label="refloxide .p", lw=2)
 ax.plot(Q, py_p, "--", label="py pol='p'", lw=1.5, color="0.4")
 ax.set_yscale("log")
 ax.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")

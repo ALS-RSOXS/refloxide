@@ -11,15 +11,15 @@ if TYPE_CHECKING:
 
 
 def reflectmodel_layout(matrix: NDArray[Any]) -> NDArray[Any]:
-    """Reorder native Jones powers onto legacy pyref ``ReflectModel`` diagonals.
+    """Reorder kernel Jones powers onto a swapped-diagonal packing.
 
-    Native refloxide stores ``R_ss`` at ``[:,0,0]`` and ``R_pp`` at ``[:,1,1]``.
-    Stock :class:`pyref.fitting.model.ReflectModel` reads ``pol='s'`` from
-    ``[:,1,1]`` and ``pol='p'`` from ``[:,0,0]``. This permutation matches that
-    legacy layout without changing :meth:`ReflectModel.model`.
+    The uniaxial kernel stores physical ``R_pp`` at ``[:,0,0]`` and physical
+    ``R_ss`` at ``[:,1,1]`` (Fresnel-validated). Some older pyref patches
+    expected the opposite diagonal packing; this permutation provides that
+    layout without changing :meth:`ReflectModel.model`.
 
-    Prefer :func:`reflectivity_for_pol` with an unpermuted laboratory matrix when
-    patching pyref for refloxide (preserves ``pol='sp'`` / ``pol='ps'`` ordering).
+    Prefer :func:`reflectivity_for_pol` on the unpermuted kernel matrix when
+    patching pyref for refloxide (preserves ``pol='sp'`` / ``pol='ps'``).
     """
     out = np.empty_like(matrix)
     out[:, 0, 0] = matrix[:, 1, 1]
@@ -34,15 +34,15 @@ def apply_laboratory_scales(
     scale_s: float,
     scale_p: float,
 ) -> None:
-    """Apply ``scale_s`` / ``scale_p`` to native ``R_ss`` / ``R_pp`` diagonals in place.
+    """Apply ``scale_s`` / ``scale_p`` to physical ``R_ss`` / ``R_pp`` diagonals.
 
-    Native layout is ``[:,0,0] = R_ss`` and ``[:,1,1] = R_pp``. When paired with
-    :func:`reflectivity_for_pol` (which inverts labels for pyref compatibility),
-    ``scale_s`` therefore scales the channel exposed as ``pol='p'`` and
-    ``scale_p`` scales the channel exposed as ``pol='s'``.
+    Kernel layout is ``[:,0,0] = R_pp`` and ``[:,1,1] = R_ss``. Scales follow
+    polarization: ``scale_s`` multiplies ``[:,1,1]``, ``scale_p`` multiplies
+    ``[:,0,0]``, matching :func:`reflectivity_for_pol` and
+    :class:`~refloxide.model.ReflectModel`.
     """
-    refl[:, 0, 0] = scale_s * refl[:, 0, 0]
-    refl[:, 1, 1] = scale_p * refl[:, 1, 1]
+    refl[:, 1, 1] = scale_s * refl[:, 1, 1]
+    refl[:, 0, 0] = scale_p * refl[:, 0, 0]
 
 
 def reflectivity_for_pol(
@@ -52,7 +52,7 @@ def reflectivity_for_pol(
     qvals_1: NDArray[np.float64],
     qvals_2: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    """Extract reflectivity for ``pol`` with legacy pyref channel labels.
+    """Extract reflectivity for ``pol`` with physically correct s/p channels.
 
     Parameters
     ----------
@@ -62,10 +62,9 @@ def reflectivity_for_pol(
         the first segment is p-in/p-out.
     refl
         Power reflectance ``(n_q, 2, 2)`` as returned by the uniaxial kernel
-        (native ``[:,0,0] = R_ss``, ``[:,1,1] = R_pp``). Channel extraction
-        follows :class:`pyref.fitting.model.ReflectModel` so ``pol='s'`` reads
-        ``[:,1,1]`` and ``pol='p'`` reads ``[:,0,0]``, matching pyref datasets
-        and combined ``sp`` / ``ps`` objectives.
+        (``[:,0,0] = R_pp``, ``[:,1,1] = R_ss``). ``pol='s'`` reads
+        ``[:,1,1]`` and ``pol='p'`` reads ``[:,0,0]``, matching Fresnel and
+        :class:`~refloxide.model.Reflectivity`.
     qvals, qvals_1, qvals_2
         Q grids from :meth:`pyref.fitting.model.ReflectModel._model`.
 

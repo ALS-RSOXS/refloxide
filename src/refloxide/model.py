@@ -2259,13 +2259,13 @@ class Reflectivity(NamedTuple):
     Parameters
     ----------
     s, p : NDArray[np.float64]
-        Power reflectance for the s- and p-polarization channels, in the
-        native kernel's own labeling (`refloxide.tmm`/`rust.pyi`:
-        `refl[:, 0, 0] = R_ss`, `refl[:, 1, 1] = R_pp`) — not the inverted
-        `pol='s' -> [:,1,1]` labeling some legacy pyref-compatibility code
-        in `refloxide.pxr` uses for historical reasons. Shape `(len(q),)`
-        for scalar `energy`; shape `(len(q), len(energy))` for array
-        `energy`, one column per energy in `energy`'s order.
+        Physical s- and p-polarization power reflectance. The TMM kernel
+        stores physical ``R_pp`` at ``refl[:, 0, 0]`` and physical ``R_ss``
+        at ``refl[:, 1, 1]`` (Fresnel-validated; same layout as
+        ``refloxide.python.tmm``). ``ReflectModel`` remaps those diagonals
+        here so ``.s`` is ``R_ss`` and ``.p`` is ``R_pp``. Shape ``(len(q),)``
+        for scalar ``energy``; shape ``(len(q), len(energy))`` for array
+        ``energy``, one column per energy in ``energy``'s order.
     """
 
     s: NDArray[np.float64]
@@ -2385,9 +2385,15 @@ def _is_isotropic_tensor(tensor: NDArray[np.complex128], rtol: float = 1e-9) -> 
     really are isotropic (true for `MaterialSLD`, generally false for a
     rotated `UniTensorSLD`/`MixedUniTensorSLD`).
     """
-    diag = np.array([tensor[0, 0], tensor[1, 1], tensor[2, 2]])
-    scale = max(1e-30, float(np.max(np.abs(diag))))
-    return bool(np.max(np.abs(diag - diag[0])) <= rtol * scale)
+    t00 = tensor[0, 0]
+    t11 = tensor[1, 1]
+    t22 = tensor[2, 2]
+    scale = max(1e-30, abs(t00), abs(t11), abs(t22))
+    return (
+        abs(t00 - t11) <= rtol * scale
+        and abs(t00 - t22) <= rtol * scale
+        and abs(t11 - t22) <= rtol * scale
+    )
 
 
 class _FusedBookendedPlan(NamedTuple):
@@ -2460,7 +2466,8 @@ def _plan_fused_bookended(
 def _fused_bookended_reflectivity(
     plan: _FusedBookendedPlan,
     q: NDArray[np.float64],
-    energy_ev: float,
+    wavelength_ev: float,
+    oc_energy: float,
     *,
     parallel: bool,
 ) -> NDArray[np.float64]:
@@ -2472,10 +2479,16 @@ def _fused_bookended_reflectivity(
     `BookendedComponent.rows_and_tensors_at` fed through
     `refloxide.tmm.uniaxial_reflectivity`, just without materializing any of
     it on the Python side.
+
+    ``oc_energy`` selects optical constants (nominal energy plus
+    ``energy_offset``). ``wavelength_ev`` is the nominal photon energy for
+    the TMM wavevector, matching the assembled path's
+    ``materialize_at(oc_energy)`` + ``uniaxial_reflectivity(..., energy_ev)``
+    split.
     """
     profile = plan.component.profile
     anchor = profile.anchor
-    query_ev = profile.probe_at(energy_ev).effective_ev
+    query_ev = profile.probe_at(oc_energy).effective_ev
     refl, _tran = tmm.bookended_uniaxial_reflectivity(
         np.asarray(q, dtype=np.float64),
         anchor.energy_ev,
@@ -2484,6 +2497,7 @@ def _fused_bookended_reflectivity(
         anchor.n_zz,
         anchor.n_izz,
         query_ev,
+        float(wavelength_ev),
         total_thick=float(profile.total_thick.value or 0.0),
         surface_roughness=float(profile.surface_roughness.value or 0.0),
         tau_si=float(profile.tau_si.value or 0.0),
@@ -2683,17 +2697,22 @@ class ReflectModel:
         use_parallel = self.parallel if parallel is None else bool(parallel)
 
         fused_plan = None
-        if dq < 0.5:
-            fused_plan = _plan_fused_bookended(self.structure, oc_energy)
         materialized: tuple[NDArray[np.float64], NDArray[np.complex128]] | None = None
         if layers is not None and tensor is not None:
+            # Caller already paid for materialization — use the assembled path.
             materialized = (layers, tensor)
+        elif dq < 0.5:
+            fused_plan = _plan_fused_bookended(self.structure, oc_energy)
 
         def kernel(q_eff: NDArray[np.float64]) -> NDArray[np.float64]:
             nonlocal materialized
             if fused_plan is not None:
                 return _fused_bookended_reflectivity(
-                    fused_plan, q_eff, oc_energy, parallel=use_parallel
+                    fused_plan,
+                    q_eff,
+                    energy_ev,
+                    oc_energy,
+                    parallel=use_parallel,
                 )
             if materialized is None:
                 materialized = self.structure.materialize_at(oc_energy)
@@ -2709,19 +2728,19 @@ class ReflectModel:
 
         s_out: NDArray[np.float64] | None = None
         p_out: NDArray[np.float64] | None = None
-        if (
+        shared_q = (
             q_s is not None
             and q_p is not None
             and channel.theta_offset_s == channel.theta_offset_p
-            and q_s.shape == q_p.shape
-            and np.array_equal(q_s, q_p)
-        ):
+            and (q_s is q_p or (q_s.shape == q_p.shape and np.array_equal(q_s, q_p)))
+        )
+        if shared_q:
             q_eff = _floor_q(
                 _theta_shifted_q(q_s, energy_ev, channel.theta_offset_s) + q_off
             )
             refl = kernel(q_eff)
-            s_out = channel.scale_s * refl[:, 0, 0] + channel.bkg
-            p_out = channel.scale_p * refl[:, 1, 1] + channel.bkg
+            s_out = channel.scale_s * refl[:, 1, 1] + channel.bkg
+            p_out = channel.scale_p * refl[:, 0, 0] + channel.bkg
             return s_out, p_out
 
         if q_s is not None:
@@ -2729,13 +2748,13 @@ class ReflectModel:
                 _theta_shifted_q(q_s, energy_ev, channel.theta_offset_s) + q_off
             )
             refl = kernel(q_eff)
-            s_out = channel.scale_s * refl[:, 0, 0] + channel.bkg
+            s_out = channel.scale_s * refl[:, 1, 1] + channel.bkg
         if q_p is not None:
             q_eff = _floor_q(
                 _theta_shifted_q(q_p, energy_ev, channel.theta_offset_p) + q_off
             )
             refl = kernel(q_eff)
-            p_out = channel.scale_p * refl[:, 1, 1] + channel.bkg
+            p_out = channel.scale_p * refl[:, 0, 0] + channel.bkg
         return s_out, p_out
 
     def _evaluate_scalar_energy(
@@ -2769,18 +2788,31 @@ class ReflectModel:
         # add, not a per-energy scalar recompute.
         oc_energies = np.asarray(energies_arr, dtype=np.float64) + energy_off
 
-        fused_plan = _plan_fused_bookended(self.structure, float(oc_energies[0]))
-        if fused_plan is not None:
+        fused_probe = _plan_fused_bookended(self.structure, float(oc_energies[0]))
+        if fused_probe is not None:
             s_cols = []
             p_cols = []
             for i, oc_e in enumerate(oc_energies):
+                # Re-plan per energy so dispersive fronting/backing rows
+                # (SiO2/Si) track oc_e; the film OOC already uses oc_e inside
+                # the fused kernel.
+                plan = _plan_fused_bookended(self.structure, float(oc_e))
+                if plan is None:
+                    break
                 refl = _fused_bookended_reflectivity(
-                    fused_plan, q_eff, float(oc_e), parallel=self.parallel
+                    plan,
+                    q_eff,
+                    float(energies_arr[i]),
+                    float(oc_e),
+                    parallel=self.parallel,
                 )
                 ch = channels[i]
-                s_cols.append(ch.scale_s * refl[:, 0, 0] + ch.bkg)
-                p_cols.append(ch.scale_p * refl[:, 1, 1] + ch.bkg)
-            return Reflectivity(s=np.column_stack(s_cols), p=np.column_stack(p_cols))
+                s_cols.append(ch.scale_s * refl[:, 1, 1] + ch.bkg)
+                p_cols.append(ch.scale_p * refl[:, 0, 0] + ch.bkg)
+            else:
+                return Reflectivity(
+                    s=np.column_stack(s_cols), p=np.column_stack(p_cols)
+                )
 
         # One vectorized OOC interpolation / periodictable lookup per
         # dispersive scatterer across every energy at once, instead of
@@ -2792,8 +2824,8 @@ class ReflectModel:
         s_cols = []
         p_cols = []
         for i, ch in enumerate(channels):
-            s_cols.append(ch.scale_s * refl[i, :, 0, 0] + ch.bkg)
-            p_cols.append(ch.scale_p * refl[i, :, 1, 1] + ch.bkg)
+            s_cols.append(ch.scale_s * refl[i, :, 1, 1] + ch.bkg)
+            p_cols.append(ch.scale_p * refl[i, :, 0, 0] + ch.bkg)
         return Reflectivity(s=np.column_stack(s_cols), p=np.column_stack(p_cols))
 
     def __call__(

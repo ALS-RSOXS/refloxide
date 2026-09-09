@@ -8,14 +8,11 @@ correctness (scale/bkg/dq/offsets individually) was verified manually
 during development; this file pins the composed, end-to-end result: a full
 sp anisotropy-weighted fit objective, old stack vs new.
 
-Note on s/p labeling: the old stack's `reflectivity_for_pol` intentionally
-inverts the channel labels for historical pyref-dataset compatibility
-(`pol='s'` reads the kernel's `[:,1,1]`, `pol='p'` reads `[:,0,0]`). The new
-`refloxide.model.Reflectivity` uses the native, non-inverted kernel
-labeling (`s=[:,0,0]`, `p=[:,1,1]`, matching `rust.pyi`'s own docs). So
-"old pol='s'" corresponds to "new .p", and "old pol='p'" corresponds to
-"new .s" throughout this file -- not a bug, a documented and intentional
-difference (see `refloxide.pxr.layout` and `Reflectivity`'s docstring).
+Polarization: the TMM kernel stores physical ``R_pp`` at ``[:,0,0]`` and
+physical ``R_ss`` at ``[:,1,1]`` (Fresnel-validated). Legacy
+``pol='s'``/``'p'`` already read those diagonals in the physically correct
+order. ``refloxide.model.Reflectivity`` remaps the same diagonals onto
+``.s`` / ``.p``, so channels match one-to-one with legacy ``pol``.
 """
 
 from __future__ import annotations
@@ -70,25 +67,24 @@ def test_correction_stages_match_legacy_reflectmodel():
         legacy.dq.value = kwargs.get("dq", 0.0)
 
         legacy.pol = "s"
-        legacy_s = legacy.model(q)  # reads native [:,1,1]
+        legacy_s = legacy.model(q)
         legacy.pol = "p"
-        legacy_p = legacy.model(q)  # reads native [:,0,0]
+        legacy_p = legacy.model(q)
 
-        # new.theta_offset_p <-> legacy.theta_offset_s (label swap, see docstring)
         new_model = ReflectModel(
             _new_structure(),
             scale_s=kwargs.get("scale_s", 1.0),
             scale_p=kwargs.get("scale_p", 1.0),
             bkg=kwargs.get("bkg", 0.0),
             q_offset=kwargs.get("q_offset", 0.0),
-            theta_offset_p=kwargs.get("theta_offset_s", 0.0),
-            theta_offset_s=kwargs.get("theta_offset_p", 0.0),
+            theta_offset_s=kwargs.get("theta_offset_s", 0.0),
+            theta_offset_p=kwargs.get("theta_offset_p", 0.0),
             dq=kwargs.get("dq", 0.0),
         )
         new_r = new_model(q, _ENERGY)
 
-        np.testing.assert_allclose(new_r.p, legacy_s, rtol=1e-8, atol=1e-12)
-        np.testing.assert_allclose(new_r.s, legacy_p, rtol=1e-8, atol=1e-12)
+        np.testing.assert_allclose(new_r.s, legacy_s, rtol=1e-8, atol=1e-12)
+        np.testing.assert_allclose(new_r.p, legacy_p, rtol=1e-8, atol=1e-12)
 
 
 def test_anisotropy_weighted_logl_matches_legacy_anisotropy_objective():
@@ -119,7 +115,6 @@ def test_anisotropy_weighted_logl_matches_legacy_anisotropy_objective():
     )
     legacy_ll = legacy_objective.logl()
 
-    # new "s" <- legacy p-channel data, new "p" <- legacy s-channel data (label swap)
     new_model = ReflectModel(_new_structure())
     new_data = ReflectDataset(
         q=np.concatenate([q, q]),
@@ -127,8 +122,8 @@ def test_anisotropy_weighted_logl_matches_legacy_anisotropy_objective():
         pol=np.concatenate(
             [np.full(q.shape, "s", dtype=object), np.full(q.shape, "p", dtype=object)]
         ),
-        r=np.concatenate([r_p, r_s]),
-        r_err=np.concatenate([err_p, err_s]),
+        r=np.concatenate([r_s, r_p]),
+        r_err=np.concatenate([err_s, err_p]),
     )
     new_objective = Objective(new_model, new_data, anisotropy_weight=0.4)
     new_ll = new_objective.logl()
