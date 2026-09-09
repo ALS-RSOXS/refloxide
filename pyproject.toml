@@ -76,7 +76,9 @@ compatibility = "pypi"
 [tool.uv]
 override-dependencies = [
     # mkdocs-rsoxs pulls an older GitPython; force the patched floor.
-    "gitpython>=3.1.54",
+    "gitpython>=3.1.59",
+    # mkdocs / jupyter stack pull tornado; force the form-parse DoS floor.
+    "tornado>=6.5.8",
     # marimo still declares pymdown-extensions<11; override past that for GHSA-9xwg.
     "pymdown-extensions>=11.0.0",
 ]
