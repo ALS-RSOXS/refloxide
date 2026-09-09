@@ -29,4 +29,4 @@ __all__ = [
     "uniaxial_reflectivity",
     "uniaxial_reflectivity_batch",
 ]
-__version__ = "0.1.5"
+__version__ = "0.1.6"
