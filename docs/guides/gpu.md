@@ -105,15 +105,19 @@ stacks).
 | `examples/kernel_precision.rs` | Precision study across kernel formulations |
 | `examples/gpu_backend_bench.py` | Cross-backend wall time and peak Python heap |
 
-Regenerate the Python benchmark table (writes under `examples/results/`).
+Regenerate the Python benchmark (headline metric: **10,000 film microslabs**).
 Core refloxide CPU/GPU rows need only the built extension; optional
 `refnx` / `pypxr` comparison rows appear when those packages are importable
-(typically `uv sync --group dev`):
+(typically `uv sync --group dev`). Pass `--plot` to refresh the README
+figures under `docs/assets/performance/`:
 
 ```bash
 uv sync --group dev
-uv run python examples/gpu_backend_bench.py
+uv run python examples/gpu_backend_bench.py --plot
 ```
 
-Automated precision checks live in `tests/test_gpu_precision.py` and skip
-when no GPU adapter is present. Those tests do not import `refnx`.
+CI runs the same script on Ubuntu and macOS and uploads CSV / PNG artifacts.
+`refnx` Abeles is scalar isotropic 2x2 — a cheap baseline, not the polarized
+uniaxial solve. Automated precision checks live in
+`tests/test_gpu_precision.py` and skip when no GPU adapter is present; those
+tests do not import `refnx`.

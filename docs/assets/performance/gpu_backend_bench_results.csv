@@ -1,0 +1,16 @@
+backend,n_film,n_q,n_layers,median_s,peak_heap_kib,rss_delta_mib,points_per_s,notes
+refnx Abeles (isotropic),100,256,102,0.0008680839964654297,7.84375,0.0,294902.33784098434,scalar Abeles 2x2 on isotropic twin; not polarized TMM
+refloxide.python.tmm,100,256,102,0.0730733750096988,44087.6640625,0.109375,3503.327990065081,pure-Python polarized TMM
+refloxide CPU parallel=False,100,256,102,0.007928790990263224,0.28125,0.0,32287.394170734875,
+refloxide CPU parallel=True,100,256,102,0.00133741699391976,0.28125,0.03125,191413.74841492335,
+refloxide GPU,100,256,102,0.0003303749836049974,0.28125,0.0,774877.0721274661,wgpu adapter present
+refnx Abeles (isotropic),1000,256,1002,0.008565916999941692,35.96875,0.0,29885.883788243875,scalar Abeles 2x2 on isotropic twin; not polarized TMM
+refloxide.python.tmm,1000,256,1002,nan,nan,nan,nan,skipped: n_film>256 (pass --include-python-tmm)
+refloxide CPU parallel=False,1000,256,1002,0.0758264999894891,0.28125,0.0,3376.1283988511427,
+refloxide CPU parallel=True,1000,256,1002,0.012752209004247561,0.28125,0.0,20074.953281798502,
+refloxide GPU,1000,256,1002,0.0028520000050775707,0.28125,0.0,89761.57066768207,wgpu adapter present
+refnx Abeles (isotropic),10000,256,10002,0.08391374998609535,317.21875,0.0,3050.751516198711,scalar Abeles 2x2 on isotropic twin; not polarized TMM
+refloxide.python.tmm,10000,256,10002,nan,nan,nan,nan,skipped: n_film>256 (pass --include-python-tmm)
+refloxide CPU parallel=False,10000,256,10002,0.7693899169971701,0.28125,0.0,332.7311605526819,
+refloxide CPU parallel=True,10000,256,10002,0.12852487500640564,0.28125,0.0,1991.8323202978493,
+refloxide GPU,10000,256,10002,0.007062249991577119,0.28125,0.0,36249.07080679976,wgpu adapter present
