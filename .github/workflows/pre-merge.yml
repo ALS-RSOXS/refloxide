@@ -80,6 +80,12 @@ jobs:
           --warmup 1
           --plot
           --assets-dir examples/results/ci-${{ matrix.os }}
+          --enforce-ranking
+          --min-gpu-speedup 50
+          --compare-baseline docs/assets/performance/baselines/${{ matrix.os }}.csv
+          --allow-missing-baseline
+          --max-time-ratio 1.35
+          --max-rss-ratio 2.0
 
       - name: Upload benchmark artifacts
         uses: actions/upload-artifact@v4

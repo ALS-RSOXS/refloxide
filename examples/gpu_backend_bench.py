@@ -34,6 +34,7 @@ import tracemalloc
 import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -784,6 +785,126 @@ def best_results_markdown(
     return "\n".join(lines)
 
 
+def _row_key(row: BenchRow) -> tuple[str, int, int]:
+    return (row.backend, row.n_film, row.n_q)
+
+
+def _index_rows(rows: list[BenchRow]) -> dict[tuple[str, int, int], BenchRow]:
+    return {_row_key(r): r for r in rows if np.isfinite(r.median_s)}
+
+
+def ranking_failures(
+    rows: list[BenchRow],
+    *,
+    n_film: int = HEADLINE_FILMS[1],
+    min_gpu_speedup: float = 50.0,
+) -> list[str]:
+    """Fail when the 10k-slab order stops looking like a win for refloxide."""
+    panel = {r.backend: r for r in _rows_for(rows, n_film)}
+    failures: list[str] = []
+    ordered = [
+        b
+        for b in (
+            BACKEND_GPU,
+            BACKEND_PARALLEL,
+            BACKEND_SERIAL,
+            BACKEND_PYPXR,
+        )
+        if b in panel
+    ]
+    for left, right in pairwise(ordered):
+        if panel[left].median_s > panel[right].median_s:
+            failures.append(
+                f"ranking: {BACKEND_SHORT[left]} ({panel[left].median_s * 1e3:.1f} ms) "
+                f"slower than {BACKEND_SHORT[right]} "
+                f"({panel[right].median_s * 1e3:.1f} ms) at {n_film} slabs"
+            )
+    if BACKEND_GPU in panel and BACKEND_PYPXR in panel:
+        speedup = panel[BACKEND_PYPXR].median_s / panel[BACKEND_GPU].median_s
+        if speedup < min_gpu_speedup:
+            failures.append(
+                f"ranking: GPU speedup vs PyPXR is {speedup:.1f}x "
+                f"(need >={min_gpu_speedup:g}x) at {n_film} slabs"
+            )
+    return failures
+
+
+def baseline_regressions(
+    current: list[BenchRow],
+    baseline: list[BenchRow],
+    *,
+    max_time_ratio: float = 1.35,
+    max_rss_ratio: float = 2.0,
+    n_film: int = HEADLINE_FILMS[1],
+) -> list[str]:
+    """Fail when wall time or RSS exceeds the committed baseline by too much.
+
+    Only backends present in both sets are compared. Faster / leaner results
+    pass. Intentional baseline refreshes use ``--write-baseline``.
+    """
+    cur = _index_rows(current)
+    base = _index_rows(baseline)
+    failures: list[str] = []
+    for key, base_row in sorted(base.items()):
+        if key[1] != n_film:
+            continue
+        now = cur.get(key)
+        if now is None:
+            failures.append(
+                f"baseline: missing {BACKEND_SHORT[key[0]]} n_film={key[1]} "
+                f"n_q={key[2]} in current run"
+            )
+            continue
+        if base_row.median_s > 0:
+            ratio = now.median_s / base_row.median_s
+            if ratio > max_time_ratio:
+                failures.append(
+                    f"regression: {BACKEND_SHORT[key[0]]} time "
+                    f"{now.median_s * 1e3:.1f} ms / baseline "
+                    f"{base_row.median_s * 1e3:.1f} ms = {ratio:.2f}x "
+                    f"(max {max_time_ratio:g}x)"
+                )
+        base_rss = _mem_value(base_row)
+        now_rss = _mem_value(now)
+        if base_rss > 0 and np.isfinite(now_rss):
+            rss_ratio = now_rss / base_rss
+            if rss_ratio > max_rss_ratio:
+                failures.append(
+                    f"regression: {BACKEND_SHORT[key[0]]} RSS "
+                    f"{now_rss:.0f} MiB / baseline {base_rss:.0f} MiB = "
+                    f"{rss_ratio:.2f}x (max {max_rss_ratio:g}x)"
+                )
+    return failures
+
+
+def evaluate_gates(
+    current: list[BenchRow],
+    *,
+    baseline: list[BenchRow] | None,
+    enforce_ranking: bool,
+    min_gpu_speedup: float,
+    max_time_ratio: float,
+    max_rss_ratio: float,
+) -> list[str]:
+    """Collect ranking and baseline-regression failure messages."""
+    failures: list[str] = []
+    if enforce_ranking:
+        failures.extend(
+            ranking_failures(current, min_gpu_speedup=min_gpu_speedup)
+        )
+    if baseline is not None:
+        failures.extend(
+            baseline_regressions(
+                current,
+                baseline,
+                max_time_ratio=max_time_ratio,
+                max_rss_ratio=max_rss_ratio,
+            )
+        )
+    return failures
+
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repeats", type=int, default=5)
@@ -803,6 +924,46 @@ def main() -> None:
         help="Skip timing; regenerate plots from an existing results CSV",
     )
     parser.add_argument("--assets-dir", type=Path, default=ASSETS_DIR)
+    parser.add_argument(
+        "--compare-baseline",
+        type=Path,
+        default=None,
+        help="CSV of accepted stats; fail if current results regress past ratios",
+    )
+    parser.add_argument(
+        "--allow-missing-baseline",
+        action="store_true",
+        help="If --compare-baseline path is absent, skip absolute regression gates",
+    )
+    parser.add_argument(
+        "--write-baseline",
+        type=Path,
+        default=None,
+        help="Write current results as the new accepted baseline CSV and exit 0",
+    )
+    parser.add_argument(
+        "--enforce-ranking",
+        action="store_true",
+        help="Fail when 10k-slab order is not GPU < parallel < serial < PyPXR",
+    )
+    parser.add_argument(
+        "--min-gpu-speedup",
+        type=float,
+        default=50.0,
+        help="Minimum PyPXR/GPU wall-time ratio at 10k slabs when both exist",
+    )
+    parser.add_argument(
+        "--max-time-ratio",
+        type=float,
+        default=1.35,
+        help="Fail when median_s exceeds baseline by more than this factor",
+    )
+    parser.add_argument(
+        "--max-rss-ratio",
+        type=float,
+        default=2.0,
+        help="Fail when RSS exceeds baseline by more than this factor",
+    )
     args = parser.parse_args()
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -887,6 +1048,44 @@ def main() -> None:
         )
         for path in written:
             print(f"Wrote {path}")
+
+    if args.write_baseline is not None:
+        args.write_baseline.parent.mkdir(parents=True, exist_ok=True)
+        _write_csv(args.write_baseline, all_rows)
+        print(f"Wrote baseline {args.write_baseline}")
+
+    baseline_rows: list[BenchRow] | None = None
+    if args.compare_baseline is not None:
+        if args.compare_baseline.is_file():
+            baseline_rows = _load_rows_from_csv(args.compare_baseline)
+            print(f"Comparing against baseline {args.compare_baseline}")
+        elif args.allow_missing_baseline:
+            print(
+                f"No baseline at {args.compare_baseline}; "
+                "skipping absolute regression gates"
+            )
+        else:
+            raise SystemExit(
+                f"missing baseline CSV: {args.compare_baseline}\n"
+                "Seed it with --write-baseline PATH after a good run, "
+                "or pass --allow-missing-baseline."
+            )
+
+    if args.enforce_ranking or baseline_rows is not None:
+        failures = evaluate_gates(
+            all_rows,
+            baseline=baseline_rows,
+            enforce_ranking=args.enforce_ranking,
+            min_gpu_speedup=args.min_gpu_speedup,
+            max_time_ratio=args.max_time_ratio,
+            max_rss_ratio=args.max_rss_ratio,
+        )
+        if failures:
+            print("BENCHMARK GATE FAILURES", file=sys.stderr)
+            for item in failures:
+                print(f"  - {item}", file=sys.stderr)
+            raise SystemExit(1)
+        print("Benchmark gates passed")
 
 
 if __name__ == "__main__":
