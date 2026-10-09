@@ -1,16 +1,29 @@
-# Heavy / advisory checks. Not on every PR push — run before merge:
-#   gh workflow run pre-merge.yml --ref <branch>
-# or apply the `pre-merge` label on the pull request.
+# Heavy checks that should gate merge without running on every push.
+#
+# How this stays out of the hot path but still blocks merge:
+#   1. Branch ruleset requires these job names as status checks.
+#   2. This workflow only runs when you opt in (button / ready / label)
+#      or when the PR enters the merge queue.
+#   3. Until it runs on the current HEAD, required checks are missing
+#      and GitHub will not show the PR as mergeable.
+#
+# Run it (any one is enough):
+#   • Actions → Pre-merge → Run workflow  (native button)
+#   • Mark the PR Ready for review (leaves draft)
+#   • Apply the `pre-merge` label
+#   • Enable the merge queue / add the PR to the queue
+#   • gh workflow run pre-merge.yml --ref <branch>
 name: Pre-merge
 
 on:
   workflow_dispatch:
+  merge_group:
   pull_request:
-    types: [labeled]
+    types: [labeled, ready_for_review]
     branches: [main]
 
 concurrency:
-  group: pre-merge-${{ github.workflow }}-${{ github.ref }}
+  group: pre-merge-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,11 +34,18 @@ jobs:
     name: Gate
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'merge_group' ||
       (github.event_name == 'pull_request' &&
-       github.event.label.name == 'pre-merge')
+       (github.event.action == 'ready_for_review' ||
+        github.event.label.name == 'pre-merge'))
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Running pre-merge checks on ${{ github.ref }}"
+      - name: Context
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "action=${{ github.event.action }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
 
   benchmark:
     name: Benchmark (${{ matrix.os }})
