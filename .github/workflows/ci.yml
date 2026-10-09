@@ -153,6 +153,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set PyPI package name for variant
+        shell: bash
         run: |
           if [[ "${{ matrix.variant }}" == "gpu" ]]; then
             python scripts/set_pypi_package_name.py refloxide-gpu
