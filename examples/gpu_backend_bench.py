@@ -469,6 +469,84 @@ def _bar_panel(
         )
 
 
+def write_hero_plot(
+    rows: list[BenchRow],
+    *,
+    out_dir: Path,
+    machine: str,
+    n_film: int = HEADLINE_FILMS[1],
+) -> Path:
+    """Wide horizontal README hero: wall time at ``n_film`` with speedup labels."""
+    import matplotlib.pyplot as plt
+
+    panel = _rows_for(rows, n_film)
+    if not panel:
+        msg = f"no finite rows for n_film={n_film}"
+        raise RuntimeError(msg)
+
+    # Slowest finite backend is the reference (PyPXR when present).
+    ref = max(panel, key=lambda r: r.median_s)
+    labels = [BACKEND_SHORT[r.backend] for r in reversed(panel)]
+    colors = [BACKEND_COLORS[r.backend] for r in reversed(panel)]
+    times_ms = [r.median_s * 1e3 for r in reversed(panel)]
+    speedups = [
+        (ref.median_s / r.median_s) if r.median_s > 0 else float("nan")
+        for r in reversed(panel)
+    ]
+
+    fig, ax = plt.subplots(figsize=(8.2, 3.2), layout="constrained")
+    ax.set_facecolor("#ffffff")
+    y = np.arange(len(labels))
+    ax.barh(y, times_ms, color=colors, height=0.62, zorder=2)
+    ax.set_yticks(y, labels)
+    ax.set_xscale("log")
+    ax.set_xlabel("Median wall time (ms, log scale)")
+    ax.set_title(
+        f"Uniaxial reflectivity — {n_film:,} film slabs / {panel[0].n_q} q-points",
+        fontsize=11,
+        color="#111827",
+        loc="left",
+        pad=10,
+    )
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#d1d5db")
+    ax.spines["bottom"].set_color("#d1d5db")
+    ax.grid(axis="x", color="#f3f4f6", linewidth=0.9, zorder=0)
+    ax.tick_params(colors="#374151")
+    xmax = max(times_ms)
+    for yi, ms, speedup in zip(y, times_ms, speedups, strict=True):
+        if speedup >= 1.05:
+            label = f"{ms:.1f} ms  ·  {speedup:.0f}×"
+        else:
+            label = f"{ms:.1f} ms  ·  baseline"
+        ax.text(
+            ms * 1.08,
+            yi,
+            label,
+            va="center",
+            ha="left",
+            fontsize=8,
+            color="#374151",
+        )
+    ax.set_xlim(min(times_ms) * 0.4, xmax * 8)
+    ax.text(
+        0.99,
+        0.02,
+        machine,
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=7,
+        color="#9ca3af",
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "bench_hero.png"
+    fig.savefig(path, dpi=220, facecolor="white")
+    plt.close(fig)
+    return path
+
+
 def write_plots(
     rows: list[BenchRow],
     *,
@@ -478,7 +556,7 @@ def write_plots(
     import matplotlib.pyplot as plt
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
+    written: list[Path] = [write_hero_plot(rows, out_dir=out_dir, machine=machine)]
 
     fig, axes = plt.subplots(2, 2, figsize=(9.5, 6.8), layout="constrained")
     for col, n_film in enumerate(HEADLINE_FILMS):

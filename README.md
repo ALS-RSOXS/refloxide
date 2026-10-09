@@ -1,78 +1,86 @@
 # refloxide
 
-A blazingly fast 4x4 transfer matrix method for polarized reflectivity from stratified media.
+An extremely fast 4x4 transfer-matrix engine for **polarized** reflectivity
+from stratified media — written in Rust, with optional wgpu GPU acceleration
+and thin Python bindings.
 
-refloxide is a ground-up rewrite aimed at energy-dispersive soft X-ray and
-polarized neutron work where scalar codes fall short. It ships a Rust core
-(optional wgpu GPU path), thin Python bindings, and opt-in modeling /
-objective layers.
-
-Related baselines:
-
-- [refnx](https://github.com/refnx/refnx) — scalar Abeles / Parratt and the
-  host for the historical **PyPXR** polarized plugin API (vendored in-tree as
-  `refloxide.pxr.plugin`).
-- [refl1d](https://github.com/reflectometry/refl1d) — strong for scalar
-  stacks; awkward for general dielectric tensors.
+- Blazing forward models for uniaxial stacks (CPU + GPU)
+- Drop-in polarized path relative to the historical PyPXR / refnx plugin API
+- Opt-in modeling and objective layers for multi-energy fitting
 
 ## Performance
 
-Same **uniaxial** stack, four backends:
+On **10,000 uniaxial film slabs** (256 q-points), GPU finishes in ~4&nbsp;ms —
+about **2,000×** faster than the in-tree PyPXR / refnx plugin path, with ~50×
+less peak RSS.
 
-| Label | What runs |
+<p align="center">
+  <img src="docs/assets/performance/bench_hero.png" alt="Uniaxial reflectivity benchmark at 10,000 film slabs" width="820">
+</p>
+
+<p align="center">
+  <sub>
+    Apple Silicon (Darwin arm64) · same uniaxial stack · median of 3 runs ·
+    regenerate with <code>uv run python examples/gpu_backend_bench.py --plot</code>
+  </sub>
+</p>
+
+<details>
+<summary><strong>Full benchmark details</strong> — 1 slab &amp; 10k slabs, speed + memory, methodology</summary>
+
+<br>
+
+Same uniaxial problem on four backends:
+
+| Backend | Implementation |
 | --- | --- |
-| CPU serial | `refloxide` Rust kernel, `parallel=False` |
-| CPU parallel | `refloxide` Rust kernel, `parallel=True` |
-| GPU | `refloxide` wgpu recursion (`device="gpu"`) |
-| PyPXR plugin | in-tree `pxr.plugin` uniaxial path (pure-Python TMM; the refnx-plugin shape) |
+| CPU serial | Rust kernel, `parallel=False` |
+| CPU parallel | Rust kernel, `parallel=True` |
+| GPU | wgpu recursion (`device="gpu"`) |
+| PyPXR plugin | in-tree `refloxide.pxr.plugin` uniaxial path (pure-Python TMM) |
 
-Headline sizes: **1 uniaxial film slab** and **10,000 uniaxial film slabs**
-(plus vacuum / substrate), 256 q-points. Metrics: median wall time and peak
-process RSS (fresh subprocess per backend).
+**1 uniaxial slab**
+
+<p align="center">
+  <img src="docs/assets/performance/bench_wall_time_1slab.png" alt="Wall time at 1 uniaxial slab" width="640">
+  <img src="docs/assets/performance/bench_memory_1slab.png" alt="RSS at 1 uniaxial slab" width="640">
+</p>
+
+**10,000 uniaxial slabs**
+
+<p align="center">
+  <img src="docs/assets/performance/bench_wall_time_10k.png" alt="Wall time at 10k uniaxial slabs" width="640">
+  <img src="docs/assets/performance/bench_memory_10k.png" alt="RSS at 10k uniaxial slabs" width="640">
+</p>
+
+**Combined grid**
+
+<p align="center">
+  <img src="docs/assets/performance/bench_uniaxial_grid.png" alt="Speed and memory grid" width="820">
+</p>
+
+Notes:
+
+- Apples-to-apples **uniaxial** comparison (not scalar Abeles).
+- Memory is peak process RSS in a fresh subprocess.
+- `refnx` is a **dev/plugin** extra for the plugin import graph only — not a
+  core runtime dependency of the Rust kernels.
+- CI runs the same script on Ubuntu and macOS and uploads artifacts; GPU rows
+  appear only when a wgpu adapter is present.
+- Guide: [`docs/guides/gpu.md`](docs/guides/gpu.md)
 
 ```bash
 uv sync --group dev --group plugin
 uv run python examples/gpu_backend_bench.py --plot
 ```
 
-CI runs the same script on Ubuntu and macOS and uploads artifacts (GPU rows
-only when a wgpu adapter is present).
-
-### 1 uniaxial slab
-
-![Wall time — 1 slab](docs/assets/performance/bench_wall_time_1slab.png)
-
-![Memory — 1 slab](docs/assets/performance/bench_memory_1slab.png)
-
-### 10,000 uniaxial slabs
-
-![Wall time — 10k slabs](docs/assets/performance/bench_wall_time_10k.png)
-
-![Memory — 10k slabs](docs/assets/performance/bench_memory_10k.png)
-
-Combined grid (also written by the bench):
-
-![Uniaxial speed and memory grid](docs/assets/performance/bench_uniaxial_grid.png)
-
-Notes:
-
-- This is an **apples-to-apples uniaxial** comparison. Scalar Abeles is
-  deliberately not plotted here — it solves a cheaper problem.
-- Memory bars are peak process RSS in a fresh interpreter (includes NumPy
-  inputs, Rust working set, and Python temporaries on the plugin path).
-- `refnx` is a **dev/plugin** extra (needed to import the plugin path), not a
-  core runtime dependency of the Rust kernels. See
-  [GPU guide](docs/guides/gpu.md).
+</details>
 
 ## Installation
 
 ```bash
 pip install refloxide
-```
-
-Or with uv:
-
-```bash
+# or
 uv add refloxide
 ```
 
@@ -87,32 +95,21 @@ refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, device="cpu")
 
 ## Development
 
-### Prerequisites
-
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/) for package management
-
-### Setup
-
 ```bash
 git clone https://github.com/ALS-RSOXS/refloxide.git
 cd refloxide
 make develop   # uv sync --group dev --group plugin + maturin develop --release
-```
-
-### Tests and checks
-
-```bash
 make test
 make verify
+```
+
+GPU precision tests skip when no adapter is present:
+
+```bash
 uv run pytest tests/test_gpu_precision.py -q
 ```
 
-### Documentation
-
-```bash
-make docs-serve
-```
+Docs: `make docs-serve`
 
 ## License
 
