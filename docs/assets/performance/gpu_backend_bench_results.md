@@ -1,6 +1,6 @@
 # Uniaxial backend bench
 
-- regenerated plots: `2026-10-09T06:43:41Z`
+- regenerated plots: `2026-10-09T06:47:46Z`
 - source: `docs/assets/performance/gpu_backend_bench_results.csv`
 - machine: `Darwin arm64 / arm`
 
@@ -19,7 +19,7 @@
 
 | Backend | Time | vs PyPXR | RSS |
 | --- | ---: | ---: | ---: |
-| **GPU** | **4.1 ms** | 2,117× | 44 MiB |
-| **CPU parallel** | **138.8 ms** | 62× | 32 MiB |
-| **CPU serial** | **784.3 ms** | 11× | 32 MiB |
-| **PyPXR** | **8614.5 ms** | — | 2147 MiB |
+| **GPU** | **4.1 ms** | 2,117x | 44 MiB |
+| **CPU parallel** | **138.8 ms** | 62x | 32 MiB |
+| **CPU serial** | **784.3 ms** | 11x | 32 MiB |
+| **PyPXR** | **8614.5 ms** | - | 2147 MiB |

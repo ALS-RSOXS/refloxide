@@ -63,29 +63,21 @@ BACKEND_SHORT = {
     BACKEND_PYPXR: "PyPXR",
 }
 
-# Soft accents that read on transparent light and dark README backgrounds.
+# Ruff-style single accent: ALS soft-X-ray violet (synchrotron / RSOXS adjacent).
 THEME = {
     "light": {
-        "text": "#1d1d1f",
-        "muted": "#86868b",
-        "grid": "#d2d2d7",
-        "bar": {
-            BACKEND_SERIAL: "#5e5ce6",
-            BACKEND_PARALLEL: "#0071e3",
-            BACKEND_GPU: "#00c7be",
-            BACKEND_PYPXR: "#a1a1a6",
-        },
+        "text": "#1c1c1e",
+        "muted": "#6e6e73",
+        "grid": "#d8d8dc",
+        "bar": "#6B3FA0",
+        "winner": "#1c1c1e",
     },
     "dark": {
         "text": "#f5f5f7",
-        "muted": "#98989d",
-        "grid": "#424245",
-        "bar": {
-            BACKEND_SERIAL: "#7d7aff",
-            BACKEND_PARALLEL: "#2997ff",
-            BACKEND_GPU: "#3ce7c8",
-            BACKEND_PYPXR: "#6e6e73",
-        },
+        "muted": "#8e8e93",
+        "grid": "#3a3a3c",
+        "bar": "#9B6DFF",
+        "winner": "#ffffff",
     },
 }
 
@@ -292,7 +284,9 @@ elif backend == "gpu":
 elif backend == "pypxr":
     warnings.simplefilter("ignore", DeprecationWarning)
     from refloxide.pxr.plugin.model import reflectivity
-    reflectivity(q, layers, tensor, energy=ENERGY_EV, dq=0.0, backend="uni", parallel=False)
+    reflectivity(
+        q, layers, tensor, energy=ENERGY_EV, dq=0.0, backend="uni", parallel=False
+    )
 else:
     raise SystemExit("unknown backend")
 rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -449,13 +443,13 @@ def _rows_for(rows: list[BenchRow], n_film: int) -> list[BenchRow]:
     return sorted(selected, key=lambda r: order.get(r.backend, 999))
 
 
-def _apple_axes(ax, theme: dict[str, object]) -> None:
+def _ruff_axes(ax, theme: dict[str, object]) -> None:
     ax.set_facecolor("none")
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color(str(theme["grid"]))
-    ax.spines["bottom"].set_linewidth(0.6)
-    ax.tick_params(colors=str(theme["muted"]), length=0, labelsize=8)
+    ax.spines["bottom"].set_linewidth(0.8)
+    ax.tick_params(colors=str(theme["muted"]), length=0, labelsize=9)
     ax.yaxis.set_ticks_position("none")
 
 
@@ -466,8 +460,138 @@ def _mem_value(row: BenchRow) -> float:
 def _save_transparent(fig, path: Path) -> None:
     import matplotlib.pyplot as plt
 
-    fig.savefig(path, dpi=200, facecolor="none", edgecolor="none", transparent=True)
+    fig.savefig(path, dpi=220, facecolor="none", edgecolor="none", transparent=True)
     plt.close(fig)
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 1.0:
+        ms = seconds * 1e3
+        return f"{ms:.2f}ms" if ms < 10 else f"{ms:.1f}ms"
+    if seconds < 10.0:
+        return f"{seconds:.2f}s"
+    return f"{seconds:.1f}s"
+
+
+def _nice_cap(values: list[float], *, headroom: float = 1.08) -> float:
+    peak = max(values) if values else 1.0
+    if peak <= 0:
+        return 1.0
+    exp = 10 ** np.floor(np.log10(peak))
+    for mult in (1.0, 1.25, 1.5, 2.0, 2.5, 5.0, 10.0):
+        cand = mult * exp
+        if cand >= peak * headroom:
+            return float(cand)
+    return float(peak * headroom)
+
+
+def _second_ticks(xlim: float) -> tuple[list[float], list[str]]:
+    use_ms = xlim < 0.05
+    if use_ms:
+        xlim_ms = xlim * 1e3
+        step_ms = _nice_cap([xlim_ms], headroom=1.0) / 4.0
+        if step_ms <= 0:
+            step_ms = xlim_ms / 2.0
+        positions_ms = list(np.arange(0.0, xlim_ms + step_ms * 0.25, step_ms))
+        if positions_ms[-1] < xlim_ms - 1e-9:
+            positions_ms.append(xlim_ms)
+        positions = [p / 1e3 for p in positions_ms]
+        labels = [
+            "0ms" if p == 0.0 else f"{p:.2g}ms".replace("msms", "ms")
+            for p in positions_ms
+        ]
+        return positions, labels
+    if xlim <= 0.1:
+        step = xlim / 4.0
+    elif xlim <= 1.0:
+        step = 0.25
+    elif xlim <= 3.0:
+        step = 0.5
+    else:
+        step = max(1.0, round(xlim / 3.0))
+    positions = list(np.arange(0.0, xlim + step * 0.5, step))
+    if positions[-1] < xlim - 1e-12:
+        positions.append(xlim)
+    labels = []
+    for t in positions:
+        if t == 0.0:
+            labels.append("0s")
+        elif t >= 1.0 and abs(t - round(t)) < 1e-9:
+            labels.append(f"{round(t)}s")
+        else:
+            labels.append(f"{t:.2g}s")
+    return positions, labels
+
+
+def _memory_ticks(xlim: float) -> tuple[list[float], list[str]]:
+    positions = [0.0, xlim / 2.0, xlim]
+    labels = ["0", f"{xlim / 2:.0f}", f"{xlim:.0f}"]
+    return positions, labels
+
+
+def _horizontal_bars(
+    *,
+    labels: list[str],
+    values: list[float],
+    value_tags: list[str],
+    winner_idx: int,
+    theme: dict[str, object],
+    xlim: float,
+    tick_labels: list[str],
+    tick_positions: list[float],
+    figsize: tuple[float, float],
+) -> object:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.patch.set_alpha(0.0)
+    _ruff_axes(ax, theme)
+    y = np.arange(len(labels))
+    drawn = [min(v, xlim) for v in values]
+    ax.barh(y, drawn, color=str(theme["bar"]), height=0.58, zorder=2)
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=10)
+    for tick, idx in zip(ax.get_yticklabels(), range(len(labels)), strict=True):
+        if idx == winner_idx:
+            tick.set_fontweight("bold")
+            tick.set_color(str(theme["winner"]))
+        else:
+            tick.set_fontweight("regular")
+            tick.set_color(str(theme["muted"]))
+    has_overflow = any(v > xlim for v in values)
+    view_max = xlim if has_overflow else xlim * 1.28
+    ax.set_xlim(0.0, view_max)
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels)
+    ax.grid(axis="x", color=str(theme["grid"]), linewidth=0.65, zorder=0)
+    ax.set_axisbelow(True)
+    pad = 0.015 * xlim
+    for yi, raw, tag in zip(y, values, value_tags, strict=True):
+        if raw >= xlim:
+            ax.text(
+                xlim - pad,
+                yi,
+                tag,
+                va="center",
+                ha="right",
+                fontsize=9,
+                color=str(theme["text"]),
+                zorder=3,
+            )
+        else:
+            ax.text(
+                raw + pad,
+                yi,
+                tag,
+                va="center",
+                ha="left",
+                fontsize=9,
+                color=str(theme["muted"]),
+                zorder=3,
+                clip_on=False,
+            )
+    fig.subplots_adjust(left=0.24, right=0.99, top=0.97, bottom=0.24)
+    return fig
 
 
 def write_hero_plot(
@@ -476,48 +600,37 @@ def write_hero_plot(
     out_dir: Path,
     n_film: int = HEADLINE_FILMS[1],
 ) -> list[Path]:
-    """Compact horizontal hero; light + dark variants for GitHub themes."""
-    import matplotlib.pyplot as plt
-
+    """Ruff-style horizontal hero; light + dark variants for GitHub themes."""
     ranked = sorted(_rows_for(rows, n_film), key=lambda r: r.median_s)
     if not ranked:
         msg = f"no finite rows for n_film={n_film}"
         raise RuntimeError(msg)
 
-    # barh: y=0 is bottom — put slowest at bottom, fastest (best) at top.
     panel = list(reversed(ranked))
-    ref = max(ranked, key=lambda r: r.median_s)
     labels = [BACKEND_SHORT[r.backend] for r in panel]
-    times_ms = [r.median_s * 1e3 for r in panel]
-    speedups = [
-        (ref.median_s / r.median_s) if r.median_s > 0 else float("nan") for r in panel
+    times_s = [r.median_s for r in panel]
+    winner_idx = int(np.argmin(times_s))
+    mid = sorted(times_s)[-2] if len(times_s) >= 2 else times_s[0]
+    xlim = max(_nice_cap([mid], headroom=1.2), 1.0)
+    tick_positions, tick_labels = _second_ticks(xlim)
+    tags = [
+        f"> {tick_labels[-1]}" if t > xlim else _format_duration(t) for t in times_s
     ]
+
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-
     for mode, theme in THEME.items():
-        fig, ax = plt.subplots(figsize=(5.6, 2.15), layout="constrained")
-        _apple_axes(ax, theme)
-        colors = [theme["bar"][r.backend] for r in panel]  # type: ignore[index]
-        y = np.arange(len(labels))
-        ax.barh(y, times_ms, color=colors, height=0.55, zorder=2)
-        ax.set_yticks(y, labels)
-        ax.set_xscale("log")
-        ax.set_xlabel("ms", color=str(theme["muted"]), fontsize=8, labelpad=2)
-        ax.grid(axis="x", color=str(theme["grid"]), linewidth=0.5, zorder=0)
-        ax.set_axisbelow(True)
-        for yi, ms, speedup in zip(y, times_ms, speedups, strict=True):
-            tag = f"{ms:.1f}" if speedup < 1.05 else f"{ms:.1f} · {speedup:.0f}×"
-            ax.text(
-                ms * 1.12,
-                yi,
-                tag,
-                va="center",
-                ha="left",
-                fontsize=8,
-                color=str(theme["text"]),
-            )
-        ax.set_xlim(min(times_ms) * 0.55, max(times_ms) * 6.5)
+        fig = _horizontal_bars(
+            labels=labels,
+            values=times_s,
+            value_tags=tags,
+            winner_idx=winner_idx,
+            theme=theme,
+            xlim=xlim,
+            tick_labels=tick_labels,
+            tick_positions=tick_positions,
+            figsize=(5.8, 2.15),
+        )
         path = out_dir / f"bench_hero_{mode}.png"
         _save_transparent(fig, path)
         written.append(path)
@@ -532,36 +645,47 @@ def write_mini_plot(
     metric: str,
     stem: str,
 ) -> list[Path]:
-    """Small vertical bars for details; light + dark."""
-    import matplotlib.pyplot as plt
-
-    panel = _rows_for(rows, n_film)
-    if not panel:
+    """Compact Ruff-style horizontal bars for the details block."""
+    ranked = sorted(
+        _rows_for(rows, n_film),
+        key=lambda r: r.median_s if metric == "time" else _mem_value(r),
+    )
+    if not ranked:
         return []
+    panel = list(reversed(ranked))
+    labels = [BACKEND_SHORT[r.backend] for r in panel]
     if metric == "time":
-        values = [r.median_s * 1e3 for r in panel]
-        xlabel = "ms"
-        log = True
+        values = [r.median_s for r in panel]
+        mid = sorted(values)[-2] if len(values) >= 2 else values[0]
+        xlim = _nice_cap([mid], headroom=1.2)
+        if max(values) > xlim:
+            xlim = max(xlim, 1.0) if mid >= 0.2 else _nice_cap(values, headroom=1.05)
+        winner_idx = int(np.argmin(values))
+        tick_positions, tick_labels = _second_ticks(xlim)
+        tags = [
+            f"> {tick_labels[-1]}" if v > xlim else _format_duration(v) for v in values
+        ]
     else:
         values = [_mem_value(r) for r in panel]
-        xlabel = "MiB"
-        log = True
+        xlim = _nice_cap(values, headroom=1.05)
+        winner_idx = int(np.argmin(values))
+        tick_positions, tick_labels = _memory_ticks(xlim)
+        tags = [f"{v:.0f} MiB" for v in values]
 
-    labels = [BACKEND_SHORT[r.backend] for r in panel]
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for mode, theme in THEME.items():
-        fig, ax = plt.subplots(figsize=(3.6, 2.0), layout="constrained")
-        _apple_axes(ax, theme)
-        colors = [theme["bar"][r.backend] for r in panel]  # type: ignore[index]
-        x = np.arange(len(labels))
-        ax.bar(x, values, color=colors, width=0.58, zorder=2)
-        ax.set_xticks(x, labels, fontsize=7)
-        if log:
-            ax.set_yscale("log")
-        ax.set_ylabel(xlabel, color=str(theme["muted"]), fontsize=8)
-        ax.grid(axis="y", color=str(theme["grid"]), linewidth=0.5, zorder=0)
-        ax.set_axisbelow(True)
+        fig = _horizontal_bars(
+            labels=labels,
+            values=values,
+            value_tags=tags,
+            winner_idx=winner_idx,
+            theme=theme,
+            xlim=xlim,
+            tick_labels=tick_labels,
+            tick_positions=tick_positions,
+            figsize=(4.6, 1.9),
+        )
         path = out_dir / f"{stem}_{mode}.png"
         _save_transparent(fig, path)
         written.append(path)
@@ -636,23 +760,26 @@ def _load_rows_from_csv(path: Path) -> list[BenchRow]:
     return rows
 
 
-def best_results_markdown(rows: list[BenchRow], *, n_film: int = HEADLINE_FILMS[1]) -> str:
+def best_results_markdown(
+    rows: list[BenchRow], *, n_film: int = HEADLINE_FILMS[1]
+) -> str:
     """Compact comparison table sorted best-first by wall time."""
     panel = sorted(_rows_for(rows, n_film), key=lambda r: r.median_s)
     if not panel:
         return ""
     ref = max(panel, key=lambda r: r.median_s)
     lines = [
-        f"| Backend | Time | vs PyPXR | RSS |",
-        f"| --- | ---: | ---: | ---: |",
+        "| Backend | Time | vs PyPXR | RSS |",
+        "| --- | ---: | ---: | ---: |",
     ]
     for r in panel:
         ms = r.median_s * 1e3
         speedup = ref.median_s / r.median_s if r.median_s > 0 else float("nan")
-        vs = "—" if r.backend == ref.backend else f"{speedup:,.0f}×"
+        vs = "-" if r.backend == ref.backend else f"{speedup:,.0f}x"
         rss = _mem_value(r)
+        name = BACKEND_SHORT[r.backend]
         lines.append(
-            f"| **{BACKEND_SHORT[r.backend]}** | **{ms:.1f} ms** | {vs} | {rss:.0f} MiB |"
+            f"| **{name}** | **{ms:.1f} ms** | {vs} | {rss:.0f} MiB |"
         )
     return "\n".join(lines)
 
