@@ -127,48 +127,6 @@ jobs:
       - name: Validate general WGSL shaders (naga)
         run: cargo run --example gpu_general_check --no-default-features
 
-  benchmark:
-    name: Benchmark (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies and extension
-        run: make develop
-
-      - name: Run uniaxial backend bench (1 and 10k slabs)
-        run: >
-          uv run python examples/gpu_backend_bench.py
-          --repeats 3
-          --warmup 1
-          --plot
-          --assets-dir examples/results/ci-${{ matrix.os }}
-
-      - name: Upload benchmark artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: gpu-backend-bench-${{ matrix.os }}
-          path: |
-            examples/results/
-            examples/results/ci-${{ matrix.os }}/
-          if-no-files-found: error
-
   wheels:
     name: Wheel (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -230,29 +188,3 @@ jobs:
             .smoke-venv/bin/pip install --no-deps dist/*.whl
             .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
           fi
-
-  dependency_scan:
-    name: Dependency Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - run: make install
-      - run: make pysentry
-
-  sast_with_semgrep:
-    name: semgrep scan
-    runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep
-
-    # Skip any PRs created by dependabot or renovate to avoid permission issues:
-    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'dependabot-preview[bot]' && github.actor != 'Renovate[bot]' }}
-
-    steps:
-      - uses: actions/checkout@v4
-      - run: semgrep scan

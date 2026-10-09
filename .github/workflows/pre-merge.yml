@@ -1,0 +1,102 @@
+# Heavy / advisory checks. Not on every PR push — run before merge:
+#   gh workflow run pre-merge.yml --ref <branch>
+# or apply the `pre-merge` label on the pull request.
+name: Pre-merge
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+    branches: [main]
+
+concurrency:
+  group: pre-merge-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  gate:
+    name: Gate
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.label.name == 'pre-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Running pre-merge checks on ${{ github.ref }}"
+
+  benchmark:
+    name: Benchmark (${{ matrix.os }})
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies and extension
+        run: make develop
+
+      - name: Run uniaxial backend bench (1 and 10k slabs)
+        run: >
+          uv run python examples/gpu_backend_bench.py
+          --repeats 3
+          --warmup 1
+          --plot
+          --assets-dir examples/results/ci-${{ matrix.os }}
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-backend-bench-${{ matrix.os }}
+          path: |
+            examples/results/
+            examples/results/ci-${{ matrix.os }}/
+          if-no-files-found: error
+
+  dependency_scan:
+    name: Dependency Scan
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: make install
+      - run: make pysentry
+
+  sast_with_semgrep:
+    name: semgrep scan
+    needs: gate
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    # Skip bots to avoid permission issues on forked/automated PRs.
+    if: >
+      always() &&
+      needs.gate.result == 'success' &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'dependabot-preview[bot]' &&
+      github.actor != 'Renovate[bot]'
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan
