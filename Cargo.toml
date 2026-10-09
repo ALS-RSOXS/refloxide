@@ -1,6 +1,6 @@
 [package]
 name = "refloxide"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "4x4 transfer matrix reflectivity for stratified media"
 license = "GPL-3.0"

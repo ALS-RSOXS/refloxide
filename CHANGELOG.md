@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-09
+
+### Added
+
+- Optional wgpu GPU path for uniaxial 4x4 TMM (`device="gpu"`, Cargo feature
+  `gpu`)
+- GPU guide, backend bench script, and README performance charts
+- Pre-merge workflow for bench / pysentry / semgrep with
+  `github-action-benchmark` regression watching
+
+### Changed
+
+- CI no longer re-runs on push to `main` (PR + merge queue only); docs still
+  deploy on main
+- Raised transitive `anyio` / `tornado` floors for pysentry
+
 ## [0.1.6] - 2026-09-09
 
 ### Added
