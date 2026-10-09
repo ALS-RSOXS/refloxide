@@ -5,10 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 uv python install 3.13
-# dev: tooling + refnx for tests/benches; plugin: polarized modeling extras
-uv sync --group dev --group plugin
+# dev: tooling; plugin extra/group: refnx modeling stack for tests/benches
+uv sync --group dev --extra plugin
 
-UV_NO_CONFIG=1 uv run maturin develop --release
+# Editable install with GPU enabled so local device=\"gpu\" matches refloxide-gpu wheels.
+UV_NO_CONFIG=1 uv run maturin develop --release --no-default-features --features python,gpu
 
 uv run python - <<'PY'
 import refloxide

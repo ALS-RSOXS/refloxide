@@ -1806,10 +1806,29 @@ wheels = [
 
 [[package]]
 name = "refloxide"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
+    { name = "numpy" },
     { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "arviz" },
+    { name = "periodictable" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "refnx" },
+    { name = "scipy" },
+]
+plugin = [
+    { name = "arviz" },
+    { name = "periodictable" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "refnx" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -1818,14 +1837,11 @@ dev = [
     { name = "marimo" },
     { name = "matplotlib" },
     { name = "maturin" },
-    { name = "numpy" },
-    { name = "periodictable" },
     { name = "prek" },
-    { name = "pyarrow" },
     { name = "pysentry-rs" },
     { name = "pytest" },
     { name = "pytest-cov" },
-    { name = "refnx" },
+    { name = "refloxide", extra = ["plugin"] },
     { name = "ruff" },
     { name = "ty" },
 ]
@@ -1836,16 +1852,22 @@ docs = [
     { name = "pymdown-extensions" },
 ]
 plugin = [
-    { name = "arviz" },
-    { name = "marimo" },
-    { name = "periodictable" },
-    { name = "polars" },
-    { name = "pyarrow" },
-    { name = "refnx" },
+    { name = "refloxide", extra = ["plugin"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "tqdm", specifier = ">=4.68.4" }]
+requires-dist = [
+    { name = "arviz", marker = "extra == 'plugin'", specifier = ">=1.1.0" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "periodictable", marker = "extra == 'plugin'", specifier = ">=2.1.0" },
+    { name = "polars", marker = "extra == 'plugin'", specifier = ">=1.40.1" },
+    { name = "pyarrow", marker = "extra == 'plugin'", specifier = ">=20.0.0" },
+    { name = "refloxide", extras = ["plugin"], marker = "extra == 'all'" },
+    { name = "refnx", marker = "extra == 'plugin'", specifier = ">=0.1.63" },
+    { name = "scipy", marker = "extra == 'plugin'", specifier = ">=1.17.1" },
+    { name = "tqdm", specifier = ">=4.68.4" },
+]
+provides-extras = ["core", "plugin", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1853,14 +1875,11 @@ dev = [
     { name = "marimo", specifier = ">=0.23.9" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "maturin", specifier = ">=1.13.1" },
-    { name = "numpy", specifier = ">=2.0" },
-    { name = "periodictable", specifier = ">=2.1.0" },
     { name = "prek", specifier = ">=0.1.0" },
-    { name = "pyarrow", specifier = ">=20.0.0" },
     { name = "pysentry-rs", specifier = ">=0.1.0" },
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
-    { name = "refnx", specifier = ">=0.1.63" },
+    { name = "refloxide", extras = ["plugin"] },
     { name = "ruff", specifier = ">=0.14.14" },
     { name = "ty", specifier = ">=0.0.14" },
 ]
@@ -1870,14 +1889,7 @@ docs = [
     { name = "mkdocstrings-python", specifier = ">=2.0.1" },
     { name = "pymdown-extensions", specifier = ">=11.0.0" },
 ]
-plugin = [
-    { name = "arviz", specifier = ">=1.1.0" },
-    { name = "marimo", specifier = ">=0.23.9" },
-    { name = "periodictable", specifier = ">=2.1.0" },
-    { name = "polars", specifier = ">=1.40.1" },
-    { name = "pyarrow", specifier = ">=20.0.0" },
-    { name = "refnx", specifier = ">=0.1.63" },
-]
+plugin = [{ name = "refloxide", extras = ["plugin"] }]
 
 [[package]]
 name = "refnx"

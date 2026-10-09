@@ -1,10 +1,10 @@
 name: CI
 
+# Continuous on every PR push; re-run inside the merge queue (merge_group)
+# together with Pre-merge performance / security jobs. No push-to-main.
 on:
   pull_request:
     branches: [main]
-  # Re-validate the prospective merge commit inside the merge queue.
-  # No push-to-main: that would duplicate work already done on the PR / queue.
   merge_group:
 
 concurrency:
@@ -129,12 +129,13 @@ jobs:
         run: cargo run --example gpu_general_check --no-default-features
 
   wheels:
-    name: Wheel (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Wheel (${{ matrix.variant }}, ${{ matrix.config.os }})
+    runs-on: ${{ matrix.config.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        variant: [cpu, gpu]
+        config:
           - os: ubuntu-22.04
             target: x86_64
             manylinux: "2_28"
@@ -151,12 +152,24 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Set PyPI package name for variant
+        shell: bash
+        run: |
+          if [[ "${{ matrix.variant }}" == "gpu" ]]; then
+            python scripts/set_pypi_package_name.py refloxide-gpu
+          else
+            python scripts/set_pypi_package_name.py refloxide
+          fi
+
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist --compatibility pypi -i python3.13
-          manylinux: ${{ matrix.manylinux }}
+          target: ${{ matrix.config.target }}
+          args: >-
+            --release --out dist --compatibility pypi -i python3.13
+            --no-default-features
+            --features ${{ matrix.variant == 'gpu' && 'python,gpu' || 'python' }}
+          manylinux: ${{ matrix.config.manylinux }}
 
       - name: Assert Linux manylinux tag
         if: runner.os == 'Linux'
@@ -183,9 +196,15 @@ jobs:
         run: |
           python -m venv .smoke-venv
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            .smoke-venv/Scripts/pip install --no-deps dist/*.whl
-            .smoke-venv/Scripts/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
+            PY=.smoke-venv/Scripts/python
+            PIP=.smoke-venv/Scripts/pip
           else
-            .smoke-venv/bin/pip install --no-deps dist/*.whl
-            .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
+            PY=.smoke-venv/bin/python
+            PIP=.smoke-venv/bin/pip
           fi
+          $PIP install --no-deps dist/*.whl
+          $PY - <<'PY'
+          import refloxide
+          import refloxide.rust as rust
+          print(refloxide.__version__, rust.uniaxial_reflectivity.__name__)
+          PY

@@ -12,11 +12,12 @@ permissions:
 
 jobs:
   linux:
-    name: Build Linux (${{ matrix.platform.target }})
+    name: Build Linux (${{ matrix.variant }}, ${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
+        variant: [cpu, gpu]
         platform:
           - runner: ubuntu-22.04
             target: x86_64
@@ -31,11 +32,22 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Set PyPI package name for variant
+        run: |
+          if [[ "${{ matrix.variant }}" == "gpu" ]]; then
+            python scripts/set_pypi_package_name.py refloxide-gpu
+          else
+            python scripts/set_pypi_package_name.py refloxide
+          fi
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --compatibility pypi --find-interpreter
+          args: >-
+            --release --out dist --compatibility pypi --find-interpreter
+            --no-default-features
+            --features ${{ matrix.variant == 'gpu' && 'python,gpu' || 'python' }}
           manylinux: "2_28"
 
       - name: Assert manylinux wheel tags
@@ -60,21 +72,26 @@ jobs:
         if: matrix.platform.target == 'x86_64'
         run: |
           python -m venv .smoke-venv
-          whl="$(ls -1 dist/*cp313*-manylinux*_x86_64.whl | head -1)"
+          if [[ "${{ matrix.variant }}" == "gpu" ]]; then
+            whl="$(ls -1 dist/*cp313*-manylinux*_x86_64.whl | head -1)"
+          else
+            whl="$(ls -1 dist/refloxide-*cp313*-manylinux*_x86_64.whl | head -1)"
+          fi
           .smoke-venv/bin/pip install --no-deps "$whl"
           .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.platform.target }}
+          name: wheels-${{ matrix.variant }}-linux-${{ matrix.platform.target }}
           path: dist/*
 
   macos:
-    name: Build macOS (${{ matrix.platform.target }}, py${{ matrix.python-version }})
+    name: Build macOS (${{ matrix.variant }}, ${{ matrix.platform.target }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
+        variant: [cpu, gpu]
         python-version: ["3.12", "3.13"]
         platform:
           - runner: macos-15-intel
@@ -90,6 +107,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set PyPI package name for variant
+        run: |
+          if [[ "${{ matrix.variant }}" == "gpu" ]]; then
+            python scripts/set_pypi_package_name.py refloxide-gpu
+          else
+            python scripts/set_pypi_package_name.py refloxide
+          fi
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -97,6 +122,8 @@ jobs:
           args: >-
             --release --out dist --compatibility pypi
             -i python${{ matrix.python-version }}
+            --no-default-features
+            --features ${{ matrix.variant == 'gpu' && 'python,gpu' || 'python' }}
 
       - name: Smoke import
         run: |
@@ -106,15 +133,16 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.platform.target }}-py${{ matrix.python-version }}
+          name: wheels-${{ matrix.variant }}-macos-${{ matrix.platform.target }}-py${{ matrix.python-version }}
           path: dist/*
 
   windows:
-    name: Build Windows (x64, py${{ matrix.python-version }})
+    name: Build Windows (${{ matrix.variant }}, x64, py${{ matrix.python-version }})
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
+        variant: [cpu, gpu]
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +154,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           architecture: x64
 
+      - name: Set PyPI package name for variant
+        shell: bash
+        run: |
+          if [[ "${{ matrix.variant }}" == "gpu" ]]; then
+            python scripts/set_pypi_package_name.py refloxide-gpu
+          else
+            python scripts/set_pypi_package_name.py refloxide
+          fi
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -133,6 +170,8 @@ jobs:
           args: >-
             --release --out dist --compatibility pypi
             -i python${{ matrix.python-version }}
+            --no-default-features
+            --features ${{ matrix.variant == 'gpu' && 'python,gpu' || 'python' }}
 
       - name: Smoke import
         shell: bash
@@ -143,7 +182,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-x64-py${{ matrix.python-version }}
+          name: wheels-${{ matrix.variant }}-windows-x64-py${{ matrix.python-version }}
           path: dist/*
 
   sdist:
@@ -185,6 +224,29 @@ jobs:
 
       - name: List distributions
         run: ls -la dist
+
+      - name: Assert CPU and GPU wheels present
+        run: |
+          python - <<'PY'
+          import glob
+          import sys
+
+          cpu = sorted(glob.glob("dist/refloxide-*.whl"))
+          gpu = sorted(
+              glob.glob("dist/refloxide_gpu-*.whl")
+              + glob.glob("dist/refloxide-gpu-*.whl")
+          )
+          sdist = sorted(glob.glob("dist/refloxide-*.tar.gz"))
+          print("CPU wheels:", *(p.rsplit("/", 1)[-1] for p in cpu), sep="\n  ")
+          print("GPU wheels:", *(p.rsplit("/", 1)[-1] for p in gpu), sep="\n  ")
+          print("sdists:", *(p.rsplit("/", 1)[-1] for p in sdist), sep="\n  ")
+          if not cpu:
+              sys.exit("missing refloxide (CPU) wheels")
+          if not gpu:
+              sys.exit("missing refloxide-gpu wheels")
+          if not sdist:
+              sys.exit("missing sdist")
+          PY
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
