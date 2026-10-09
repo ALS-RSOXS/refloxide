@@ -72,6 +72,8 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Guides:
+      - GPU backend: guides/gpu.md
   - Theory:
       - Overview: theory/overview.md
       - Narrative context:

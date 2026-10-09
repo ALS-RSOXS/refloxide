@@ -15,8 +15,18 @@ own energy-dependent scatterer in Python" for a full worked example.
 
 from __future__ import annotations
 
+import functools
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Literal, NamedTuple, Self, cast, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NamedTuple,
+    Self,
+    cast,
+    get_args,
+    overload,
+)
 
 import numpy as np
 import periodictable as pt
@@ -27,6 +37,9 @@ from refloxide import optics, tmm
 from refloxide.data import OpticalConstants
 from refloxide.instrument import ExperimentCorrections, InstrumentFieldView, energy_tag
 from refloxide.pxr.plugin.structure import compound_density
+
+type Device = Literal["cpu", "gpu"]
+"""Kernel device: ``"cpu"`` (f64 4x4) or ``"gpu"`` (f32 recursion via wgpu)."""
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -1535,6 +1548,85 @@ class StructurePlot:
         return fig, ax
 
 
+class _HenkeTables:
+    """Per-formula Henke tables replaying `periodictable.xsf.index_of_refraction`.
+
+    Holds each element's ``(energy, f1, log energy, log f2)`` table and the
+    formula mass so the index of refraction at many energies costs one
+    ``np.interp`` pair per element, with arithmetic in the same order as
+    `periodictable` (bit-identical results) but without re-parsing the
+    formula and re-resolving element tables on every call.
+    """
+
+    def __init__(self, formula: str) -> None:
+        compound = pt.formula(formula, density=1.0)
+        self._delta_cache: dict[bytes, NDArray[np.complex128]] = {}
+        self.mass = 0.0
+        self.terms: list[tuple[NDArray[np.float64], ...]] = []
+        for element, quantity in compound.atoms.items():
+            self.mass += element.mass * quantity
+            table = element.xray.sftable
+            if table is None:
+                msg = f"X-ray scattering factors not available for {element}"
+                raise ValueError(msg)
+            self.terms.append(
+                (table[0], table[1], np.log(table[0]), np.log(table[2]), quantity)
+            )
+
+    def unit_delta(self, eff_ev: NDArray[np.float64]) -> NDArray[np.complex128]:
+        """``1 - n`` at unit density for ``eff_ev`` (eV), cached per energy set.
+
+        Formed directly as ``lambda^2 / (2 pi) * (rho + i irho) * 1e-6``
+        rather than as ``1 - n``, which would cancel the leading digits of
+        the ``O(1e-4)`` optical constants against unity.
+        """
+        key = eff_ev.tobytes()
+        hit = self._delta_cache.get(key)
+        if hit is not None:
+            return hit
+        delta = np.atleast_1d(self._delta(eff_ev * 1e-3))
+        if len(self._delta_cache) >= 256:
+            self._delta_cache.clear()
+        self._delta_cache[key] = delta
+        return delta
+
+    def index_of_refraction(
+        self, energy_kev: NDArray[np.float64]
+    ) -> NDArray[np.complex128]:
+        """Unit-density index of refraction at ``energy_kev`` (keV).
+
+        Bit-identical to `periodictable.xsf.index_of_refraction`.
+        """
+        return 1 - self._delta(energy_kev)
+
+    def _delta(self, energy_kev: NDArray[np.float64]) -> NDArray[np.complex128]:
+        """``lambda^2 / (2 pi) * (rho + i irho) * 1e-6`` at unit density."""
+        wavelength = xsf.xray_wavelength(energy_kev)
+        if self.mass == 0:
+            return np.zeros_like(wavelength, dtype=np.complex128)
+        energy = xsf.xray_energy(wavelength)
+        log_energy = np.log(energy)
+        sum_f1: Any = 0
+        sum_f2: Any = 0
+        for e_tab, f1_tab, log_e_tab, log_f2_tab, quantity in self.terms:
+            f1 = np.interp(energy, e_tab, f1_tab, left=np.nan, right=np.nan)
+            f2 = np.exp(
+                np.interp(log_energy, log_e_tab, log_f2_tab, left=np.nan, right=np.nan)
+            )
+            sum_f1 += f1 * quantity
+            sum_f2 += f2 * quantity
+        n_density = 1.0 / self.mass * pt.constants.avogadro_number * 1e-8
+        rho = n_density * sum_f1 * xsf.electron_radius
+        irho = n_density * sum_f2 * xsf.electron_radius
+        return wavelength**2 / (2 * np.pi) * (rho + irho * 1j) * 1e-6
+
+
+@functools.cache
+def _henke_tables(formula: str) -> _HenkeTables:
+    """Process-wide `_HenkeTables` for ``formula``, shared by all scatterers."""
+    return _HenkeTables(formula)
+
+
 class MaterialSLD(Scatterer):
     """Isotropic material index of refraction from a chemical formula (periodictable).
 
@@ -1582,30 +1674,27 @@ class MaterialSLD(Scatterer):
         self.energy = float(energy)
         self._parameters = Parameters(name=name)
         self._parameters.extend([self.density, self.energy_offset])
-        self._tensor_cache: dict[tuple[float, float], NDArray[np.complex128]] = {}
+
+    def _unit_density_delta(
+        self, eff_ev: NDArray[np.float64]
+    ) -> NDArray[np.complex128]:
+        """``1 - n`` at unit density for photon energies ``eff_ev`` (eV).
+
+        ``1 - n`` is exactly proportional to mass density in
+        `periodictable.xsf.index_of_refraction`, so the lookup is shared by
+        every `MaterialSLD` with the same formula (see `_henke_tables`) and
+        cached per energy set; density then scales the cached result.
+        """
+        return _henke_tables(self._compound).unit_delta(eff_ev)
 
     def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
         eff_ev = float(energy_ev) + float(self.energy_offset.value or 0.0)
         density = float(self.density.value or 0.0)
-        key = (eff_ev, density)
-        cached = self._tensor_cache.get(key)
-        if cached is not None:
-            return cached
-
-        sldc = xsf.index_of_refraction(
-            self._formula, density=density, energy=eff_ev * 1e-3
+        delta = self._unit_density_delta(np.array([eff_ev], dtype=np.float64))
+        return np.asarray(
+            optics.isotropic_lab_tensor(complex(density * delta[0])),
+            dtype=np.complex128,
         )
-        if hasattr(sldc, "item"):
-            sldc = sldc.item()
-        n = complex(1.0) - complex(sldc)
-        tensor = np.asarray(optics.isotropic_lab_tensor(n), dtype=np.complex128)
-
-        # Bounded so a fit that varies density/energy_offset every iteration
-        # (a cache miss on every call) can't grow this without limit.
-        if len(self._tensor_cache) >= 256:
-            self._tensor_cache.clear()
-        self._tensor_cache[key] = tensor
-        return tensor
 
     def tensor_at_many(
         self, energies_ev: NDArray[np.float64]
@@ -1615,20 +1704,14 @@ class MaterialSLD(Scatterer):
         `periodictable.xsf.index_of_refraction` already accepts an array
         `energy` argument, so this is one lookup for the whole
         `energies_ev` array instead of `len(energies_ev)` separate scalar
-        calls — not cached (unlike `tensor_at`): a full-fit `energy_offset`
-        shifts every query energy on every candidate, so a per-value cache
-        would never hit here anyway.
+        calls. The unit-density lookup is cached per energy set (see
+        `_unit_density_delta`); a varying `energy_offset` misses the cache
+        and costs one lookup per call.
         """
         eff_ev = np.asarray(energies_ev, dtype=np.float64) + float(
             self.energy_offset.value or 0.0
         )
-        density = float(self.density.value or 0.0)
-        sldc = np.atleast_1d(
-            xsf.index_of_refraction(
-                self._formula, density=density, energy=eff_ev * 1e-3
-            )
-        )
-        n = 1.0 - np.asarray(sldc, dtype=np.complex128)
+        n = float(self.density.value or 0.0) * self._unit_density_delta(eff_ev)
         tensor = np.zeros((eff_ev.shape[0], 3, 3), dtype=np.complex128)
         tensor[:, 0, 0] = n
         tensor[:, 1, 1] = n
@@ -2324,6 +2407,7 @@ def _smeared_uniaxial_reflectivity(
     resolution_percent: float,
     *,
     parallel: bool,
+    device: Device = "cpu",
 ) -> NDArray[np.float64]:
     """Constant-dQ/Q resolution smearing, evaluated through the Rust kernel.
 
@@ -2359,7 +2443,7 @@ def _smeared_uniaxial_reflectivity(
     )
 
     refl, _tran = tmm.uniaxial_reflectivity(
-        xlin, layers, tensor, energy_ev, parallel=parallel
+        xlin, layers, tensor, energy_ev, parallel=parallel, device=device
     )
     refl = np.asarray(refl, dtype=np.float64)
     step = gauss_x[1] - gauss_x[0]
@@ -2517,6 +2601,14 @@ def _fused_bookended_reflectivity(
     return np.asarray(refl, dtype=np.float64)
 
 
+class _PointPlan(NamedTuple):
+    """Concatenated kernel points plus per-energy ``(channel, s_slice, p_slice)``."""
+
+    q: NDArray[np.float64]
+    stack_index: NDArray[np.int64]
+    channels: list[tuple[Any, slice | None, slice | None]]
+
+
 class ReflectModel:
     """Turn a `Structure` into predicted reflectivity for `(q, energy)` pairs.
 
@@ -2538,7 +2630,19 @@ class ReflectModel:
         dataset.
     parallel : bool, optional
         Forwarded to the Rust kernel. Keep `False` (the default) when
-        calling from inside an already-parallel fitting loop.
+        calling from inside an already-parallel fitting loop. Ignored on
+        the GPU.
+    device : {"cpu", "gpu"}, optional
+        Kernel device. ``"cpu"`` (default) runs the double-precision 4x4
+        kernel. ``"gpu"`` runs the single-precision uniaxial-z recursion
+        through wgpu; reflectance agrees with the CPU to about ``1e-4``
+        relative, and :class:`~refloxide.objective.Objective` evaluates
+        every energy and polarization in one dispatch. The fused bookended
+        kernel is CPU-only, so GPU evaluation always materializes the stack.
+        The ``f32`` noise floor suits derivative-free searches and samplers
+        (differential evolution, MCMC); finite-difference gradient methods
+        (L-BFGS-B, least squares) should run with ``device="cpu"``. The
+        attribute may be reassigned between fitting stages.
     name : str, optional
     scale_s, scale_p, bkg, theta_offset_s, theta_offset_p : float, optional
         Defaults for each newly created per-energy channel.
@@ -2552,6 +2656,7 @@ class ReflectModel:
         *,
         energies: Sequence[float] | None = None,
         parallel: bool = False,
+        device: Device = "cpu",
         name: str = "",
         scale_s: float = 1.0,
         scale_p: float = 1.0,
@@ -2564,6 +2669,7 @@ class ReflectModel:
     ) -> None:
         self.structure = structure
         self.parallel = parallel
+        self.device = device
         self.name = name
         self.corrections = ExperimentCorrections(
             energies,
@@ -2579,6 +2685,19 @@ class ReflectModel:
                 "theta_offset_p": theta_offset_p,
             },
         )
+
+    @property
+    def device(self) -> Device:
+        """Kernel device used for every reflectivity evaluation."""
+        return getattr(self, "_device", "cpu")
+
+    @device.setter
+    def device(self, value: Device) -> None:
+        allowed = get_args(Device.__value__)
+        if value not in allowed:
+            msg = f"device must be one of {allowed}, got {value!r}"
+            raise ValueError(msg)
+        self._device = value
 
     @property
     def energy_offset(self) -> Parameter:
@@ -2641,11 +2760,22 @@ class ReflectModel:
     ) -> NDArray[np.float64]:
         if dq < 0.5:
             refl, _tran = tmm.uniaxial_reflectivity(
-                q_eff, layers, tensor, energy_ev, parallel=self.parallel
+                q_eff,
+                layers,
+                tensor,
+                energy_ev,
+                parallel=self.parallel,
+                device=self.device,
             )
             return np.asarray(refl, dtype=np.float64)
         return _smeared_uniaxial_reflectivity(
-            q_eff, layers, tensor, energy_ev, dq, parallel=self.parallel
+            q_eff,
+            layers,
+            tensor,
+            energy_ev,
+            dq,
+            parallel=self.parallel,
+            device=self.device,
         )
 
     def reflectivity_channels_at_energy(
@@ -2701,7 +2831,7 @@ class ReflectModel:
         if layers is not None and tensor is not None:
             # Caller already paid for materialization — use the assembled path.
             materialized = (layers, tensor)
-        elif dq < 0.5:
+        elif dq < 0.5 and self.device == "cpu":
             fused_plan = _plan_fused_bookended(self.structure, oc_energy)
 
         def kernel(q_eff: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -2719,11 +2849,22 @@ class ReflectModel:
             lay, ten = materialized
             if dq < 0.5:
                 refl, _tran = tmm.uniaxial_reflectivity(
-                    q_eff, lay, ten, energy_ev, parallel=use_parallel
+                    q_eff,
+                    lay,
+                    ten,
+                    energy_ev,
+                    parallel=use_parallel,
+                    device=self.device,
                 )
                 return np.asarray(refl, dtype=np.float64)
             return _smeared_uniaxial_reflectivity(
-                q_eff, lay, ten, energy_ev, dq, parallel=use_parallel
+                q_eff,
+                lay,
+                ten,
+                energy_ev,
+                dq,
+                parallel=use_parallel,
+                device=self.device,
             )
 
         s_out: NDArray[np.float64] | None = None
@@ -2757,6 +2898,157 @@ class ReflectModel:
             p_out = channel.scale_p * refl[:, 0, 0] + channel.bkg
         return s_out, p_out
 
+    def reflectivity_channels_many(
+        self,
+        energies_ev: Sequence[float],
+        q_s: Sequence[NDArray[np.float64] | None],
+        q_p: Sequence[NDArray[np.float64] | None],
+        layers: NDArray[np.float64],
+        tensor: NDArray[np.complex128],
+    ) -> list[tuple[NDArray[np.float64] | None, NDArray[np.float64] | None]]:
+        """Evaluate s and/or p at many energies in a single kernel call.
+
+        Same per-channel semantics as :meth:`reflectivity_channels_at_energy`
+        (theta offsets, ``q_offset``, the q floor, scale and background), but
+        every requested ``(energy, pol)`` q-grid is concatenated into one
+        :func:`refloxide.tmm.uniaxial_reflectivity_points` call on
+        :attr:`device`, so a GPU pays launch and readback cost once per
+        evaluation instead of once per channel. Channels sharing ``q`` and
+        theta offset at an energy share kernel points.
+
+        Parameters
+        ----------
+        energies_ev : sequence of float
+            Nominal photon energies (eV), length ``n_E``.
+        q_s, q_p : sequences of NDArray or None
+            Per-energy scattering vectors, each length ``n_E``; ``None``
+            skips that channel at that energy.
+        layers, tensor : NDArray
+            Stacks materialized at ``energies_ev + energy_offset``, shaped
+            ``(n_E, N, 4)`` and ``(n_E, N, 3, 3)`` (as returned by
+            :meth:`Structure.materialize_batch_at`).
+
+        Returns
+        -------
+        list of tuple
+            Per energy, scaled+backed ``(R_s, R_p)`` with ``None`` for
+            channels not requested.
+
+        Raises
+        ------
+        ValueError
+            When ``dq >= 0.5`` (resolution smearing needs a per-energy
+            log-q grid; use :meth:`reflectivity_channels_at_energy`) or the
+            sequence lengths disagree.
+        """
+        points = self._prepare_points(energies_ev, q_s, q_p)
+        if points.q.size == 0:
+            return [(None, None) for _ in range(len(energies_ev))]
+        refl, _tran = tmm.uniaxial_reflectivity_points(
+            points.q,
+            points.stack_index,
+            np.asarray(layers, dtype=np.float64),
+            np.asarray(tensor, dtype=np.complex128),
+            np.asarray(energies_ev, dtype=np.float64),
+            parallel=self.parallel,
+            device=self.device,
+        )
+        return self._finish_points(refl, points)
+
+    def _prepare_points(
+        self,
+        energies_ev: Sequence[float],
+        q_s: Sequence[NDArray[np.float64] | None],
+        q_p: Sequence[NDArray[np.float64] | None],
+        stack: Sequence[int] | None = None,
+    ) -> _PointPlan:
+        """Kernel points and per-channel slices for :meth:`reflectivity_channels_many`.
+
+        Captures the current theta offsets, ``q_offset``, scales, and
+        backgrounds, so :meth:`_finish_points` may run after parameters move.
+        Entry ``i`` is evaluated against stack ``stack[i]`` (default ``i``),
+        so several entries (for example an energy's data grid and its
+        anisotropy grid) can share one materialized stack.
+        """
+        n_e = len(energies_ev)
+        if len(q_s) != n_e or len(q_p) != n_e:
+            msg = "q_s and q_p must have one entry per energy"
+            raise ValueError(msg)
+        if float(self.corrections.dq.value or 0.0) >= 0.5:
+            msg = "reflectivity_channels_many requires dq < 0.5"
+            raise ValueError(msg)
+        q_off = float(self.corrections.q_offset.value or 0.0)
+
+        q_parts: list[NDArray[np.float64]] = []
+        idx_parts: list[NDArray[np.int64]] = []
+        channels: list[tuple[Any, slice | None, slice | None]] = []
+        cursor = 0
+
+        def push(q_eff: NDArray[np.float64], i: int) -> slice:
+            nonlocal cursor
+            q_parts.append(q_eff)
+            idx_parts.append(np.full(len(q_eff), i, dtype=np.int64))
+            sl = slice(cursor, cursor + len(q_eff))
+            cursor += len(q_eff)
+            return sl
+
+        for i, energy in enumerate(energies_ev):
+            channel = self.corrections.resolved_at(float(energy))
+            qs, qp = q_s[i], q_p[i]
+            si = i if stack is None else int(stack[i])
+            s_sl = p_sl = None
+            if qs is not None:
+                s_sl = push(
+                    _floor_q(
+                        _theta_shifted_q(qs, float(energy), channel.theta_offset_s)
+                        + q_off
+                    ),
+                    si,
+                )
+            if qp is not None:
+                shared = (
+                    qs is not None
+                    and channel.theta_offset_s == channel.theta_offset_p
+                    and (qs is qp or (qs.shape == qp.shape and np.array_equal(qs, qp)))
+                )
+                p_sl = (
+                    s_sl
+                    if shared
+                    else push(
+                        _floor_q(
+                            _theta_shifted_q(qp, float(energy), channel.theta_offset_p)
+                            + q_off
+                        ),
+                        si,
+                    )
+                )
+            channels.append((channel, s_sl, p_sl))
+
+        if cursor == 0:
+            empty_q = np.empty(0, dtype=np.float64)
+            return _PointPlan(empty_q, np.empty(0, dtype=np.int64), channels)
+        return _PointPlan(np.concatenate(q_parts), np.concatenate(idx_parts), channels)
+
+    @staticmethod
+    def _finish_points(
+        refl: NDArray[np.float64], points: _PointPlan
+    ) -> list[tuple[NDArray[np.float64] | None, NDArray[np.float64] | None]]:
+        """Apply the captured scale/background to kernel reflectance rows."""
+        out: list[tuple[NDArray[np.float64] | None, NDArray[np.float64] | None]] = []
+        for channel, s_sl, p_sl in points.channels:
+            s_out = (
+                None
+                if s_sl is None
+                else channel.scale_s * refl[s_sl, 1, 1] + channel.bkg
+            )
+            p_out = (
+                None
+                if p_sl is None
+                else channel.scale_p * refl[p_sl, 0, 0] + channel.bkg
+            )
+            out.append((s_out, p_out))
+        return out
+
     def _evaluate_scalar_energy(
         self, q_arr: NDArray[np.float64], energy_ev: float
     ) -> Reflectivity:
@@ -2788,7 +3080,11 @@ class ReflectModel:
         # add, not a per-energy scalar recompute.
         oc_energies = np.asarray(energies_arr, dtype=np.float64) + energy_off
 
-        fused_probe = _plan_fused_bookended(self.structure, float(oc_energies[0]))
+        fused_probe = (
+            _plan_fused_bookended(self.structure, float(oc_energies[0]))
+            if self.device == "cpu"
+            else None
+        )
         if fused_probe is not None:
             s_cols = []
             p_cols = []
@@ -2819,7 +3115,12 @@ class ReflectModel:
         # materialize_at redoing that lookup from scratch once per energy.
         layers, tensor = self.structure.materialize_batch_at(oc_energies)
         refl, _tran = tmm.uniaxial_reflectivity_batch(
-            q_eff, layers, tensor, energies_arr, parallel=self.parallel
+            q_eff,
+            layers,
+            tensor,
+            energies_arr,
+            parallel=self.parallel,
+            device=self.device,
         )
         s_cols = []
         p_cols = []

@@ -16,19 +16,24 @@ import os
 import pickle
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, NamedTuple, Self
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Self, get_args
 
 import numpy as np
+from refnx._lib import flatten
+from refnx._lib import unique as _unique
 from refnx.analysis import Objective as _RefnxObjective
+from refnx.analysis import Parameters
 from refnx.dataset import Data1D
 
+from refloxide import tmm
 from refloxide.data import OpticalConstants
-from refloxide.model import _plan_fused_bookended
+from refloxide.model import _plan_fused_bookended, _PointPlan
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
     from numpy.typing import NDArray
+    from scipy.optimize import OptimizeResult
 
     from refloxide.data import Pol, ReflectDataset
     from refloxide.model import ReflectModel
@@ -91,13 +96,26 @@ def _build_kernel_batches(dataset: ReflectDataset) -> list[_KernelBatch]:
     return batches
 
 
+class _PointsJob(NamedTuple):
+    """One parameter set's kernel inputs for the single-dispatch GPU path.
+
+    ``points.channels`` holds one entry per energy (dataset rows, matching
+    ``rows``) followed by one entry per anisotropy target.
+    """
+
+    energies: list[float]
+    layers: NDArray[np.float64]
+    tensor: NDArray[np.complex128]
+    points: _PointPlan
+    rows: list[tuple[NDArray[np.intp] | None, NDArray[np.intp] | None]]
+
+
 class _AnisotropyPair(NamedTuple):
-    """One energy's matched s/p rows, sharing an identical `q` array."""
+    """One energy's anisotropy target ``(R_p - R_s) / (R_p + R_s)`` on a q grid."""
 
     energy: float
     q: NDArray[np.float64]
-    s_indices: NDArray[np.intp]
-    p_indices: NDArray[np.intp]
+    target: NDArray[np.float64]
 
 
 def _build_anisotropy_pairs(dataset: ReflectDataset) -> list[_AnisotropyPair]:
@@ -120,10 +138,9 @@ def _build_anisotropy_pairs(dataset: ReflectDataset) -> list[_AnisotropyPair]:
         s_indices, p_indices = channels["s"], channels["p"]
         q_s, q_p = dataset.q[s_indices], dataset.q[p_indices]
         if q_s.shape == q_p.shape and np.array_equal(q_s, q_p):
+            r_s, r_p = dataset.r[s_indices], dataset.r[p_indices]
             pairs.append(
-                _AnisotropyPair(
-                    energy=energy, q=q_s, s_indices=s_indices, p_indices=p_indices
-                )
+                _AnisotropyPair(energy=energy, q=q_s, target=(r_p - r_s) / (r_p + r_s))
             )
     return pairs
 
@@ -163,6 +180,24 @@ def gaussian_logl(
         msg = "Objective.logl encountered a non-finite term (check y_err > 0)"
         raise RuntimeError(msg)
     return float(-0.5 * np.sum(terms))
+
+
+def _gaussian_terms(
+    y: NDArray[np.float64],
+    y_err: NDArray[np.float64],
+    model: NDArray[np.float64],
+    *,
+    weighted: bool,
+) -> NDArray[np.float64]:
+    """Per-row log-likelihood terms whose sum is :func:`gaussian_logl`."""
+    var_y = y_err * y_err
+    terms = (y - model) ** 2 / var_y
+    if weighted:
+        terms = terms + np.log(2 * np.pi * var_y)
+    if not np.all(np.isfinite(terms)):
+        msg = "Objective.logl encountered a non-finite term (check y_err > 0)"
+        raise RuntimeError(msg)
+    return -0.5 * terms
 
 
 def _iter_structure_slabs(structure: Any) -> list[Any]:
@@ -220,6 +255,29 @@ def nevot_croce_logp(model: ReflectModel) -> float:
         if thick - _nevot_croce_limit(rough) < 0.0:
             return float(-np.inf)
     return 0.0
+
+
+def nevot_croce_violation(model: ReflectModel) -> float:
+    """Squared Nevot-Croce violation ``sum(max(0, limit(rough) - thick) ** 2)``.
+
+    Summed over the same flagged slabs as :func:`nevot_croce_logp`, in
+    angstrom squared; ``0.0`` exactly when that check passes. Used as a
+    smooth exterior penalty by gradient-based fitting, where the hard
+    ``-inf`` wall would stall a line search.
+    """
+    structure = getattr(model, "structure", None)
+    if structure is None:
+        return 0.0
+    total = 0.0
+    for slab in _iter_structure_slabs(structure):
+        if not getattr(slab, "enforce_nevot_croce", False):
+            continue
+        gap = _nevot_croce_limit(float(slab.rough.value or 0.0)) - float(
+            slab.thick.value or 0.0
+        )
+        if gap > 0.0:
+            total += gap * gap
+    return total
 
 
 class LogpExtra:
@@ -391,6 +449,141 @@ class thread_workers:
         return self.map(func, iterable)
 
 
+def minimize_lbfgsb(
+    objective: Objective,
+    *,
+    polish: bool = True,
+    nc_penalty: float = 1e6,
+    **options: Any,
+) -> OptimizeResult:
+    """L-BFGS-B on :meth:`Objective.nll_and_grad` with bound-normalized variables.
+
+    Every varying parameter with finite bounds is mapped to ``[0, 1]``
+    (parameters with infinite bounds keep unit scale), so gradients of
+    parameters on very different scales (thicknesses, backgrounds, energy
+    offsets) are comparably conditioned, and each iteration costs one
+    value-plus-gradient kernel dispatch on ``objective.model.device``.
+
+    On the GPU the descent runs on single-precision values and exact
+    single-precision gradients, which reach the optimum's neighborhood
+    quickly but can stall in stiff, strongly correlated valleys (tightly
+    constrained backgrounds or offsets), where ``f32`` gradient error
+    corrupts the quasi-Newton curvature pairs. With ``polish`` (default)
+    the search then continues on the CPU in double precision, also with
+    exact gradients, which typically needs few iterations from the GPU
+    result. The model's ``device`` and ``parallel`` settings are restored
+    afterwards, and the objective's parameters are left at the optimum.
+
+    Parameters
+    ----------
+    objective : Objective
+        Objective whose varying parameters define the search space.
+    polish : bool, optional
+        Finish a GPU run with a double-precision CPU L-BFGS-B stage.
+        Ignored when the model already runs on the CPU.
+    nc_penalty : float, optional
+        Forwarded to :meth:`Objective.nll_and_grad`.
+    **options
+        Forwarded to ``scipy.optimize.minimize(..., method="L-BFGS-B")``
+        (for example ``options={"maxiter": 500}`` or ``callback``).
+
+    Returns
+    -------
+    scipy.optimize.OptimizeResult
+        Result of the last stage, with ``x`` in physical parameter units;
+        after a polish, ``gpu_result`` holds the single-precision stage and
+        ``nfev`` / ``nit`` count both stages.
+    """
+    first = _lbfgsb_stage(objective, nc_penalty, options)
+    model = objective.model
+    if not polish or model.device != "gpu":
+        return first
+    device, parallel = model.device, model.parallel
+    try:
+        model.device, model.parallel = "cpu", True
+        final = _lbfgsb_stage(objective, nc_penalty, options)
+    finally:
+        model.device, model.parallel = device, parallel
+    final.gpu_result = first
+    final.nfev += first.nfev
+    final.nit += first.nit
+    return final
+
+
+def _lbfgsb_stage(
+    objective: Objective, nc_penalty: float, options: dict[str, Any]
+) -> OptimizeResult:
+    """One bound-normalized L-BFGS-B run from the objective's current values."""
+    from scipy.optimize import minimize
+
+    varying = list(objective.varying_parameters())
+    x0 = np.fromiter((float(p.value) for p in varying), dtype=np.float64)
+    lb = np.array([p.bounds.lb for p in varying], dtype=np.float64)
+    ub = np.array([p.bounds.ub for p in varying], dtype=np.float64)
+    finite = np.isfinite(lb) & np.isfinite(ub) & (ub > lb)
+    offset = np.where(finite, lb, 0.0)
+    span = np.where(finite, ub - lb, 1.0)
+    u_bounds = [
+        (0.0, 1.0) if f else (lo, hi) for f, lo, hi in zip(finite, lb, ub, strict=True)
+    ]
+
+    def fun(u: NDArray[np.float64]) -> tuple[float, NDArray[np.float64]]:
+        value, grad = objective.nll_and_grad(offset + u * span, nc_penalty=nc_penalty)
+        return value, grad * span
+
+    result = minimize(
+        fun,
+        (x0 - offset) / span,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=u_bounds,
+        **options,
+    )
+    result.x = offset + result.x * span
+    objective.setp(result.x)
+    return result
+
+
+class gpu_batch:
+    """Map-like that evaluates a whole population in one GPU dispatch.
+
+    Pass as ``workers=`` to differential evolution or ``pool=`` to MCMC
+    sampling; every generation (or walker ensemble) is prefetched through
+    :meth:`Objective.prefetch`, then refnx's own cost function runs per
+    candidate against the cached curves, so likelihoods, priors, and
+    transforms are exactly those of the serial path::
+
+        model.device = "gpu"
+        fitter = CurveFitter(objective)
+        fitter.fit("differential_evolution", workers=gpu_batch(objective))
+        fitter.sample(1000, pool=gpu_batch(objective))
+
+    Falls back to plain serial evaluation when the objective is not on the
+    single-dispatch GPU path.
+
+    Parameters
+    ----------
+    objective : Objective
+        Objective whose ``model.device`` is ``"gpu"``.
+    """
+
+    def __init__(self, objective: Objective) -> None:
+        self._objective = objective
+
+    def map(self, func: Callable[..., Any], iterable: Iterable[Any]) -> list[Any]:
+        """Prefetch ``iterable`` in one dispatch, then apply ``func`` to each item."""
+        xs = [np.asarray(x, dtype=np.float64) for x in iterable]
+        self._objective.prefetch(xs)
+        try:
+            return [func(x) for x in xs]
+        finally:
+            self._objective.clear_prefetch()
+
+    def __call__(self, func: Callable[..., Any], iterable: Iterable[Any]) -> list[Any]:
+        """SciPy ``workers`` calling convention; delegates to :meth:`map`."""
+        return self.map(func, iterable)
+
+
 class Objective(_RefnxObjective):
     """Ties a `ReflectModel` to a `ReflectDataset` and a Gaussian log-likelihood.
 
@@ -429,6 +622,19 @@ class Objective(_RefnxObjective):
         (including its per-point normalization, which only applies in this
         weighted mode — the `anisotropy_weight=0.0` default stays
         unnormalized, matching standard `refnx`/`CurveFitter` convention).
+    anisotropy_targets : mapping of float to (array_like, array_like), optional
+        Explicit anisotropy data ``{energy: (q, A)}`` replacing the targets
+        derived from matched s/p rows, for data whose anisotropy was formed
+        on its own grid (for example s and p interpolated onto a common
+        ``q``). Every energy must be present in ``data``. Model anisotropy
+        uses each channel's own theta offset, scale, and background.
+    normalization : {"auto", "energy"}, optional
+        ``"auto"`` (default) keeps the rules above. ``"energy"`` computes
+        ``sum_E [(1 - w) * logl_E + w * aniso_E] / N_E`` with ``N_E`` the
+        number of rows at energy ``E``, so each energy contributes a
+        per-point average regardless of how many points it has; this is
+        the sum of per-energy ``AnisotropyObjective`` terms combined in a
+        refnx ``GlobalObjective``.
     nc_constraint : bool, optional
         When `True` (default), enforce Nevot-Croce
         (``thick >= sqrt(2*pi)*rough/2`` on slabs with
@@ -455,6 +661,8 @@ class Objective(_RefnxObjective):
         name: str | None = None,
         anisotropy_weight: float = 0.0,
         nc_constraint: bool = True,
+        anisotropy_targets: Mapping[float, tuple[Any, Any]] | None = None,
+        normalization: Literal["auto", "energy"] = "auto",
     ) -> None:
         if len(data) == 0:
             msg = "Objective requires a non-empty ReflectDataset"
@@ -465,8 +673,26 @@ class Objective(_RefnxObjective):
         self._groups = list(data.groups())
         self._batches = _build_kernel_batches(data)
         self.anisotropy_weight = float(anisotropy_weight)
+        if normalization not in get_args(Literal["auto", "energy"]):
+            msg = f"normalization must be 'auto' or 'energy', got {normalization!r}"
+            raise ValueError(msg)
+        self.normalization = normalization
         self._anisotropy_pairs: list[_AnisotropyPair] = []
-        if self.anisotropy_weight:
+        if self.anisotropy_weight and anisotropy_targets is not None:
+            known = set(dataset_energies)
+            for energy, (q_a, a_a) in sorted(anisotropy_targets.items()):
+                if float(energy) not in known:
+                    msg = f"anisotropy target energy {energy} is not in data"
+                    raise ValueError(msg)
+                q_arr = np.asarray(q_a, dtype=np.float64)
+                a_arr = np.asarray(a_a, dtype=np.float64)
+                if q_arr.shape != a_arr.shape or q_arr.ndim != 1:
+                    msg = f"anisotropy target at {energy} eV needs matching 1-D q, A"
+                    raise ValueError(msg)
+                self._anisotropy_pairs.append(
+                    _AnisotropyPair(energy=float(energy), q=q_arr, target=a_arr)
+                )
+        elif self.anisotropy_weight:
             self._anisotropy_pairs = _build_anisotropy_pairs(data)
             if not self._anisotropy_pairs:
                 msg = (
@@ -511,6 +737,33 @@ class Objective(_RefnxObjective):
             self._refresh_data_transform_cache()
         _warm_objective_caches(self)
 
+    def varying_parameters(self) -> Parameters:
+        """Varying parameters, from a cached flattening of the parameter tree.
+
+        Same selection as `refnx.analysis.Objective.varying_parameters`
+        (``vary`` flags and constraint dependencies are re-read on every
+        call, so toggling ``vary`` or bounds between fit stages needs no
+        action), but the tree is flattened once instead of on every
+        ``setp``/``logp``/``nll``, which dominates per-evaluation cost for
+        many-layer structures. Call :meth:`refresh_parameters` after adding
+        or removing parameters (for example editing the structure).
+        """
+        flat = self.__dict__.get("_flat_parameters")
+        if flat is None:
+            flat = list(flatten(self.parameters))
+            self._flat_parameters = flat
+        chosen: list[Any] = []
+        for p in flat:
+            if p.vary:
+                chosen.append(p)
+            elif len(p._deps):
+                chosen.extend(d for d in p.dependencies() if d.vary)
+        return Parameters(_unique(chosen))
+
+    def refresh_parameters(self) -> None:
+        """Invalidate the cached parameter flattening after structural edits."""
+        self._flat_parameters = None
+
     @property
     def nc_constraint(self) -> bool:
         """When True, Nevot-Croce is enforced in ``nll`` and ``logp``."""
@@ -539,6 +792,411 @@ class Objective(_RefnxObjective):
             return float(np.inf)
         return float(-self.logl())
 
+    def _likelihood_weights(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Row weights ``f`` and anisotropy-target weights ``g``.
+
+        ``logl = sum_i f_i * t_i + sum_k g_k * (-0.5 * sum((A_k - A_k^data)^2))``
+        with ``t_i`` the per-row Gaussian terms; shared by :meth:`logl` and
+        :meth:`nll_and_grad` so value and gradient cannot drift apart.
+        """
+        n = len(self._dataset)
+        w = float(self.anisotropy_weight)
+        pairs = self._anisotropy_pairs
+        if getattr(self, "normalization", "auto") == "energy":
+            f = np.empty(n, dtype=np.float64)
+            counts: dict[float, int] = {}
+            for energy, _pol, idx in self._groups:
+                counts[float(energy)] = counts.get(float(energy), 0) + len(idx)
+            for energy, _pol, idx in self._groups:
+                f[idx] = (1.0 - w) / counts[float(energy)]
+            g = np.array([w / counts[p.energy] for p in pairs], dtype=np.float64)
+            return f, g
+        if not w:
+            return np.ones(n, dtype=np.float64), np.zeros(len(pairs), dtype=np.float64)
+        return (
+            np.full(n, (1.0 - w) / n, dtype=np.float64),
+            np.full(len(pairs), w / n, dtype=np.float64),
+        )
+
+    def _group_batches(
+        self,
+    ) -> tuple[list[_KernelBatch], dict[float, dict[str, _KernelBatch]]]:
+        """Split batches into multi-energy ones and per-energy ``{pol: batch}``."""
+        multi_q: list[_KernelBatch] = []
+        by_energy: dict[float, dict[str, _KernelBatch]] = {}
+        for batch in self._batches:
+            if len(batch.energies) != 1:
+                multi_q.append(batch)
+                continue
+            by_energy.setdefault(float(batch.energies[0]), {})[batch.pol] = batch
+        return multi_q, by_energy
+
+    def _param_key(self) -> bytes:
+        """Exact byte key of the current varying parameter values."""
+        return np.fromiter(
+            (float(p.value) for p in self.varying_parameters()), dtype=np.float64
+        ).tobytes()
+
+    def _points_job(self, *, any_device: bool = False) -> _PointsJob | None:
+        """Kernel inputs for the current parameters, or ``None`` if ineligible.
+
+        Eligible when ``dq < 0.5``, every batch is single-energy, and the
+        model runs on the GPU (or ``any_device``); the whole dataset then
+        maps onto one :func:`refloxide.tmm.uniaxial_reflectivity_points` call.
+        """
+        if self.model.device != "gpu" and not any_device:
+            return None
+        if float(self.model.corrections.dq.value or 0.0) >= 0.5:
+            return None
+        multi_q, by_energy = self._group_batches()
+        if multi_q or not by_energy:
+            return None
+        energies = list(by_energy)
+        energy_off = float(self.model.corrections.energy_offset.value or 0.0)
+        layers, tensor = self.model.structure.materialize_batch_at(
+            np.asarray(energies, dtype=np.float64) + energy_off
+        )
+        pols = [by_energy[e] for e in energies]
+        pairs = self._anisotropy_pairs if self.anisotropy_weight else []
+        stack_of_energy = {e: i for i, e in enumerate(energies)}
+        if any(p.energy not in stack_of_energy for p in pairs):
+            return None
+        points = self.model._prepare_points(
+            energies + [p.energy for p in pairs],
+            [p["s"].q if "s" in p else None for p in pols] + [p.q for p in pairs],
+            [p["p"].q if "p" in p else None for p in pols] + [p.q for p in pairs],
+            stack=list(range(len(energies)))
+            + [stack_of_energy[p.energy] for p in pairs],
+        )
+        rows = [
+            (
+                p["s"].row_indices[0] if "s" in p else None,
+                p["p"].row_indices[0] if "p" in p else None,
+            )
+            for p in pols
+        ]
+        return _PointsJob(energies, layers, tensor, points, rows)
+
+    def _fill_job(
+        self, job: _PointsJob, refl: NDArray[np.float64]
+    ) -> tuple[NDArray[np.float64], list[NDArray[np.float64]]]:
+        """Dataset-ordered predictions and per-target model anisotropy for one job."""
+        predicted = np.empty(len(self._dataset), dtype=np.float64)
+        results = self.model._finish_points(refl, job.points)
+        n_e = len(job.rows)
+        for (s_rows, p_rows), (r_s, r_p) in zip(job.rows, results[:n_e], strict=True):
+            if s_rows is not None and r_s is not None:
+                predicted[s_rows] = r_s
+            if p_rows is not None and r_p is not None:
+                predicted[p_rows] = r_p
+        aniso = []
+        for r_s, r_p in results[n_e:]:
+            assert r_s is not None and r_p is not None
+            aniso.append((r_p - r_s) / (r_p + r_s))
+        return predicted, aniso
+
+    def prefetch(self, xs: Iterable[NDArray[np.float64]]) -> int:
+        """Evaluate many parameter sets in one GPU dispatch and cache the curves.
+
+        Each ``x`` is applied with ``setp``, its stack is materialized on the
+        host, and every candidate's points are concatenated into a single
+        :func:`refloxide.tmm.uniaxial_reflectivity_points` call. The predicted
+        curves and model anisotropy are cached under the exact bytes of each
+        ``x``, so subsequent ``nll``/``logl``/``logpost`` calls with that
+        vector (in any order) skip the kernel; each cached result is consumed
+        once. Parameter values are
+        restored afterwards. Candidates whose materialization raises are
+        skipped and evaluate normally later.
+
+        Parameters
+        ----------
+        xs : iterable of NDArray[np.float64]
+            Varying-parameter vectors, as passed to ``setp``.
+
+        Returns
+        -------
+        int
+            Number of candidates cached; ``0`` when the objective is not on
+            the single-dispatch GPU path (see :meth:`_points_job`).
+        """
+        if self.model.device != "gpu":
+            return 0
+        saved = np.fromiter(
+            (float(p.value) for p in self.varying_parameters()), dtype=np.float64
+        )
+        jobs: list[_PointsJob] = []
+        keys: list[bytes] = []
+        try:
+            for x in xs:
+                x_arr = np.asarray(x, dtype=np.float64)
+                self.setp(x_arr)
+                try:
+                    job = self._points_job()
+                except (ValueError, RuntimeError, FloatingPointError):
+                    continue
+                if job is None:
+                    return 0
+                jobs.append(job)
+                keys.append(x_arr.tobytes())
+        finally:
+            self.setp(saved)
+        if not jobs:
+            return 0
+
+        n_e = len(jobs[0].energies)
+        refl, _tran = tmm.uniaxial_reflectivity_points(
+            np.concatenate([j.points.q for j in jobs]),
+            np.concatenate(
+                [j.points.stack_index + k * n_e for k, j in enumerate(jobs)]
+            ),
+            np.concatenate([j.layers for j in jobs]),
+            np.concatenate([j.tensor for j in jobs]),
+            np.concatenate([np.asarray(j.energies, dtype=np.float64) for j in jobs]),
+            device="gpu",
+        )
+        cache = getattr(self, "_prefetched", None)
+        if cache is None:
+            cache = self._prefetched = {}
+        start = 0
+        for key, job in zip(keys, jobs, strict=True):
+            stop = start + job.points.q.size
+            cache[key] = self._fill_job(job, refl[start:stop])
+            start = stop
+        return len(jobs)
+
+    def _predict_all(
+        self, pvals: NDArray[np.float64] | None = None
+    ) -> tuple[NDArray[np.float64], list[NDArray[np.float64]]]:
+        """Dataset-ordered predictions plus model anisotropy for every target.
+
+        Uses a :meth:`prefetch` hit when available, then the single-dispatch
+        points path, then per-energy evaluation (anisotropy via
+        :meth:`ReflectModel.anisotropy`).
+        """
+        self.setp(pvals)
+        prefetched = getattr(self, "_prefetched", None)
+        if prefetched:
+            key = (
+                self._param_key()
+                if pvals is None
+                else np.asarray(pvals, dtype=np.float64).tobytes()
+            )
+            hit = prefetched.pop(key, None)
+            if hit is not None:
+                return hit
+        job = self._points_job()
+        if job is not None:
+            refl, _tran = tmm.uniaxial_reflectivity_points(
+                job.points.q,
+                job.points.stack_index,
+                job.layers,
+                job.tensor,
+                np.asarray(job.energies, dtype=np.float64),
+                parallel=bool(self.model.parallel),
+                device=self.model.device,
+            )
+            return self._fill_job(job, refl)
+        predicted = self._predicted_rows()
+        aniso = (
+            [self.model.anisotropy(p.q, p.energy) for p in self._anisotropy_pairs]
+            if self.anisotropy_weight
+            else []
+        )
+        return predicted, aniso
+
+    def nll_and_grad(
+        self,
+        pvals: NDArray[np.float64] | None = None,
+        *,
+        rel_step: float = 1e-4,
+        nc_penalty: float = 1e6,
+    ) -> tuple[float, NDArray[np.float64]]:
+        """Negative log-likelihood and its exact gradient in one kernel dispatch.
+
+        The kernel returns reflectance and forward-mode derivatives for every
+        varying parameter at once (on :attr:`ReflectModel.device`; ``f32`` on
+        the GPU, ``f64`` on the CPU), so the gradient carries the kernel's
+        relative accuracy instead of finite-difference cancellation. How each
+        parameter moves the kernel inputs (layer rows, tensors, per-point
+        ``q``, scale, background) is taken from a central difference of the
+        ``f64`` host-side materialization with step
+        ``rel_step * max(|value|, 1)``. That difference only differentiates
+        the host mapping, never the kernel: it is exact for the linear
+        mappings (thickness, roughness, density, ``q_offset``, scale,
+        background), second-order accurate for smooth ones (theta offsets),
+        and averages the adjacent slopes of the piecewise tabulated optical
+        constants when ``energy_offset`` straddles a table node. The step is
+        large enough that ``f64`` roundoff in the materialization does not
+        enter. Scale, background, the data transform, and the
+        Gaussian likelihood are then differentiated analytically (the
+        transform by an ``f64`` relative central difference per point).
+
+        With ``nc_constraint`` active, points outside Nevot-Croce support
+        return ``nll + nc_penalty * nevot_croce_violation(model)`` and its
+        gradient instead of :meth:`nll`'s ``inf``: a hard wall stalls
+        gradient line searches, while the exterior penalty steers back into
+        support. Inside support the value equals :meth:`nll`.
+
+        Parameters
+        ----------
+        pvals : NDArray[np.float64] or None
+            Varying-parameter values; ``None`` uses the current values.
+        rel_step : float, optional
+            Relative host-side materialization step.
+        nc_penalty : float, optional
+            Weight of the squared Nevot-Croce violation (per angstrom
+            squared) used outside support.
+
+        Returns
+        -------
+        tuple of (float, NDArray[np.float64])
+            ``nll`` (plus any Nevot-Croce penalty) and its gradient ordered
+            like :meth:`varying_parameters`.
+
+        Raises
+        ------
+        ValueError
+            When ``dq >= 0.5``, a batch spans several energies, or a parameter
+            changes the layer count; use a derivative-free or
+            finite-difference method there.
+        """
+        self.setp(pvals)
+        varying = list(self.varying_parameters())
+        x0 = np.fromiter((float(p.value) for p in varying), dtype=np.float64)
+        use_nc = bool(self._nc_constraint)
+        penalty = nc_penalty * nevot_croce_violation(self.model) if use_nc else 0.0
+        dpenalty = np.zeros_like(x0)
+        base = self._points_job(any_device=True)
+        if base is None:
+            msg = (
+                "nll_and_grad requires single-energy batches and dq < 0.5; "
+                "use a finite-difference gradient for this objective"
+            )
+            raise ValueError(msg)
+
+        n_dirs = len(varying)
+        n_points = base.points.q.size
+        n_entries = len(base.points.channels)
+        dq = np.zeros((n_dirs, n_points))
+        dlayers = np.zeros((n_dirs, *base.layers.shape))
+        dtensor = np.zeros((n_dirs, *base.tensor.shape), dtype=np.complex128)
+        dchan = np.zeros((n_dirs, n_entries, 3))
+        try:
+            for k in range(n_dirs):
+                h = rel_step * max(abs(x0[k]), 1.0)
+                shifted = []
+                violation = []
+                for sign in (1.0, -1.0):
+                    x = x0.copy()
+                    x[k] += sign * h
+                    self.setp(x)
+                    if use_nc:
+                        violation.append(nevot_croce_violation(self.model))
+                    job = self._points_job(any_device=True)
+                    if job is None or job.layers.shape != base.layers.shape:
+                        msg = f"parameter {varying[k].name!r} changes the stack layout"
+                        raise ValueError(msg)
+                    shifted.append(job)
+                plus, minus = shifted
+                inv = 1.0 / (2.0 * h)
+                if use_nc:
+                    dpenalty[k] = nc_penalty * (violation[0] - violation[1]) * inv
+                dq[k] = (plus.points.q - minus.points.q) * inv
+                dlayers[k] = (plus.layers - minus.layers) * inv
+                dtensor[k] = (plus.tensor - minus.tensor) * inv
+                for i, (cp, cm) in enumerate(
+                    zip(plus.points.channels, minus.points.channels, strict=True)
+                ):
+                    dchan[k, i] = (
+                        (cp[0].scale_s - cm[0].scale_s) * inv,
+                        (cp[0].scale_p - cm[0].scale_p) * inv,
+                        (cp[0].bkg - cm[0].bkg) * inv,
+                    )
+        finally:
+            self.setp(x0)
+
+        refl, jac = tmm.uniaxial_reflectivity_points_jvp(
+            base.points.q,
+            base.points.stack_index,
+            base.layers,
+            base.tensor,
+            np.asarray(base.energies, dtype=np.float64),
+            dq,
+            dlayers,
+            dtensor,
+            parallel=bool(self.model.parallel),
+            device=self.model.device,
+        )
+
+        def channel_values(i: int, sl: slice, col: int) -> tuple[Any, Any]:
+            channel = base.points.channels[i][0]
+            scale = channel.scale_s if col == 1 else channel.scale_p
+            dscale = dchan[:, i, 0] if col == 1 else dchan[:, i, 1]
+            r = refl[sl, col]
+            value = scale * r + channel.bkg
+            deriv = (
+                scale * jac[:, sl, col]
+                + dscale[:, None] * r[None, :]
+                + dchan[:, i, 2][:, None]
+            )
+            return value, deriv
+
+        predicted = np.empty(len(self._dataset), dtype=np.float64)
+        dpred = np.zeros((n_dirs, len(self._dataset)), dtype=np.float64)
+        for i, (s_rows, p_rows) in enumerate(base.rows):
+            _channel, s_sl, p_sl = base.points.channels[i]
+            for rows, sl, col in ((s_rows, s_sl, 1), (p_rows, p_sl, 0)):
+                if rows is None or sl is None:
+                    continue
+                predicted[rows], dpred[:, rows] = channel_values(i, sl, col)
+
+        y, y_err = self._cached_y, self._cached_y_err
+        if y is None or y_err is None:
+            self._refresh_data_transform_cache()
+            y, y_err = self._cached_y, self._cached_y_err
+        assert y is not None and y_err is not None
+        if self.transform is None:
+            model_t = predicted
+            dtransform = np.ones_like(predicted)
+        else:
+            q_all = self._dataset.q
+            model_t, _ = self.transform(q_all, predicted)
+            step = 1e-6 * np.where(predicted != 0, np.abs(predicted), 1.0)
+            t_plus, _ = self.transform(q_all, predicted + step)
+            t_minus, _ = self.transform(q_all, predicted - step)
+            dtransform = (t_plus - t_minus) / (2.0 * step)
+        f_rows, g_pairs = self._likelihood_weights()
+        terms = _gaussian_terms(y, y_err, model_t, weighted=self.weighted)
+        logl = float(f_rows @ terms)
+        grad = -(dpred @ (f_rows * (y - model_t) / (y_err * y_err) * dtransform))
+        n_e = len(base.rows)
+        for k, pair in enumerate(
+            self._anisotropy_pairs if self.anisotropy_weight else []
+        ):
+            _channel, s_sl, p_sl = base.points.channels[n_e + k]
+            assert s_sl is not None and p_sl is not None
+            r_s, d_s = channel_values(n_e + k, s_sl, 1)
+            r_p, d_p = channel_values(n_e + k, p_sl, 0)
+            total = r_p + r_s
+            model_a = (r_p - r_s) / total
+            d_a = 2.0 * (r_s * d_p - r_p * d_s) / (total * total)
+            resid = model_a - pair.target
+            logl += float(g_pairs[k] * -0.5 * np.sum(resid * resid))
+            grad += g_pairs[k] * (d_a @ resid)
+        return float(-logl + penalty), dpenalty + grad
+
+    def nll_grad(self, pvals: NDArray[np.float64] | None = None) -> NDArray[np.float64]:
+        """Gradient of :meth:`nll`, for ``jac=`` in scipy minimizers.
+
+        See :meth:`nll_and_grad`. Pass as
+        ``CurveFitter(objective).fit("L-BFGS-B", jac=objective.nll_grad)``.
+        """
+        return self.nll_and_grad(pvals)[1]
+
+    def clear_prefetch(self) -> None:
+        """Drop any unconsumed :meth:`prefetch` results."""
+        self._prefetched = {}
+
     def _predicted(
         self, pvals: NDArray[np.float64] | None = None
     ) -> NDArray[np.float64]:
@@ -560,18 +1218,16 @@ class Objective(_RefnxObjective):
           rarely share one ``q`` grid across energies — still runs one at a
           time; energies stay serial there so DE ``workers`` can parallelize
           across population members without nested Rayon/thread pools.
-        """
-        self.setp(pvals)
-        predicted = np.empty(len(self._dataset), dtype=np.float64)
 
-        multi_q: list[_KernelBatch] = []
-        by_energy: dict[float, dict[str, _KernelBatch]] = {}
-        for batch in self._batches:
-            if len(batch.energies) != 1:
-                multi_q.append(batch)
-                continue
-            energy = float(batch.energies[0])
-            by_energy.setdefault(energy, {})[batch.pol] = batch
+        On the GPU, or with a :meth:`prefetch` hit, predictions come from
+        the single-dispatch points path (see :meth:`_predict_all`).
+        """
+        return self._predict_all(pvals)[0]
+
+    def _predicted_rows(self) -> NDArray[np.float64]:
+        """Per-energy evaluation of every row at the current parameters."""
+        predicted = np.empty(len(self._dataset), dtype=np.float64)
+        multi_q, by_energy = self._group_batches()
 
         for batch in multi_q:
             result = self.model(batch.q, np.asarray(batch.energies, dtype=np.float64))
@@ -587,9 +1243,13 @@ class Objective(_RefnxObjective):
             # Fused bookended path rebuilds the film inside Rust and ignores
             # pre-materialized layers. Skip the expensive Python materialize
             # when that path will win; otherwise batch-materialize once.
-            fused_eligible = dq < 0.5 and (
-                _plan_fused_bookended(self.model.structure, float(oc_energies[0]))
-                is not None
+            fused_eligible = (
+                self.model.device == "cpu"
+                and dq < 0.5
+                and (
+                    _plan_fused_bookended(self.model.structure, float(oc_energies[0]))
+                    is not None
+                )
             )
             batch_layers = None
             batch_tensor = None
@@ -651,35 +1311,35 @@ class Objective(_RefnxObjective):
         y, y_err, predicted = self._transformed(None)
         return (y - predicted) / y_err
 
-    def _anisotropy_term(self) -> float:
-        """`-0.5 * sum((model_anisotropy - data_anisotropy) ** 2)` over all pairs."""
-        model_vals = []
-        data_vals = []
-        for pair in self._anisotropy_pairs:
-            model_vals.append(self.model.anisotropy(pair.q, pair.energy))
-            r_s = self._dataset.r[pair.s_indices]
-            r_p = self._dataset.r[pair.p_indices]
-            data_vals.append((r_p - r_s) / (r_p + r_s))
-        model_aniso = np.concatenate(model_vals)
-        data_aniso = np.concatenate(data_vals)
-        return float(-0.5 * np.sum((model_aniso - data_aniso) ** 2))
-
     def logl(self, pvals: NDArray[np.float64] | None = None) -> float:
         """Log-likelihood over every row in the dataset.
 
         Standard, unnormalized Gaussian log-likelihood when
-        `anisotropy_weight == 0.0` (the default). When nonzero, blends in
-        the anisotropy term and normalizes by `len(data)` — see
-        `anisotropy_weight`'s docstring on `__init__` for the exact
-        formula and why the normalization only applies in this mode.
+        `anisotropy_weight == 0.0` and ``normalization="auto"`` (the
+        defaults). Otherwise blends in the anisotropy term and normalizes
+        as documented for ``anisotropy_weight`` / ``normalization`` on
+        `__init__`.
         """
-        y, y_err, predicted = self._transformed(pvals)
-        base = gaussian_logl(y, y_err, predicted, weighted=self.weighted)
-        if not self.anisotropy_weight:
-            return base
-        weight = self.anisotropy_weight
-        ll = base * (1.0 - weight) + self._anisotropy_term() * weight
-        return ll / len(self._dataset)
+        predicted, aniso = self._predict_all(pvals)
+        if self._cached_y is None or self._cached_y_err is None:
+            self._refresh_data_transform_cache()
+        assert self._cached_y is not None and self._cached_y_err is not None
+        model_t = (
+            predicted
+            if self.transform is None
+            else self.transform(self._dataset.q, predicted)[0]
+        )
+        f_rows, g_pairs = self._likelihood_weights()
+        terms = _gaussian_terms(
+            self._cached_y, self._cached_y_err, model_t, weighted=self.weighted
+        )
+        ll = float(f_rows @ terms)
+        for g, pair, model_a in zip(
+            g_pairs, self._anisotropy_pairs, aniso, strict=False
+        ):
+            resid = model_a - pair.target
+            ll += float(g * -0.5 * np.sum(resid * resid))
+        return ll
 
     def logp(self, pvals: NDArray[np.float64] | None = None) -> float:
         """Log-prior: bounds from refnx plus optional Nevot-Croce ``logp_extra``."""

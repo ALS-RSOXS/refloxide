@@ -6,10 +6,10 @@
 
 use nalgebra::Matrix3;
 use num_complex::Complex;
-use numpy::ndarray::{Array3, Array4};
+use numpy::ndarray::{Array2, Array3, Array4};
 use numpy::{
-    IntoPyArray, PyArray3, PyArray4, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
-    PyReadonlyArray4,
+    IntoPyArray, PyArray2, PyArray3, PyArray4, PyReadonlyArray1, PyReadonlyArray2,
+    PyReadonlyArray3, PyReadonlyArray4, PyReadonlyArrayDyn,
 };
 use pyo3::prelude::*;
 
@@ -32,6 +32,8 @@ type UniaxialPyArrays<'py> = (Bound<'py, PyArray3<f64>>, Bound<'py, PyArray3<C>>
 
 type UniaxialBatchPyArrays<'py> = (Bound<'py, PyArray4<f64>>, Bound<'py, PyArray4<C>>);
 
+type PointsJvpPyArrays<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray3<f64>>);
+
 type UnpackedInputs = (Vec<f64>, Vec<Layer>, Vec<Matrix3<C>>);
 
 type UnpackedBatchInputs = (Vec<f64>, Vec<Vec<Layer>>, Vec<Vec<Matrix3<C>>>, Vec<f64>);
@@ -49,8 +51,13 @@ type UnpackedBatchInputs = (Vec<f64>, Vec<Vec<Layer>>, Vec<Vec<Matrix3<C>>>, Vec
 /// pool from oversubscribing the CPU. The same effect can be obtained
 /// process-wide by setting the environment variable `RAYON_NUM_THREADS=1`
 /// before importing `refloxide`.
+///
+/// `device` selects `"cpu"` (default; `f64` 4x4 with transmission) or
+/// `"gpu"` (`f32` recursion on the shared GPU context, `NaN` transmission);
+/// see [`crate::gpu::uniaxial_reflectivity_batch`]. `parallel` is ignored on
+/// the GPU.
 #[pyfunction]
-#[pyo3(signature = (q, layers, tensor, energy_ev, parallel = true))]
+#[pyo3(signature = (q, layers, tensor, energy_ev, parallel = true, device = "cpu"))]
 fn uniaxial_reflectivity<'py>(
     py: Python<'py>,
     q: PyReadonlyArray1<'py, f64>,
@@ -58,9 +65,29 @@ fn uniaxial_reflectivity<'py>(
     tensor: PyReadonlyArray3<'py, C>,
     energy_ev: f64,
     parallel: bool,
+    device: &str,
 ) -> PyResult<UniaxialPyArrays<'py>> {
+    let use_gpu = parse_device(device)?;
     let (q_vec, layers_rust, tensor_rust) =
         unpack_inputs(&q, &layers, &tensor).map_err(PyErr::from)?;
+
+    if use_gpu {
+        let out = py
+            .detach(|| {
+                gpu_batch(
+                    &q_vec,
+                    std::slice::from_ref(&layers_rust),
+                    std::slice::from_ref(&tensor_rust),
+                    &[energy_ev],
+                )
+            })
+            .map_err(PyErr::from)?;
+        let single = crate::uniaxial::UniaxialOutput {
+            refl: out.refl.into_iter().next().unwrap_or_default(),
+            tran: out.tran.into_iter().next().unwrap_or_default(),
+        };
+        return pack_uniaxial_output(py, &single);
+    }
 
     let out = py
         .detach(|| core_solve(&q_vec, &layers_rust, &tensor_rust, energy_ev, parallel))
@@ -69,8 +96,10 @@ fn uniaxial_reflectivity<'py>(
 }
 
 /// Batched uniaxial reflectivity over shared ``q`` and many energies.
+///
+/// `device` behaves as in [`uniaxial_reflectivity`].
 #[pyfunction]
-#[pyo3(signature = (q, layers, tensor, energies_ev, parallel = true))]
+#[pyo3(signature = (q, layers, tensor, energies_ev, parallel = true, device = "cpu"))]
 fn uniaxial_reflectivity_batch<'py>(
     py: Python<'py>,
     q: PyReadonlyArray1<'py, f64>,
@@ -78,14 +107,297 @@ fn uniaxial_reflectivity_batch<'py>(
     tensor: PyReadonlyArray4<'py, C>,
     energies_ev: PyReadonlyArray1<'py, f64>,
     parallel: bool,
+    device: &str,
 ) -> PyResult<UniaxialBatchPyArrays<'py>> {
+    let use_gpu = parse_device(device)?;
     let (q_vec, layers_rust, tensor_rust, energies_rust) =
         unpack_batch_inputs(&q, &layers, &tensor, &energies_ev).map_err(PyErr::from)?;
+
+    if use_gpu {
+        let out = py
+            .detach(|| gpu_batch(&q_vec, &layers_rust, &tensor_rust, &energies_rust))
+            .map_err(PyErr::from)?;
+        return pack_uniaxial_batch_output(py, &out);
+    }
 
     let out = py
         .detach(|| core_solve_batch(&q_vec, &layers_rust, &tensor_rust, &energies_rust, parallel))
         .map_err(PyErr::from)?;
     pack_uniaxial_batch_output(py, &out)
+}
+
+/// Uniaxial reflectivity for independent `(q, stack)` points.
+///
+/// See [`crate::uniaxial::uniaxial_reflectivity_points`]; `stack_index`
+/// must be non-negative. `device` behaves as in [`uniaxial_reflectivity`],
+/// with the whole call issued as one GPU dispatch.
+#[pyfunction]
+#[pyo3(signature = (q, stack_index, layers, tensor, energies_ev, parallel = true, device = "cpu"))]
+#[allow(clippy::too_many_arguments)]
+fn uniaxial_reflectivity_points<'py>(
+    py: Python<'py>,
+    q: PyReadonlyArray1<'py, f64>,
+    stack_index: PyReadonlyArray1<'py, i64>,
+    layers: PyReadonlyArray3<'py, f64>,
+    tensor: PyReadonlyArray4<'py, C>,
+    energies_ev: PyReadonlyArray1<'py, f64>,
+    parallel: bool,
+    device: &str,
+) -> PyResult<UniaxialPyArrays<'py>> {
+    let use_gpu = parse_device(device)?;
+    let (q_vec, layers_rust, tensor_rust, energies_rust) =
+        unpack_batch_inputs(&q, &layers, &tensor, &energies_ev).map_err(PyErr::from)?;
+    let stack_of = stack_index
+        .as_array()
+        .iter()
+        .map(|&s| usize::try_from(s))
+        .collect::<std::result::Result<Vec<usize>, _>>()
+        .map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("stack_index entries must be non-negative")
+        })?;
+
+    let out = py
+        .detach(|| {
+            if use_gpu {
+                gpu_points(
+                    &q_vec,
+                    &stack_of,
+                    &layers_rust,
+                    &tensor_rust,
+                    &energies_rust,
+                )
+            } else {
+                crate::uniaxial::uniaxial_reflectivity_points(
+                    &q_vec,
+                    &stack_of,
+                    &layers_rust,
+                    &tensor_rust,
+                    &energies_rust,
+                    parallel,
+                )
+            }
+        })
+        .map_err(PyErr::from)?;
+    pack_uniaxial_output(py, &out)
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_points(
+    q: &[f64],
+    stack_of: &[usize],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+) -> Result<crate::uniaxial::UniaxialOutput> {
+    crate::gpu::uniaxial_reflectivity_points(q, stack_of, layers, tensor, energies_ev)
+}
+
+#[cfg(not(feature = "gpu"))]
+fn gpu_points(
+    _q: &[f64],
+    _stack_of: &[usize],
+    _layers: &[Vec<Layer>],
+    _tensor: &[Vec<Matrix3<C>>],
+    _energies_ev: &[f64],
+) -> Result<crate::uniaxial::UniaxialOutput> {
+    Err(RefloxideError::Gpu(
+        "refloxide was built without the `gpu` feature".into(),
+    ))
+}
+
+/// Reflectance and Jacobian-vector products for independent `(q, stack)` points.
+///
+/// See [`crate::uniaxial::uniaxial_reflectivity_points_jvp`]. Returns
+/// `(refl, jac)` with `refl` shaped `(n_points, 2)` holding `[R_pp, R_ss]`
+/// and `jac` shaped `(n_dirs, n_points, 2)` holding `[dR_pp, dR_ss]`.
+#[pyfunction]
+#[pyo3(signature = (q, stack_index, layers, tensor, energies_ev, dq, dlayers, dtensor, parallel = true, device = "cpu"))]
+#[allow(clippy::too_many_arguments)]
+fn uniaxial_reflectivity_points_jvp<'py>(
+    py: Python<'py>,
+    q: PyReadonlyArray1<'py, f64>,
+    stack_index: PyReadonlyArray1<'py, i64>,
+    layers: PyReadonlyArray3<'py, f64>,
+    tensor: PyReadonlyArray4<'py, C>,
+    energies_ev: PyReadonlyArray1<'py, f64>,
+    dq: PyReadonlyArray2<'py, f64>,
+    dlayers: PyReadonlyArray4<'py, f64>,
+    dtensor: PyReadonlyArrayDyn<'py, C>,
+    parallel: bool,
+    device: &str,
+) -> PyResult<PointsJvpPyArrays<'py>> {
+    let use_gpu = parse_device(device)?;
+    let (q_vec, layers_rust, tensor_rust, energies_rust) =
+        unpack_batch_inputs(&q, &layers, &tensor, &energies_ev).map_err(PyErr::from)?;
+    let stack_of = stack_index
+        .as_array()
+        .iter()
+        .map(|&s| usize::try_from(s))
+        .collect::<std::result::Result<Vec<usize>, _>>()
+        .map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("stack_index entries must be non-negative")
+        })?;
+    let tangents = unpack_tangents(&dq, &dlayers, &dtensor, &layers_rust).map_err(PyErr::from)?;
+    let n_points = q_vec.len();
+    let n_dirs = tangents.dq.len();
+
+    let out = py
+        .detach(|| {
+            if use_gpu {
+                gpu_points_jvp(
+                    &q_vec,
+                    &stack_of,
+                    &layers_rust,
+                    &tensor_rust,
+                    &energies_rust,
+                    &tangents,
+                )
+            } else {
+                crate::uniaxial::uniaxial_reflectivity_points_jvp(
+                    &q_vec,
+                    &stack_of,
+                    &layers_rust,
+                    &tensor_rust,
+                    &energies_rust,
+                    &tangents,
+                    parallel,
+                )
+            }
+        })
+        .map_err(PyErr::from)?;
+    let mut refl = Array2::<f64>::zeros((n_points, 2));
+    for (i, r) in out.refl.iter().enumerate() {
+        refl[[i, 0]] = r[0];
+        refl[[i, 1]] = r[1];
+    }
+    let mut jac = Array3::<f64>::zeros((n_dirs, n_points, 2));
+    for (idx, d) in out.jac.iter().enumerate() {
+        let (k, i) = (idx / n_points.max(1), idx % n_points.max(1));
+        jac[[k, i, 0]] = d[0];
+        jac[[k, i, 1]] = d[1];
+    }
+    Ok((refl.into_pyarray(py), jac.into_pyarray(py)))
+}
+
+/// Validates tangent shapes against the value stacks and copies them.
+fn unpack_tangents(
+    dq: &PyReadonlyArray2<'_, f64>,
+    dlayers: &PyReadonlyArray4<'_, f64>,
+    dtensor: &PyReadonlyArrayDyn<'_, C>,
+    layers: &[Vec<Layer>],
+) -> Result<crate::uniaxial::PointsTangents> {
+    let dq_view = dq.as_array();
+    let dl_view = dlayers.as_array();
+    let dt_view = dtensor.as_array();
+    let n_dirs = dq_view.shape()[0];
+    let n_stacks = layers.len();
+    let n_layers = layers.first().map_or(0, Vec::len);
+    if dl_view.shape() != [n_dirs, n_stacks, n_layers, 4] {
+        return Err(RefloxideError::InvalidShape(format!(
+            "dlayers must have shape (n_dirs, n_stacks, N, 4) = ({n_dirs}, {n_stacks}, {n_layers}, 4), got {:?}",
+            dl_view.shape()
+        )));
+    }
+    if dt_view.shape() != [n_dirs, n_stacks, n_layers, 3, 3] {
+        return Err(RefloxideError::InvalidShape(format!(
+            "dtensor must have shape (n_dirs, n_stacks, N, 3, 3), got {:?}",
+            dt_view.shape()
+        )));
+    }
+    let dq_rows = (0..n_dirs).map(|k| dq_view.row(k).to_vec()).collect();
+    let mut dlayers_rust = Vec::with_capacity(n_dirs);
+    let mut dtensor_rust = Vec::with_capacity(n_dirs);
+    for k in 0..n_dirs {
+        let mut ls = Vec::with_capacity(n_stacks);
+        let mut ts = Vec::with_capacity(n_stacks);
+        for si in 0..n_stacks {
+            let mut lrow = Vec::with_capacity(n_layers);
+            let mut trow = Vec::with_capacity(n_layers);
+            for li in 0..n_layers {
+                lrow.push(Layer::new(
+                    dl_view[[k, si, li, 0]],
+                    dl_view[[k, si, li, 1]],
+                    dl_view[[k, si, li, 2]],
+                    dl_view[[k, si, li, 3]],
+                ));
+                let mut m = Matrix3::<C>::zeros();
+                for r in 0..3 {
+                    for c in 0..3 {
+                        m[(r, c)] = dt_view[[k, si, li, r, c]];
+                    }
+                }
+                trow.push(m);
+            }
+            ls.push(lrow);
+            ts.push(trow);
+        }
+        dlayers_rust.push(ls);
+        dtensor_rust.push(ts);
+    }
+    Ok(crate::uniaxial::PointsTangents {
+        dq: dq_rows,
+        dlayers: dlayers_rust,
+        dtensor: dtensor_rust,
+    })
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_points_jvp(
+    q: &[f64],
+    stack_of: &[usize],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+    tangents: &crate::uniaxial::PointsTangents,
+) -> Result<crate::uniaxial::PointsJvpOutput> {
+    crate::gpu::uniaxial_reflectivity_points_jvp(q, stack_of, layers, tensor, energies_ev, tangents)
+}
+
+#[cfg(not(feature = "gpu"))]
+fn gpu_points_jvp(
+    _q: &[f64],
+    _stack_of: &[usize],
+    _layers: &[Vec<Layer>],
+    _tensor: &[Vec<Matrix3<C>>],
+    _energies_ev: &[f64],
+    _tangents: &crate::uniaxial::PointsTangents,
+) -> Result<crate::uniaxial::PointsJvpOutput> {
+    Err(RefloxideError::Gpu(
+        "refloxide was built without the `gpu` feature".into(),
+    ))
+}
+
+/// Maps the `device` keyword to `true` for GPU and `false` for CPU.
+fn parse_device(device: &str) -> PyResult<bool> {
+    match device {
+        "cpu" => Ok(false),
+        "gpu" => Ok(true),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "device must be 'cpu' or 'gpu', got {other:?}"
+        ))),
+    }
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_batch(
+    q: &[f64],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+) -> Result<crate::uniaxial::UniaxialBatchOutput> {
+    crate::gpu::uniaxial_reflectivity_batch(q, layers, tensor, energies_ev)
+}
+
+#[cfg(not(feature = "gpu"))]
+fn gpu_batch(
+    _q: &[f64],
+    _layers: &[Vec<Layer>],
+    _tensor: &[Vec<Matrix3<C>>],
+    _energies_ev: &[f64],
+) -> Result<crate::uniaxial::UniaxialBatchOutput> {
+    Err(RefloxideError::Gpu(
+        "refloxide was built without the `gpu` feature".into(),
+    ))
 }
 
 /// Validates batch input shapes and copies them into owned Rust buffers.
@@ -310,6 +622,7 @@ fn tensor_to_slab_row(thickness: f64, roughness: f64, tensor: [[C; 3]; 3]) -> [f
     fronting,
     backing,
     parallel = false,
+    with_transmission = true,
 ))]
 #[allow(clippy::too_many_arguments)]
 fn bookended_uniaxial_reflectivity<'py>(
@@ -337,6 +650,7 @@ fn bookended_uniaxial_reflectivity<'py>(
     fronting: [f64; 4],
     backing: PyReadonlyArray2<'py, f64>,
     parallel: bool,
+    with_transmission: bool,
 ) -> PyResult<UniaxialPyArrays<'py>> {
     let backing_view = backing.as_array();
     if backing_view.ncols() != 4 {
@@ -378,7 +692,23 @@ fn bookended_uniaxial_reflectivity<'py>(
 
     let out = py
         .detach(|| {
-            core_bookended(
+            if with_transmission {
+                return core_bookended(
+                    &q_vec,
+                    &e_vec,
+                    &n_xx_v,
+                    &n_ixx_v,
+                    &n_zz_v,
+                    &n_izz_v,
+                    query_ev,
+                    wavelength_ev,
+                    &params,
+                    fronting,
+                    &backing_rows,
+                    parallel,
+                );
+            }
+            let refl = crate::bookended::bookended_uniaxial_reflectance(
                 &q_vec,
                 &e_vec,
                 &n_xx_v,
@@ -391,7 +721,10 @@ fn bookended_uniaxial_reflectivity<'py>(
                 fronting,
                 &backing_rows,
                 parallel,
-            )
+            )?;
+            let nan = C::new(f64::NAN, f64::NAN);
+            let tran = vec![[[nan; 2]; 2]; refl.len()];
+            Ok(crate::uniaxial::UniaxialOutput { refl, tran })
         })
         .map_err(PyErr::from)?;
 
@@ -442,6 +775,8 @@ fn pack_uniaxial_batch_output<'py>(
 pub fn rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(uniaxial_reflectivity, m)?)?;
     m.add_function(wrap_pyfunction!(uniaxial_reflectivity_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(uniaxial_reflectivity_points, m)?)?;
+    m.add_function(wrap_pyfunction!(uniaxial_reflectivity_points_jvp, m)?)?;
     m.add_function(wrap_pyfunction!(bookended_uniaxial_reflectivity, m)?)?;
     m.add_function(wrap_pyfunction!(interp_ooc_linear, m)?)?;
     m.add_function(wrap_pyfunction!(lab_tensor_diagonals_batch, m)?)?;

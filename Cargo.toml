@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["python"]
 python = ["dep:pyo3", "dep:numpy"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 pyo3 = { version = "0.28.3", optional = true, features = ["extension-module", "num-complex"] }
@@ -22,6 +23,36 @@ num-complex = "0.4"
 thiserror = "1.0"
 physical_constants = "0.5"
 rayon = "1.10"
+num-traits = "0.2"
+wgpu = { version = "30.0.1", optional = true }
+pollster = { version = "1", optional = true }
+bytemuck = { version = "1.25.2", features = ["derive"], optional = true }
+
+[[example]]
+name = "gpu_recursive"
+required-features = ["gpu"]
+
+[[example]]
+name = "gpu_df64"
+required-features = ["gpu"]
+
+[[example]]
+name = "gpu_df64_bench"
+required-features = ["gpu"]
+
+[[example]]
+name = "gpu_general"
+required-features = ["gpu"]
+
+[[example]]
+name = "gpu_general_check"
 
 [dev-dependencies]
 approx = "0.5"
+naga = { version = "30", features = ["wgsl-in", "spv-out", "glsl-out", "hlsl-out"] }
+
+# Single-codegen-unit optimized profile for benchmarks and precision studies.
+[profile.perf]
+inherits = "release"
+opt-level = 3
+codegen-units = 1

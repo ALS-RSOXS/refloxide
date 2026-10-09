@@ -2,6 +2,10 @@
 
 Python API pages are generated from source with mkdocstrings. The PyO3 extension is documented with rustdoc and copied into the published site next to these pages when `cargo` is available during `mkdocs build`.
 
+## Guides
+
+- [GPU backend](../guides/gpu.md) — `device="gpu"`, accuracy contracts, fitting guidance, benchmarks
+
 ## Python
 
 - [refloxide](python/refloxide.md) — top-level package (Rust TMM default)

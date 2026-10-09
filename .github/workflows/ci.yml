@@ -112,11 +112,20 @@ jobs:
       - name: Compile crate
         run: cargo check --all-targets
 
+      - name: Compile crate (gpu feature)
+        run: cargo check --all-targets --features gpu
+
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Run clippy (gpu feature)
+        run: cargo clippy --all-targets --features gpu -- -D warnings
+
       - name: Run Rust tests
         run: cargo test --all-targets
+
+      - name: Validate general WGSL shaders (naga)
+        run: cargo run --example gpu_general_check --no-default-features
 
   wheels:
     name: Wheel (${{ matrix.os }})

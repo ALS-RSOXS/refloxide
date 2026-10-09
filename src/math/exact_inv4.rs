@@ -6,11 +6,34 @@
 use nalgebra::Matrix4;
 use num_complex::Complex;
 
+use crate::c4x4::{zero, Mat4};
+use crate::kernel::Real;
+
 type C = Complex<f64>;
 
-/// Returns `None` when the analytic determinant is exactly zero (upstream uses `pinv` then).
+/// Inverse of a 4x4 complex matrix via the closed-form adjugate.
+///
+/// # Parameters
+/// - `m`: matrix to invert.
+///
+/// # Returns
+/// `None` when the analytic determinant magnitude falls below
+/// `f64::EPSILON**2` (upstream pyGTM falls back to `pinv` there).
 pub fn exact_inv_4x4(m: &Matrix4<C>) -> Option<Matrix4<C>> {
-    let a = |r: usize, c: usize| m[(c, r)];
+    let mut arr = [[zero::<f64>(); 4]; 4];
+    for (r, row) in arr.iter_mut().enumerate() {
+        for (c, v) in row.iter_mut().enumerate() {
+            *v = m[(r, c)];
+        }
+    }
+    exact_inv_4x4_generic(&arr).map(|inv| Matrix4::from_fn(|r, c| inv[r][c]))
+}
+
+/// Closed-form inverse on row-major arrays, generic over precision.
+///
+/// Returns `None` when the analytic determinant is exactly zero (upstream uses `pinv` then).
+pub(crate) fn exact_inv_4x4_generic<T: Real>(m: &Mat4<T>) -> Option<Mat4<T>> {
+    let a = |r: usize, c: usize| m[c][r];
 
     let mut det_a = a(0, 0) * a(1, 1) * a(2, 2) * a(3, 3)
         + a(0, 0) * a(1, 2) * a(2, 3) * a(3, 1)
@@ -38,100 +61,100 @@ pub fn exact_inv_4x4(m: &Matrix4<C>) -> Option<Matrix4<C>> {
         + a(0, 3) * a(1, 1) * a(2, 2) * a(3, 0)
         + a(0, 3) * a(1, 2) * a(2, 0) * a(3, 1);
 
-    if det_a.norm() < f64::EPSILON * f64::EPSILON {
+    if det_a.norm() < T::epsilon() * T::epsilon() {
         return None;
     }
 
-    let mut b = Matrix4::<C>::zeros();
-    b[(0, 0)] =
+    let mut b = [[zero::<T>(); 4]; 4];
+    b[0][0] =
         a(1, 1) * a(2, 2) * a(3, 3) + a(1, 2) * a(2, 3) * a(3, 1) + a(1, 3) * a(2, 1) * a(3, 2)
             - a(1, 1) * a(2, 3) * a(3, 2)
             - a(1, 2) * a(2, 1) * a(3, 3)
             - a(1, 3) * a(2, 2) * a(3, 1);
-    b[(0, 1)] =
+    b[0][1] =
         a(0, 1) * a(2, 3) * a(3, 2) + a(0, 2) * a(2, 1) * a(3, 3) + a(0, 3) * a(2, 2) * a(3, 1)
             - a(0, 1) * a(2, 2) * a(3, 3)
             - a(0, 2) * a(2, 3) * a(3, 1)
             - a(0, 3) * a(2, 1) * a(3, 2);
-    b[(0, 2)] =
+    b[0][2] =
         a(0, 1) * a(1, 2) * a(3, 3) + a(0, 2) * a(1, 3) * a(3, 1) + a(0, 3) * a(1, 1) * a(3, 2)
             - a(0, 1) * a(1, 3) * a(3, 2)
             - a(0, 2) * a(1, 1) * a(3, 3)
             - a(0, 3) * a(1, 2) * a(3, 1);
-    b[(0, 3)] =
+    b[0][3] =
         a(0, 1) * a(1, 3) * a(2, 2) + a(0, 2) * a(1, 1) * a(2, 3) + a(0, 3) * a(1, 2) * a(2, 1)
             - a(0, 1) * a(1, 2) * a(2, 3)
             - a(0, 2) * a(1, 3) * a(2, 1)
             - a(0, 3) * a(1, 1) * a(2, 2);
 
-    b[(1, 0)] =
+    b[1][0] =
         a(1, 0) * a(2, 3) * a(3, 2) + a(1, 2) * a(2, 0) * a(3, 3) + a(1, 3) * a(2, 2) * a(3, 0)
             - a(1, 0) * a(2, 2) * a(3, 3)
             - a(1, 2) * a(2, 3) * a(3, 0)
             - a(1, 3) * a(2, 0) * a(3, 2);
-    b[(1, 1)] =
+    b[1][1] =
         a(0, 0) * a(2, 2) * a(3, 3) + a(0, 2) * a(2, 3) * a(3, 0) + a(0, 3) * a(2, 0) * a(3, 2)
             - a(0, 0) * a(2, 3) * a(3, 2)
             - a(0, 2) * a(2, 0) * a(3, 3)
             - a(0, 3) * a(2, 2) * a(3, 0);
-    b[(1, 2)] =
+    b[1][2] =
         a(0, 0) * a(1, 3) * a(3, 2) + a(0, 2) * a(1, 0) * a(3, 3) + a(0, 3) * a(1, 2) * a(3, 0)
             - a(0, 0) * a(1, 2) * a(3, 3)
             - a(0, 2) * a(1, 3) * a(3, 0)
             - a(0, 3) * a(1, 0) * a(3, 2);
-    b[(1, 3)] =
+    b[1][3] =
         a(0, 0) * a(1, 2) * a(2, 3) + a(0, 2) * a(1, 3) * a(2, 0) + a(0, 3) * a(1, 0) * a(2, 2)
             - a(0, 0) * a(1, 3) * a(2, 2)
             - a(0, 2) * a(1, 0) * a(2, 3)
             - a(0, 3) * a(1, 2) * a(2, 0);
 
-    b[(2, 0)] =
+    b[2][0] =
         a(1, 0) * a(2, 1) * a(3, 3) + a(1, 1) * a(2, 3) * a(3, 0) + a(1, 3) * a(2, 0) * a(3, 1)
             - a(1, 0) * a(2, 3) * a(3, 1)
             - a(1, 1) * a(2, 0) * a(3, 3)
             - a(1, 3) * a(2, 1) * a(3, 0);
-    b[(2, 1)] =
+    b[2][1] =
         a(0, 0) * a(2, 3) * a(3, 1) + a(0, 1) * a(2, 0) * a(3, 3) + a(0, 3) * a(2, 1) * a(3, 0)
             - a(0, 0) * a(2, 1) * a(3, 3)
             - a(0, 1) * a(2, 3) * a(3, 0)
             - a(0, 3) * a(2, 0) * a(3, 1);
-    b[(2, 2)] =
+    b[2][2] =
         a(0, 0) * a(1, 1) * a(3, 3) + a(0, 1) * a(1, 3) * a(3, 0) + a(0, 3) * a(1, 0) * a(3, 1)
             - a(0, 0) * a(1, 3) * a(3, 1)
             - a(0, 1) * a(1, 0) * a(3, 3)
             - a(0, 3) * a(1, 1) * a(3, 0);
-    b[(2, 3)] =
+    b[2][3] =
         a(0, 0) * a(1, 3) * a(2, 1) + a(0, 1) * a(1, 0) * a(2, 3) + a(0, 3) * a(1, 1) * a(2, 0)
             - a(0, 0) * a(1, 1) * a(2, 3)
             - a(0, 1) * a(1, 3) * a(2, 0)
             - a(0, 3) * a(1, 0) * a(2, 1);
 
-    b[(3, 0)] =
+    b[3][0] =
         a(1, 0) * a(2, 2) * a(3, 1) + a(1, 1) * a(2, 0) * a(3, 2) + a(1, 2) * a(2, 1) * a(3, 0)
             - a(1, 0) * a(2, 1) * a(3, 2)
             - a(1, 1) * a(2, 2) * a(3, 0)
             - a(1, 2) * a(2, 0) * a(3, 1);
-    b[(3, 1)] =
+    b[3][1] =
         a(0, 0) * a(2, 1) * a(3, 2) + a(0, 1) * a(2, 2) * a(3, 0) + a(0, 2) * a(2, 0) * a(3, 1)
             - a(0, 0) * a(2, 2) * a(3, 1)
             - a(0, 1) * a(2, 0) * a(3, 2)
             - a(0, 2) * a(2, 1) * a(3, 0);
-    b[(3, 2)] =
+    b[3][2] =
         a(0, 0) * a(1, 2) * a(3, 1) + a(0, 1) * a(1, 0) * a(3, 2) + a(0, 2) * a(1, 1) * a(3, 0)
             - a(0, 0) * a(1, 1) * a(3, 2)
             - a(0, 1) * a(1, 2) * a(3, 0)
             - a(0, 2) * a(1, 0) * a(3, 1);
-    b[(3, 3)] =
+    b[3][3] =
         a(0, 0) * a(1, 1) * a(2, 2) + a(0, 1) * a(1, 2) * a(2, 0) + a(0, 2) * a(1, 0) * a(2, 1)
             - a(0, 0) * a(1, 2) * a(2, 1)
             - a(0, 1) * a(1, 0) * a(2, 2)
             - a(0, 2) * a(1, 1) * a(2, 0);
 
-    let inv_det = C::new(1.0, 0.0) / det_a;
-    let mut out = Matrix4::<C>::zeros();
+    let inv_det = Complex::new(T::one(), T::zero()) / det_a;
+    let mut out = [[zero::<T>(); 4]; 4];
     for i in 0..4 {
         for j in 0..4 {
-            out[(i, j)] = b[(j, i)] * inv_det;
+            out[i][j] = b[j][i] * inv_det;
         }
     }
     Some(out)

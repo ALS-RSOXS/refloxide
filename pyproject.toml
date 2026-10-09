@@ -61,16 +61,16 @@ plugin = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/HarlanHeilman/refloxide"
-Documentation = "https://HarlanHeilman.github.io/refloxide"
-Repository = "https://github.com/HarlanHeilman/refloxide"
-Issues = "https://github.com/HarlanHeilman/refloxide/issues"
-Changelog = "https://github.com/HarlanHeilman/refloxide/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ALS-RSOXS/refloxide"
+Documentation = "https://ALS-RSOXS.github.io/refloxide"
+Repository = "https://github.com/ALS-RSOXS/refloxide"
+Issues = "https://github.com/ALS-RSOXS/refloxide/issues"
+Changelog = "https://github.com/ALS-RSOXS/refloxide/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 python-source = "src"
 module-name = "refloxide.rust"
-features = ["python"]
+features = ["python", "gpu"]
 compatibility = "pypi"
 
 [tool.uv]
