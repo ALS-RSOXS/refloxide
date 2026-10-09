@@ -1,26 +1,19 @@
-# GPU backend bench results
+# Uniaxial backend bench
 
-- generated: `2026-10-09T06:33:02Z`
+- generated: `2026-10-09T06:37:33Z`
 - machine: `Darwin arm64 / arm`
 - energy_ev: `250.0`
-- headline n_film: `10000`
+- n_q: `256`
 - repeats/warmup: `3` / `1`
 - gpu: `wgpu adapter present`
 
-| backend | n_film | n_q | n_layers | median_ms | heap_KiB | rss_delta_MiB | points/s | notes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| refnx Abeles (isotropic) | 100 | 256 | 102 | 0.868 | 7.8 | 0.00 | 294,902 | scalar Abeles 2x2 on isotropic twin; not polarized TMM |
-| refloxide.python.tmm | 100 | 256 | 102 | 73.073 | 44087.7 | 0.11 | 3,503 | pure-Python polarized TMM |
-| refloxide CPU parallel=False | 100 | 256 | 102 | 7.929 | 0.3 | 0.00 | 32,287 |  |
-| refloxide CPU parallel=True | 100 | 256 | 102 | 1.337 | 0.3 | 0.03 | 191,414 |  |
-| refloxide GPU | 100 | 256 | 102 | 0.330 | 0.3 | 0.00 | 774,877 | wgpu adapter present |
-| refnx Abeles (isotropic) | 1000 | 256 | 1002 | 8.566 | 36.0 | 0.00 | 29,886 | scalar Abeles 2x2 on isotropic twin; not polarized TMM |
-| refloxide.python.tmm | 1000 | 256 | 1002 | n/a | n/a | n/a | n/a | skipped: n_film>256 (pass --include-python-tmm) |
-| refloxide CPU parallel=False | 1000 | 256 | 1002 | 75.826 | 0.3 | 0.00 | 3,376 |  |
-| refloxide CPU parallel=True | 1000 | 256 | 1002 | 12.752 | 0.3 | 0.00 | 20,075 |  |
-| refloxide GPU | 1000 | 256 | 1002 | 2.852 | 0.3 | 0.00 | 89,762 | wgpu adapter present |
-| refnx Abeles (isotropic) | 10000 | 256 | 10002 | 83.914 | 317.2 | 0.00 | 3,051 | scalar Abeles 2x2 on isotropic twin; not polarized TMM |
-| refloxide.python.tmm | 10000 | 256 | 10002 | n/a | n/a | n/a | n/a | skipped: n_film>256 (pass --include-python-tmm) |
-| refloxide CPU parallel=False | 10000 | 256 | 10002 | 769.390 | 0.3 | 0.00 | 333 |  |
-| refloxide CPU parallel=True | 10000 | 256 | 10002 | 128.525 | 0.3 | 0.00 | 1,992 |  |
-| refloxide GPU | 10000 | 256 | 10002 | 7.062 | 0.3 | 0.00 | 36,249 | wgpu adapter present |
+| backend | n_film | n_q | n_layers | median_ms | heap_MiB | rss_MiB | notes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| refloxide CPU serial | 1 | 256 | 3 | 0.189 | 0.000 | 28.2 |  |
+| refloxide CPU parallel | 1 | 256 | 3 | 0.094 | 0.000 | 28.6 |  |
+| refloxide GPU | 1 | 256 | 3 | 0.352 | 0.000 | 39.8 | wgpu adapter present |
+| PyPXR / refnx plugin | 1 | 256 | 3 | 2.216 | 1.529 | 150.2 | pxr.plugin uniaxial (pure-Python TMM) |
+| refloxide CPU serial | 10000 | 256 | 10002 | 817.328 | 0.000 | 31.8 |  |
+| refloxide CPU parallel | 10000 | 256 | 10002 | 144.998 | 0.000 | 32.3 |  |
+| refloxide GPU | 10000 | 256 | 10002 | 7.406 | 0.000 | 43.9 | wgpu adapter present |
+| PyPXR / refnx plugin | 10000 | 256 | 10002 | 9835.808 | 4220.977 | 3521.1 | pxr.plugin uniaxial (pure-Python TMM) |

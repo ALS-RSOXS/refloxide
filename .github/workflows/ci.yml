@@ -152,7 +152,7 @@ jobs:
       - name: Install dependencies and extension
         run: make develop
 
-      - name: Run 10k-slab backend bench
+      - name: Run uniaxial backend bench (1 and 10k slabs)
         run: >
           uv run python examples/gpu_backend_bench.py
           --repeats 3

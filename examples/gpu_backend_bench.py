@@ -1,28 +1,24 @@
-"""Cross-backend wall-time and memory benchmark for uniaxial reflectivity.
+"""Uniaxial backend bench: serial CPU, parallel CPU, GPU, PyPXR/refnx plugin.
 
-Headline metric: **10_000 film microslabs** at a fixed q-grid (default 256
-points). Reports median wall time, peak Python heap (``tracemalloc``), and
-process RSS delta (``resource``) per backend.
+Compares the same uniaxial stack across:
 
-Always times ``refloxide`` CPU (``parallel=False`` / ``True``) and GPU when an
-adapter is present. Optional comparison backends (skipped when not installed):
+* ``refloxide`` CPU ``parallel=False``
+* ``refloxide`` CPU ``parallel=True``
+* ``refloxide`` GPU (``device="gpu"``, skipped when no adapter)
+* **PyPXR / refnx plugin** — in-tree ``refloxide.pxr.plugin.model.reflectivity``
+  (pure-Python uniaxial TMM; the polarized refnx-plugin path)
 
-* ``refnx`` Abeles on an isotropic twin — scalar 2x2 Abeles, not polarized
-  4x4; included as a cheap isotropic baseline, not an apples-to-apples peer
-* ``pypxr`` when importable
-* ``refloxide.python.tmm`` (pure-Python polarized) — off by default at large
-  ``n_film`` (enable with ``--include-python-tmm``)
+Headline sizes: **1 film slab** and **10_000 film slabs** (plus vacuum /
+substrate rows). Metrics: median wall time and peak Python heap
+(``tracemalloc``).
 
-``refnx`` is a **dev/plugin** extra only; it is not a runtime dependency.
+``refnx`` is required only for the plugin import graph (dev/plugin extras),
+not as a core runtime dependency of the Rust kernels.
 
 Run::
 
-    uv sync --group dev
-    uv run python examples/gpu_backend_bench.py
+    uv sync --group dev --group plugin
     uv run python examples/gpu_backend_bench.py --plot
-
-Writes under ``examples/results/`` (gitignored). With ``--plot``, also writes
-committed README assets under ``docs/assets/performance/``.
 """
 
 from __future__ import annotations
@@ -30,10 +26,12 @@ from __future__ import annotations
 import argparse
 import csv
 import platform
-import resource
 import statistics
+import subprocess
+import sys
 import time
 import tracemalloc
+import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,38 +42,37 @@ import numpy as np
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-HC_EV_ANGSTROM = 12398.4193
 ENERGY_EV = 250.0
-HEADLINE_N_FILM = 10_000
 DEFAULT_N_Q = 256
+HEADLINE_FILMS = (1, 10_000)
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 ASSETS_DIR = (
     Path(__file__).resolve().parents[1] / "docs" / "assets" / "performance"
 )
-PYTHON_TMM_MAX_FILM_DEFAULT = 256
 
-BACKEND_ORDER = (
-    "refnx Abeles (isotropic)",
-    "pypxr",
-    "refloxide.python.tmm",
-    "refloxide CPU parallel=False",
-    "refloxide CPU parallel=True",
-    "refloxide GPU",
-)
+BACKEND_SERIAL = "refloxide CPU serial"
+BACKEND_PARALLEL = "refloxide CPU parallel"
+BACKEND_GPU = "refloxide GPU"
+BACKEND_PYPXR = "PyPXR / refnx plugin"
 
+BACKEND_ORDER = (BACKEND_SERIAL, BACKEND_PARALLEL, BACKEND_GPU, BACKEND_PYPXR)
 BACKEND_COLORS = {
-    "refnx Abeles (isotropic)": "#6b7280",
-    "pypxr": "#9ca3af",
-    "refloxide.python.tmm": "#a16207",
-    "refloxide CPU parallel=False": "#1d4ed8",
-    "refloxide CPU parallel=True": "#2563eb",
-    "refloxide GPU": "#0f766e",
+    BACKEND_SERIAL: "#1d4ed8",
+    BACKEND_PARALLEL: "#2563eb",
+    BACKEND_GPU: "#0f766e",
+    BACKEND_PYPXR: "#6b7280",
+}
+BACKEND_SHORT = {
+    BACKEND_SERIAL: "CPU serial",
+    BACKEND_PARALLEL: "CPU parallel",
+    BACKEND_GPU: "GPU",
+    BACKEND_PYPXR: "PyPXR plugin",
 }
 
 
 @dataclass(frozen=True)
 class BenchCase:
-    """One (n_q, n_film_layers) problem size."""
+    """One (n_q, n_film) problem size."""
 
     n_q: int
     n_film: int
@@ -87,17 +84,16 @@ class BenchRow:
 
     backend: str
     n_q: int
-    n_layers: int
     n_film: int
+    n_layers: int
     median_s: float
-    peak_heap_kib: float
-    rss_delta_mib: float
-    points_per_s: float
+    peak_heap_mib: float
+    rss_mib: float
     notes: str = ""
 
 
 def _graded_arrays(n_film: int) -> tuple[np.ndarray, np.ndarray]:
-    """Build vacuum / graded uniaxial film / substrate arrays without refnx."""
+    """Vacuum / graded uniaxial film / substrate without refnx."""
     dz = 200.0 / max(n_film, 1)
     n_total = n_film + 2
     layers = np.zeros((n_total, 4), dtype=np.float64)
@@ -128,74 +124,34 @@ def _graded_arrays(n_film: int) -> tuple[np.ndarray, np.ndarray]:
     return layers, tensor
 
 
-def _try_refnx_callable(
-    layers: np.ndarray, energy_ev: float
-) -> Callable[[np.ndarray], np.ndarray] | None:
-    """Abeles on an isotropic twin via refnx's array API (no Structure build)."""
-    try:
-        from refnx.reflect import reflectivity
-    except ImportError:
-        return None
-
-    wavelength = HC_EV_ANGSTROM / energy_ev
-    factor = 2.0 * np.pi / wavelength**2 * 1.0e6
-    slabs = np.zeros((layers.shape[0], 4), dtype=np.float64)
-    slabs[:, 0] = layers[:, 0]
-    slabs[0, 0] = 0.0
-    slabs[-1, 0] = 0.0
-    slabs[:, 1] = layers[:, 1] * factor
-    slabs[:, 2] = layers[:, 2] * factor
-    slabs[:, 3] = layers[:, 3]
-
-    def _call(q: np.ndarray) -> np.ndarray:
-        return reflectivity(q, slabs, scale=1.0, bkg=0.0, dq=0.0, threads=1)
-
-    return _call
-
-
-def _try_pypxr_callable(
+def _try_pypxr_plugin_callable(
     layers: np.ndarray, tensor: np.ndarray, energy_ev: float
-) -> Callable[[np.ndarray], np.ndarray] | None:
+) -> Callable[[np.ndarray], object] | None:
+    """PyPXR-shaped refnx plugin uniaxial path (in-tree ``pxr.plugin``)."""
     try:
-        import pypxr  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    solve = getattr(pypxr, "uniaxial_reflectivity", None) or getattr(
-        pypxr, "reflectivity", None
-    )
-    if solve is None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from refloxide.pxr.plugin.model import reflectivity as plugin_reflectivity
+    except ImportError as exc:
+        print(f"PyPXR plugin unavailable: {exc}", flush=True)
         return None
 
-    def _call(q: np.ndarray) -> np.ndarray:
-        out = solve(q, layers, tensor, energy_ev)
-        if isinstance(out, tuple):
-            return np.asarray(out[0])
-        return np.asarray(out)
+    def _call(q: np.ndarray) -> object:
+        out = plugin_reflectivity(
+            q,
+            layers,
+            tensor,
+            energy=energy_ev,
+            dq=0.0,
+            backend="uni",
+            parallel=False,
+        )
+        if out is None:
+            msg = "pxr.plugin.reflectivity returned None"
+            raise RuntimeError(msg)
+        return out
 
     return _call
-
-
-def _try_python_tmm_callable(
-    layers: np.ndarray, tensor: np.ndarray, energy_ev: float
-) -> Callable[[np.ndarray], np.ndarray] | None:
-    try:
-        from refloxide.python.tmm import uniaxial_reflectivity as python_uniaxial
-    except ImportError:
-        return None
-
-    def _call(q: np.ndarray) -> np.ndarray:
-        refl, _tran, *_ = python_uniaxial(q, layers, tensor, energy_ev)
-        return np.asarray(refl)
-
-    return _call
-
-
-def _rss_mib() -> float:
-    usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    # Linux: KiB; macOS: bytes.
-    if platform.system() == "Darwin":
-        return usage / (1024.0 * 1024.0)
-    return usage / 1024.0
 
 
 def _measure(
@@ -203,29 +159,21 @@ def _measure(
     *,
     repeats: int,
     warmup: int,
-) -> tuple[float, float, float]:
+) -> tuple[float, float]:
     for _ in range(warmup):
         fn()
     samples: list[float] = []
     heaps: list[float] = []
-    rss_deltas: list[float] = []
     for _ in range(repeats):
-        rss_before = _rss_mib()
         tracemalloc.start()
         t0 = time.perf_counter()
         fn()
         elapsed = time.perf_counter() - t0
         _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-        rss_after = _rss_mib()
         samples.append(elapsed)
-        heaps.append(peak / 1024.0)
-        rss_deltas.append(max(0.0, rss_after - rss_before))
-    return (
-        statistics.median(samples),
-        statistics.median(heaps),
-        statistics.median(rss_deltas),
-    )
+        heaps.append(peak / (1024.0 * 1024.0))
+    return statistics.median(samples), statistics.median(heaps)
 
 
 def _gpu_probe(layers: np.ndarray, tensor: np.ndarray) -> tuple[bool, str]:
@@ -241,18 +189,108 @@ def _gpu_probe(layers: np.ndarray, tensor: np.ndarray) -> tuple[bool, str]:
     return True, "wgpu adapter present"
 
 
-def _skipped_row(
+BACKEND_RSS_KEY = {
+    BACKEND_SERIAL: "serial",
+    BACKEND_PARALLEL: "parallel",
+    BACKEND_GPU: "gpu",
+    BACKEND_PYPXR: "pypxr",
+}
+
+
+def _subprocess_rss_mib(
+    *,
+    backend_key: str,
+    n_film: int,
+    n_q: int,
+) -> float:
+    """Peak RSS of a fresh interpreter running one evaluation of ``backend_key``."""
+    code = _rss_worker_source(backend_key=backend_key, n_film=n_film, n_q=n_q)
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=str(Path(__file__).resolve().parents[1]),
+    )
+    if proc.returncode != 0:
+        err = proc.stderr[-400:] if proc.stderr else ""
+        print(f"RSS probe failed for {backend_key}: {err}", flush=True)
+        return float("nan")
+    try:
+        return float(proc.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return float("nan")
+
+
+def _rss_worker_source(*, backend_key: str, n_film: int, n_q: int) -> str:
+    return f"""
+import platform
+import resource
+import warnings
+
+import numpy as np
+
+ENERGY_EV = {ENERGY_EV!r}
+n_film = {n_film}
+n_q = {n_q}
+backend = {backend_key!r}
+
+def graded(n_film):
+    dz = 200.0 / max(n_film, 1)
+    n_total = n_film + 2
+    layers = np.zeros((n_total, 4), dtype=np.float64)
+    tensor = np.zeros((n_total, 3, 3), dtype=np.complex128)
+    for i in range(n_film):
+        frac = i / max(n_film - 1, 1)
+        delta_o = 1.8e-3 * (1.0 + 0.15 * frac)
+        beta_o = 1.0e-4 * (1.0 + 0.2 * frac)
+        delta_e = 2.2e-3 * (1.0 - 0.1 * frac)
+        beta_e = 1.2e-4 * (1.0 + 0.1 * frac)
+        row = i + 1
+        layers[row] = [dz, delta_o, beta_o, 2.0 if i == 0 else 0.0]
+        n_o = complex(delta_o, beta_o)
+        n_e = complex(delta_e, beta_e)
+        tensor[row, 0, 0] = n_o
+        tensor[row, 1, 1] = n_o
+        tensor[row, 2, 2] = n_e
+    layers[-1, 1:] = [5.97e-3, 4.25e-3, 0.5]
+    n_b = complex(5.97e-3, 4.25e-3)
+    tensor[-1, 0, 0] = tensor[-1, 1, 1] = tensor[-1, 2, 2] = n_b
+    return layers, tensor
+
+layers, tensor = graded(n_film)
+q = np.linspace(0.001, 0.25, n_q, dtype=np.float64)
+if backend == "serial":
+    from refloxide.tmm import uniaxial_reflectivity
+    uniaxial_reflectivity(q, layers, tensor, ENERGY_EV, parallel=False, device="cpu")
+elif backend == "parallel":
+    from refloxide.tmm import uniaxial_reflectivity
+    uniaxial_reflectivity(q, layers, tensor, ENERGY_EV, parallel=True, device="cpu")
+elif backend == "gpu":
+    from refloxide.tmm import uniaxial_reflectivity
+    uniaxial_reflectivity(q, layers, tensor, ENERGY_EV, parallel=False, device="gpu")
+elif backend == "pypxr":
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from refloxide.pxr.plugin.model import reflectivity
+    reflectivity(q, layers, tensor, energy=ENERGY_EV, dq=0.0, backend="uni", parallel=False)
+else:
+    raise SystemExit("unknown backend")
+rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+print(rss / (1024 * 1024) if platform.system() == "Darwin" else rss / 1024)
+"""
+
+
+def _skipped(
     backend: str, case: BenchCase, n_layers: int, notes: str
 ) -> BenchRow:
     return BenchRow(
         backend=backend,
         n_q=case.n_q,
-        n_layers=n_layers,
         n_film=case.n_film,
+        n_layers=n_layers,
         median_s=float("nan"),
-        peak_heap_kib=float("nan"),
-        rss_delta_mib=float("nan"),
-        points_per_s=float("nan"),
+        peak_heap_mib=float("nan"),
+        rss_mib=float("nan"),
         notes=notes,
     )
 
@@ -264,7 +302,6 @@ def run_case(
     warmup: int,
     gpu_ok: bool,
     gpu_note: str,
-    include_python_tmm: bool,
 ) -> list[BenchRow]:
     print(f"building stack n_film={case.n_film} n_q={case.n_q} ...", flush=True)
     layers, tensor = _graded_arrays(case.n_film)
@@ -272,104 +309,68 @@ def run_case(
     n_layers = int(layers.shape[0])
     rows: list[BenchRow] = []
 
-    def add(
-        backend: str,
-        fn: Callable[[], object],
-        *,
-        notes: str = "",
-    ) -> None:
+    def add(backend: str, fn: Callable[[], object], *, notes: str = "") -> None:
         print(f"  timing {backend} ...", flush=True)
-        median_s, peak_heap_kib, rss_delta_mib = _measure(
-            fn, repeats=repeats, warmup=warmup
+        median_s, peak_heap_mib = _measure(fn, repeats=repeats, warmup=warmup)
+        rss_key = BACKEND_RSS_KEY[backend]
+        print(f"  rss probe {backend} ...", flush=True)
+        rss_mib = _subprocess_rss_mib(
+            backend_key=rss_key, n_film=case.n_film, n_q=case.n_q
         )
         rows.append(
             BenchRow(
                 backend=backend,
                 n_q=case.n_q,
-                n_layers=n_layers,
                 n_film=case.n_film,
+                n_layers=n_layers,
                 median_s=median_s,
-                peak_heap_kib=peak_heap_kib,
-                rss_delta_mib=rss_delta_mib,
-                points_per_s=(case.n_q / median_s) if median_s > 0 else float("nan"),
+                peak_heap_mib=peak_heap_mib,
+                rss_mib=rss_mib,
                 notes=notes,
-            )
-        )
-
-    refnx_fn = _try_refnx_callable(layers, ENERGY_EV)
-    if refnx_fn is None:
-        rows.append(
-            _skipped_row(
-                "refnx Abeles (isotropic)",
-                case,
-                n_layers,
-                "skipped: refnx not installed (dev/plugin extra)",
-            )
-        )
-    else:
-        add(
-            "refnx Abeles (isotropic)",
-            lambda: refnx_fn(q),
-            notes="scalar Abeles 2x2 on isotropic twin; not polarized TMM",
-        )
-
-    pypxr_fn = _try_pypxr_callable(layers, tensor, ENERGY_EV)
-    if pypxr_fn is not None:
-        add("pypxr", lambda: pypxr_fn(q))
-    elif include_python_tmm or case.n_film <= PYTHON_TMM_MAX_FILM_DEFAULT:
-        pxr_fn = _try_python_tmm_callable(layers, tensor, ENERGY_EV)
-        if pxr_fn is None:
-            rows.append(
-                _skipped_row(
-                    "refloxide.python.tmm",
-                    case,
-                    n_layers,
-                    "skipped: pure-Python TMM unavailable",
-                )
-            )
-        else:
-            add(
-                "refloxide.python.tmm",
-                lambda: pxr_fn(q),
-                notes="pure-Python polarized TMM",
-            )
-    else:
-        rows.append(
-            _skipped_row(
-                "refloxide.python.tmm",
-                case,
-                n_layers,
-                f"skipped: n_film>{PYTHON_TMM_MAX_FILM_DEFAULT} "
-                "(pass --include-python-tmm)",
             )
         )
 
     from refloxide.tmm import uniaxial_reflectivity
 
     add(
-        "refloxide CPU parallel=False",
+        BACKEND_SERIAL,
         lambda: uniaxial_reflectivity(
             q, layers, tensor, ENERGY_EV, parallel=False, device="cpu"
         ),
     )
     add(
-        "refloxide CPU parallel=True",
+        BACKEND_PARALLEL,
         lambda: uniaxial_reflectivity(
             q, layers, tensor, ENERGY_EV, parallel=True, device="cpu"
         ),
     )
 
     if not gpu_ok:
-        rows.append(
-            _skipped_row("refloxide GPU", case, n_layers, f"skipped: {gpu_note}")
-        )
+        rows.append(_skipped(BACKEND_GPU, case, n_layers, f"skipped: {gpu_note}"))
     else:
         add(
-            "refloxide GPU",
+            BACKEND_GPU,
             lambda: uniaxial_reflectivity(
                 q, layers, tensor, ENERGY_EV, parallel=False, device="gpu"
             ),
             notes=gpu_note,
+        )
+
+    plugin_fn = _try_pypxr_plugin_callable(layers, tensor, ENERGY_EV)
+    if plugin_fn is None:
+        rows.append(
+            _skipped(
+                BACKEND_PYPXR,
+                case,
+                n_layers,
+                "skipped: install refnx via uv sync --group plugin",
+            )
+        )
+    else:
+        add(
+            BACKEND_PYPXR,
+            lambda: plugin_fn(q),
+            notes="pxr.plugin uniaxial (pure-Python TMM)",
         )
 
     return rows
@@ -377,37 +378,35 @@ def run_case(
 
 def _format_table(rows: list[BenchRow]) -> str:
     header = (
-        "| backend | n_film | n_q | n_layers | median_ms | heap_KiB |"
-        " rss_delta_MiB | points/s | notes |\n"
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
+        "| backend | n_film | n_q | n_layers | median_ms | heap_MiB |"
+        " rss_MiB | notes |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
     )
-    body = []
+    lines = []
     for r in rows:
-        median_ms = "n/a" if not np.isfinite(r.median_s) else f"{r.median_s * 1e3:.3f}"
-        heap = "n/a" if not np.isfinite(r.peak_heap_kib) else f"{r.peak_heap_kib:.1f}"
-        rss = "n/a" if not np.isfinite(r.rss_delta_mib) else f"{r.rss_delta_mib:.2f}"
-        thr = "n/a" if not np.isfinite(r.points_per_s) else f"{r.points_per_s:,.0f}"
-        body.append(
-            f"| {r.backend} | {r.n_film} | {r.n_q} | {r.n_layers} | {median_ms} |"
-            f" {heap} | {rss} | {thr} | {r.notes} |"
+        ms = "n/a" if not np.isfinite(r.median_s) else f"{r.median_s * 1e3:.3f}"
+        heap = "n/a" if not np.isfinite(r.peak_heap_mib) else f"{r.peak_heap_mib:.3f}"
+        rss = "n/a" if not np.isfinite(r.rss_mib) else f"{r.rss_mib:.1f}"
+        lines.append(
+            f"| {r.backend} | {r.n_film} | {r.n_q} | {r.n_layers} | {ms} |"
+            f" {heap} | {rss} | {r.notes} |"
         )
-    return header + "\n".join(body) + "\n"
+    return header + "\n".join(lines) + "\n"
 
 
 def _write_csv(path: Path, rows: list[BenchRow]) -> None:
-    fieldnames = [
+    fields = [
         "backend",
         "n_film",
         "n_q",
         "n_layers",
         "median_s",
-        "peak_heap_kib",
-        "rss_delta_mib",
-        "points_per_s",
+        "peak_heap_mib",
+        "rss_mib",
         "notes",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for r in rows:
             writer.writerow(
@@ -417,17 +416,16 @@ def _write_csv(path: Path, rows: list[BenchRow]) -> None:
                     "n_q": r.n_q,
                     "n_layers": r.n_layers,
                     "median_s": r.median_s,
-                    "peak_heap_kib": r.peak_heap_kib,
-                    "rss_delta_mib": r.rss_delta_mib,
-                    "points_per_s": r.points_per_s,
+                    "peak_heap_mib": r.peak_heap_mib,
+                    "rss_mib": r.rss_mib,
                     "notes": r.notes,
                 }
             )
 
 
-def _headline_rows(rows: list[BenchRow], n_film: int) -> list[BenchRow]:
-    selected = [r for r in rows if r.n_film == n_film and np.isfinite(r.median_s)]
+def _rows_for(rows: list[BenchRow], n_film: int) -> list[BenchRow]:
     order = {name: i for i, name in enumerate(BACKEND_ORDER)}
+    selected = [r for r in rows if r.n_film == n_film and np.isfinite(r.median_s)]
     return sorted(selected, key=lambda r: order.get(r.backend, 999))
 
 
@@ -441,140 +439,144 @@ def _style_axes(ax) -> None:
     ax.tick_params(colors="#374151")
 
 
+def _bar_panel(
+    ax,
+    panel_rows: list[BenchRow],
+    *,
+    values: list[float],
+    ylabel: str,
+    title: str,
+    fmt: str,
+) -> None:
+    _style_axes(ax)
+    labels = [BACKEND_SHORT[r.backend] for r in panel_rows]
+    colors = [BACKEND_COLORS[r.backend] for r in panel_rows]
+    x = np.arange(len(labels))
+    ax.bar(x, values, color=colors, width=0.72, zorder=2)
+    ax.set_xticks(x, labels, rotation=18, ha="right")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=10, color="#111827")
+    ymax = max(values) if values else 1.0
+    for xi, value in zip(x, values, strict=True):
+        ax.text(
+            xi,
+            value + 0.03 * ymax,
+            fmt.format(value),
+            ha="center",
+            va="bottom",
+            fontsize=7.5,
+            color="#374151",
+        )
+
+
 def write_plots(
     rows: list[BenchRow],
     *,
     out_dir: Path,
-    n_film: int,
     machine: str,
 ) -> list[Path]:
     import matplotlib.pyplot as plt
 
-    headline = _headline_rows(rows, n_film)
-    if not headline:
-        msg = f"no finite rows for n_film={n_film}"
-        raise RuntimeError(msg)
-
     out_dir.mkdir(parents=True, exist_ok=True)
-    labels = [r.backend.replace("refloxide ", "") for r in headline]
-    colors = [BACKEND_COLORS.get(r.backend, "#4b5563") for r in headline]
-    times_ms = [r.median_s * 1e3 for r in headline]
-    # Prefer RSS delta when nonzero; otherwise fall back to heap peak (MiB).
-    mem_mib = []
-    mem_label = "RSS delta (MiB)"
-    if any(r.rss_delta_mib > 0.05 for r in headline):
-        mem_mib = [r.rss_delta_mib for r in headline]
-    else:
-        mem_mib = [r.peak_heap_kib / 1024.0 for r in headline]
-        mem_label = "Peak Python heap (MiB)"
-
     written: list[Path] = []
 
-    def _annotate_bars(ax, values: list[float], fmt: str) -> None:
-        ymax = max(values) if values else 1.0
-        for xi, value in zip(x, values, strict=True):
-            ax.text(
-                xi,
-                value + 0.02 * ymax,
-                fmt.format(value),
-                ha="center",
-                va="bottom",
-                fontsize=8,
-                color="#374151",
-            )
+    fig, axes = plt.subplots(2, 2, figsize=(9.5, 6.8), layout="constrained")
+    for col, n_film in enumerate(HEADLINE_FILMS):
+        panel = _rows_for(rows, n_film)
+        if not panel:
+            axes[0, col].set_visible(False)
+            axes[1, col].set_visible(False)
+            continue
+        times_ms = [r.median_s * 1e3 for r in panel]
+        mem_mib = [
+            r.rss_mib if np.isfinite(r.rss_mib) else r.peak_heap_mib for r in panel
+        ]
+        slab_label = "1 uniaxial slab" if n_film == 1 else f"{n_film:,} uniaxial slabs"
+        _bar_panel(
+            axes[0, col],
+            panel,
+            values=times_ms,
+            ylabel="Median wall time (ms)",
+            title=f"Speed — {slab_label}",
+            fmt="{:.2f}",
+        )
+        _bar_panel(
+            axes[1, col],
+            panel,
+            values=mem_mib,
+            ylabel="Peak process RSS (MiB)",
+            title=f"Memory — {slab_label}",
+            fmt="{:.1f}",
+        )
 
-    fig, ax = plt.subplots(figsize=(7.2, 3.6), layout="constrained")
-    _style_axes(ax)
-    x = np.arange(len(labels))
-    ax.bar(x, times_ms, color=colors, width=0.72, zorder=2)
-    ax.set_xticks(x, labels, rotation=20, ha="right")
-    ax.set_ylabel("Median wall time (ms)")
-    ax.set_title(
-        f"Forward model at {n_film:,} film slabs / {headline[0].n_q} q-points",
+    fig.suptitle(
+        f"Uniaxial forward model ({DEFAULT_N_Q} q-points) — {machine}",
         fontsize=11,
         color="#111827",
     )
-    _annotate_bars(ax, times_ms, "{:.1f}")
-    ax.text(
-        0.99,
-        0.98,
-        machine,
-        transform=ax.transAxes,
-        ha="right",
-        va="top",
-        fontsize=7,
+    fig.text(
+        0.5,
+        0.01,
+        "PyPXR / refnx plugin = in-tree pxr.plugin uniaxial path "
+        "(pure-Python TMM). Memory is peak RSS in a fresh subprocess.",
+        ha="center",
+        fontsize=7.5,
         color="#6b7280",
     )
-    path_time = out_dir / "bench_wall_time.png"
-    fig.savefig(path_time, dpi=200, facecolor="white")
+    path = out_dir / "bench_uniaxial_grid.png"
+    fig.savefig(path, dpi=200, facecolor="white")
     plt.close(fig)
-    written.append(path_time)
+    written.append(path)
 
-    fig, ax = plt.subplots(figsize=(7.2, 3.6), layout="constrained")
-    _style_axes(ax)
-    ax.bar(x, mem_mib, color=colors, width=0.72, zorder=2)
-    ax.set_xticks(x, labels, rotation=20, ha="right")
-    ax.set_ylabel(mem_label)
-    ax.set_title(
-        f"Python-visible memory at {n_film:,} film slabs "
-        f"/ {headline[0].n_q} q-points",
-        fontsize=11,
-        color="#111827",
-    )
-    _annotate_bars(ax, mem_mib, "{:.3f}")
-    ax.text(
-        0.99,
-        0.02,
-        "tracemalloc; Rust/GPU buffers are outside this meter",
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=7,
-        color="#6b7280",
-    )
-    path_mem = out_dir / "bench_memory.png"
-    fig.savefig(path_mem, dpi=200, facecolor="white")
-    plt.close(fig)
-    written.append(path_mem)
-
-    scaling = [r for r in rows if r.backend == "refloxide CPU parallel=True"]
-    scaling = [r for r in scaling if np.isfinite(r.median_s)]
-    if len(scaling) >= 2:
-        scaling = sorted(scaling, key=lambda r: r.n_film)
-        fig, ax = plt.subplots(figsize=(7.2, 3.6), layout="constrained")
-        _style_axes(ax)
-        for backend, color in (
-            ("refnx Abeles (isotropic)", BACKEND_COLORS["refnx Abeles (isotropic)"]),
+    # Also emit the four single-metric panels used by the README layout.
+    for n_film, tag in ((1, "1slab"), (HEADLINE_FILMS[1], "10k")):
+        panel = _rows_for(rows, n_film)
+        if not panel:
+            continue
+        slab_label = "1 uniaxial slab" if n_film == 1 else f"{n_film:,} uniaxial slabs"
+        for kind, values, ylabel, fmt, fname in (
             (
-                "refloxide CPU parallel=True",
-                BACKEND_COLORS["refloxide CPU parallel=True"],
+                "speed",
+                [r.median_s * 1e3 for r in panel],
+                "Median wall time (ms)",
+                "{:.2f}",
+                f"bench_wall_time_{tag}.png",
             ),
-            ("refloxide GPU", BACKEND_COLORS["refloxide GPU"]),
+            (
+                "memory",
+                [
+                    r.rss_mib if np.isfinite(r.rss_mib) else r.peak_heap_mib
+                    for r in panel
+                ],
+                "Peak process RSS (MiB)",
+                "{:.1f}",
+                f"bench_memory_{tag}.png",
+            ),
         ):
-            series = sorted(
-                [r for r in rows if r.backend == backend and np.isfinite(r.median_s)],
-                key=lambda r: r.n_film,
+            _ = kind
+            fig, ax = plt.subplots(figsize=(6.4, 3.4), layout="constrained")
+            _bar_panel(
+                ax,
+                panel,
+                values=values,
+                ylabel=ylabel,
+                title=f"{ylabel.split('(')[0].strip()} — {slab_label}",
+                fmt=fmt,
             )
-            if not series:
-                continue
-            ax.plot(
-                [r.n_film for r in series],
-                [r.median_s * 1e3 for r in series],
-                marker="o",
-                color=color,
-                label=backend.replace("refloxide ", ""),
-                linewidth=1.8,
+            ax.text(
+                0.99,
+                0.98,
+                machine,
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+                color="#6b7280",
             )
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("Film microslabs")
-        ax.set_ylabel("Median wall time (ms)")
-        ax.set_title("Scaling with stack depth", fontsize=11, color="#111827")
-        ax.legend(frameon=False, fontsize=8)
-        path_scale = out_dir / "bench_scaling.png"
-        fig.savefig(path_scale, dpi=200, facecolor="white")
-        plt.close(fig)
-        written.append(path_scale)
+            out = out_dir / fname
+            fig.savefig(out, dpi=200, facecolor="white")
+            plt.close(fig)
+            written.append(out)
 
     return written
 
@@ -583,37 +585,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument(
-        "--n-q",
-        type=int,
-        default=DEFAULT_N_Q,
-        help="q-grid length for each case",
-    )
+    parser.add_argument("--n-q", type=int, default=DEFAULT_N_Q)
     parser.add_argument(
         "--sizes",
         nargs="*",
         default=None,
-        help=(
-            "Optional n_q:n_film overrides. Default is a short scaling sweep "
-            f"ending at the headline {HEADLINE_N_FILM} slabs."
-        ),
+        help="Optional n_q:n_film overrides (default: 1 and 10000 film slabs)",
     )
-    parser.add_argument(
-        "--include-python-tmm",
-        action="store_true",
-        help="Time pure-Python TMM even for large n_film",
-    )
-    parser.add_argument(
-        "--plot",
-        action="store_true",
-        help="Write PNG figures into docs/assets/performance/",
-    )
-    parser.add_argument(
-        "--assets-dir",
-        type=Path,
-        default=ASSETS_DIR,
-        help="Directory for committed README/docs plot assets",
-    )
+    parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--assets-dir", type=Path, default=ASSETS_DIR)
     args = parser.parse_args()
 
     if args.sizes:
@@ -623,40 +603,38 @@ def main() -> None:
             for a, b in [size.split(":", 1)]
         ]
     else:
-        n_q = args.n_q
-        cases = [
-            BenchCase(n_q=n_q, n_film=100),
-            BenchCase(n_q=n_q, n_film=1_000),
-            BenchCase(n_q=n_q, n_film=HEADLINE_N_FILM),
-        ]
+        cases = [BenchCase(n_q=args.n_q, n_film=n) for n in HEADLINE_FILMS]
 
-    probe_layers, probe_tensor = _graded_arrays(4)
+    probe_layers, probe_tensor = _graded_arrays(1)
     gpu_ok, gpu_note = _gpu_probe(probe_layers, probe_tensor)
 
     all_rows: list[BenchRow] = []
     for case in cases:
+        # Fewer repeats for the expensive pure-Python 10k path.
+        repeats = args.repeats
+        if case.n_film >= 10_000:
+            repeats = min(repeats, 3)
         all_rows.extend(
             run_case(
                 case,
-                repeats=args.repeats,
+                repeats=repeats,
                 warmup=args.warmup,
                 gpu_ok=gpu_ok,
                 gpu_note=gpu_note,
-                include_python_tmm=args.include_python_tmm,
             )
         )
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    table = _format_table(all_rows)
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     cpu = platform.processor() or "cpu"
     machine = f"{platform.system()} {platform.machine()} / {cpu}"
+    table = _format_table(all_rows)
     report = (
-        f"# GPU backend bench results\n\n"
+        f"# Uniaxial backend bench\n\n"
         f"- generated: `{stamp}`\n"
         f"- machine: `{machine}`\n"
         f"- energy_ev: `{ENERGY_EV}`\n"
-        f"- headline n_film: `{HEADLINE_N_FILM}`\n"
+        f"- n_q: `{args.n_q if not args.sizes else 'mixed'}`\n"
         f"- repeats/warmup: `{args.repeats}` / `{args.warmup}`\n"
         f"- gpu: `{gpu_note}`\n\n"
         f"{table}"
@@ -670,22 +648,16 @@ def main() -> None:
     print(f"Wrote {csv_path}")
 
     if args.plot:
-        written = write_plots(
-            all_rows,
-            out_dir=args.assets_dir,
-            n_film=HEADLINE_N_FILM,
-            machine=machine,
-        )
-        # Also copy CSV next to assets for CI/README provenance.
-        assets_csv = args.assets_dir / "gpu_backend_bench_results.csv"
+        written = write_plots(all_rows, out_dir=args.assets_dir, machine=machine)
         args.assets_dir.mkdir(parents=True, exist_ok=True)
-        assets_csv.write_text(csv_path.read_text(encoding="utf-8"), encoding="utf-8")
-        assets_md = args.assets_dir / "gpu_backend_bench_results.md"
-        assets_md.write_text(report, encoding="utf-8")
+        (args.assets_dir / "gpu_backend_bench_results.csv").write_text(
+            csv_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        (args.assets_dir / "gpu_backend_bench_results.md").write_text(
+            report, encoding="utf-8"
+        )
         for path in written:
             print(f"Wrote {path}")
-        print(f"Wrote {assets_csv}")
-        print(f"Wrote {assets_md}")
 
 
 if __name__ == "__main__":

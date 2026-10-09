@@ -7,49 +7,62 @@ polarized neutron work where scalar codes fall short. It ships a Rust core
 (optional wgpu GPU path), thin Python bindings, and opt-in modeling /
 objective layers.
 
-Related baselines (different physics scopes):
+Related baselines:
 
-- [refnx](https://github.com/refnx/refnx) — excellent scalar Abeles / Parratt;
-  not a tensor / polarized-anisotropy engine.
+- [refnx](https://github.com/refnx/refnx) — scalar Abeles / Parratt and the
+  host for the historical **PyPXR** polarized plugin API (vendored in-tree as
+  `refloxide.pxr.plugin`).
 - [refl1d](https://github.com/reflectometry/refl1d) — strong for scalar
   stacks; awkward for general dielectric tensors.
 
 ## Performance
 
-Headline forward-model cost at **10,000 film microslabs** and 256 q-points
-(median wall time and memory). Regenerate with:
+Same **uniaxial** stack, four backends:
+
+| Label | What runs |
+| --- | --- |
+| CPU serial | `refloxide` Rust kernel, `parallel=False` |
+| CPU parallel | `refloxide` Rust kernel, `parallel=True` |
+| GPU | `refloxide` wgpu recursion (`device="gpu"`) |
+| PyPXR plugin | in-tree `pxr.plugin` uniaxial path (pure-Python TMM; the refnx-plugin shape) |
+
+Headline sizes: **1 uniaxial film slab** and **10,000 uniaxial film slabs**
+(plus vacuum / substrate), 256 q-points. Metrics: median wall time and peak
+process RSS (fresh subprocess per backend).
 
 ```bash
-uv sync --group dev
+uv sync --group dev --group plugin
 uv run python examples/gpu_backend_bench.py --plot
 ```
 
-CI also runs this benchmark on Ubuntu and macOS and uploads CSV / PNG
-artifacts (GPU rows appear only when a wgpu adapter is available).
+CI runs the same script on Ubuntu and macOS and uploads artifacts (GPU rows
+only when a wgpu adapter is present).
 
-![Wall time at 10k film slabs](docs/assets/performance/bench_wall_time.png)
+### 1 uniaxial slab
 
-![Memory at 10k film slabs](docs/assets/performance/bench_memory.png)
+![Wall time — 1 slab](docs/assets/performance/bench_wall_time_1slab.png)
 
-![Scaling with stack depth](docs/assets/performance/bench_scaling.png)
+![Memory — 1 slab](docs/assets/performance/bench_memory_1slab.png)
 
-Notes on reading the plots:
+### 10,000 uniaxial slabs
 
-- **refnx Abeles** is scalar isotropic **2x2** Abeles/Parratt. It does less
-  work per layer than polarized uniaxial recursion, so it can beat
-  **refloxide CPU** on wall time even at 10k slabs. That is algorithm cost,
-  not a regression — compare it as a cheap isotropic floor.
-- **refloxide CPU / GPU** solve the uniaxial-z recursion (polarized
-  diagonals). On Apple Silicon here, GPU is ~13x faster than parallel CPU
-  and ~9x faster than Abeles at 10k slabs.
-- **Memory** bars are peak **Python** heap (`tracemalloc`). Rust and GPU
-  device buffers sit outside that meter, which is why the native kernels
-  look near-zero while Abeles still allocates NumPy-side temporaries.
-- **GPU** needs a wgpu adapter (Metal / Vulkan / DX12). Transmission is not
-  computed on GPU; see [GPU guide](docs/guides/gpu.md).
-- `refnx` is only required for the optional Abeles row and for fitting
-  helpers (`dev` / `plugin` extras) — not for installing or importing the
-  core package.
+![Wall time — 10k slabs](docs/assets/performance/bench_wall_time_10k.png)
+
+![Memory — 10k slabs](docs/assets/performance/bench_memory_10k.png)
+
+Combined grid (also written by the bench):
+
+![Uniaxial speed and memory grid](docs/assets/performance/bench_uniaxial_grid.png)
+
+Notes:
+
+- This is an **apples-to-apples uniaxial** comparison. Scalar Abeles is
+  deliberately not plotted here — it solves a cheaper problem.
+- Memory bars are peak process RSS in a fresh interpreter (includes NumPy
+  inputs, Rust working set, and Python temporaries on the plugin path).
+- `refnx` is a **dev/plugin** extra (needed to import the plugin path), not a
+  core runtime dependency of the Rust kernels. See
+  [GPU guide](docs/guides/gpu.md).
 
 ## Installation
 
@@ -84,7 +97,7 @@ refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, device="cpu")
 ```bash
 git clone https://github.com/ALS-RSOXS/refloxide.git
 cd refloxide
-make install
+make develop   # uv sync --group dev --group plugin + maturin develop --release
 ```
 
 ### Tests and checks
@@ -92,11 +105,6 @@ make install
 ```bash
 make test
 make verify
-```
-
-GPU precision tests skip when no adapter is present:
-
-```bash
 uv run pytest tests/test_gpu_precision.py -q
 ```
 

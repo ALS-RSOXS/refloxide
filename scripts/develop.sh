@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 uv python install 3.13
-uv sync --group dev
+# dev: tooling + refnx for tests/benches; plugin: polarized modeling extras
+uv sync --group dev --group plugin
 
 UV_NO_CONFIG=1 uv run maturin develop --release
 
