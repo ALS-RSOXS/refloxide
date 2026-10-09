@@ -17,10 +17,14 @@ from refloxide.rust import (
     bookended_uniaxial_reflectivity,
     uniaxial_reflectivity,
     uniaxial_reflectivity_batch,
+    uniaxial_reflectivity_points,
+    uniaxial_reflectivity_points_jvp,
 )
 
 __all__ = [
     "bookended_uniaxial_reflectivity",
     "uniaxial_reflectivity",
     "uniaxial_reflectivity_batch",
+    "uniaxial_reflectivity_points",
+    "uniaxial_reflectivity_points_jvp",
 ]

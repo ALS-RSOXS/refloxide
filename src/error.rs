@@ -47,6 +47,10 @@ pub enum RefloxideError {
     /// An input array did not have the expected shape at the FFI boundary.
     #[error("invalid input shape: {0}")]
     InvalidShape(String),
+
+    /// The GPU backend could not acquire a device or failed during dispatch.
+    #[error("gpu backend error: {0}")]
+    Gpu(String),
 }
 
 /// Convenience alias used throughout the crate.
@@ -62,7 +66,7 @@ impl From<RefloxideError> for pyo3::PyErr {
             | RefloxideError::InvalidEnergy(_) => {
                 pyo3::exceptions::PyValueError::new_err(err.to_string())
             }
-            RefloxideError::SingularDynamicMatrix { .. } => {
+            RefloxideError::SingularDynamicMatrix { .. } | RefloxideError::Gpu(_) => {
                 pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
             }
         }

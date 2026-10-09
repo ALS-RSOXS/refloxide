@@ -61,24 +61,26 @@ plugin = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/HarlanHeilman/refloxide"
-Documentation = "https://HarlanHeilman.github.io/refloxide"
-Repository = "https://github.com/HarlanHeilman/refloxide"
-Issues = "https://github.com/HarlanHeilman/refloxide/issues"
-Changelog = "https://github.com/HarlanHeilman/refloxide/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ALS-RSOXS/refloxide"
+Documentation = "https://ALS-RSOXS.github.io/refloxide"
+Repository = "https://github.com/ALS-RSOXS/refloxide"
+Issues = "https://github.com/ALS-RSOXS/refloxide/issues"
+Changelog = "https://github.com/ALS-RSOXS/refloxide/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 python-source = "src"
 module-name = "refloxide.rust"
-features = ["python"]
+features = ["python", "gpu"]
 compatibility = "pypi"
 
 [tool.uv]
 override-dependencies = [
     # mkdocs-rsoxs pulls an older GitPython; force the patched floor.
     "gitpython>=3.1.59",
-    # mkdocs / jupyter stack pull tornado; force the form-parse DoS floor.
-    "tornado>=6.5.8",
+    # jupyter / httpx stacks pull anyio; force TLS/IDNA + stderr-drain floors.
+    "anyio>=4.14.2",
+    # mkdocs / jupyter stack pull tornado; force curl-client + StaticFile floors.
+    "tornado>=6.5.9",
     # marimo still declares pymdown-extensions<11; override past that for GHSA-9xwg.
     "pymdown-extensions>=11.0.0",
 ]

@@ -192,3 +192,64 @@ def test_energies_sharing_one_q_grid_collapse_to_one_kernel_batch():
 
     objective = Objective(model, data)
     np.testing.assert_allclose(objective._predicted(), data.r, rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize("anisotropy", [False, True])
+def test_nll_and_grad_matches_central_difference_of_nll(anisotropy):
+    """Exception #2: kernel JVP + host chain rule vs finite differences of nll."""
+    structure = _si_on_si_structure()
+    model = ReflectModel(structure, energies=[700.0, 705.0])
+    model.theta_offset_s.at(700.0).value = 0.02
+    rng = np.random.default_rng(3)
+    rows = {k: [] for k in ("q", "energy", "pol", "r", "r_err")}
+    for energy in (700.0, 705.0):
+        for pol in ("s", "p"):
+            q = np.sort(rng.uniform(0.02, 0.2, 25))
+            truth = getattr(model(q, energy), pol)
+            rows["q"].append(q)
+            rows["energy"].append(np.full(q.shape, energy))
+            rows["pol"].append(np.full(q.shape, pol, dtype=object))
+            rows["r"].append(truth * (1 + rng.normal(0, 0.02, q.shape)))
+            rows["r_err"].append(0.02 * truth)
+    data = ReflectDataset(**{k: np.concatenate(v) for k, v in rows.items()})
+    extra = {}
+    if anisotropy:
+        q_a = np.linspace(0.03, 0.18, 20)
+        targets = {}
+        for energy in (700.0, 705.0):
+            r = model(q_a, energy)
+            targets[energy] = (q_a, (r.p - r.s) / (r.p + r.s) + rng.normal(0, 0.01, 20))
+        extra = {
+            "anisotropy_weight": 0.5,
+            "anisotropy_targets": targets,
+            "normalization": "energy",
+        }
+    objective = Objective(model, data, transform=Transform("logY"), **extra)
+    for p in objective.parameters.flattened():
+        p.vary = False
+    film = structure[1]
+    varied = [
+        (film.thick, (40.0, 60.0), 51.0),
+        (film.rough, (0.0, 5.0), 2.3),
+        (film.sld.density, (1.5, 3.0), 2.25),
+        (model.corrections.q_offset, (-0.01, 0.01), 4e-4),
+        (model.corrections.energy_offset, (-1.0, 1.0), 0.3),
+        (model.scale_p.at(705.0), (0.5, 1.5), 1.02),
+        (model.bkg.at(700.0), (-1e-6, 1e-6), 3e-8),
+        (model.theta_offset_s.at(700.0), (-0.1, 0.1), 0.01),
+    ]
+    for p, bounds, value in varied:
+        p.setp(value, vary=True, bounds=bounds)
+    objective.refresh_parameters()
+    x = np.array(objective.varying_parameters())
+
+    value, grad = objective.nll_and_grad(x)
+    assert value == pytest.approx(objective.nll(x), rel=1e-10)
+    spans = [p.bounds.ub - p.bounds.lb for p in objective.varying_parameters()]
+    for k in range(len(x)):
+        h = 1e-5 * spans[k]
+        xp, xm = x.copy(), x.copy()
+        xp[k] += h
+        xm[k] -= h
+        fd = (objective.nll(xp) - objective.nll(xm)) / (2 * h)
+        assert grad[k] == pytest.approx(fd, rel=2e-5)

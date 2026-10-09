@@ -274,8 +274,9 @@ class BookendedOrientationProfile(Component):
         """
         total_thick = float(self.total_thick.value or 0.0)
         key = (total_thick, self.num_slabs, self.mesh_constant)
-        cached = self._mesh_cache_thick
-        if self._mesh_cache_key != key or cached is None:
+        # Older pickles / Component reduce paths may omit these private attrs.
+        cached = getattr(self, "_mesh_cache_thick", None)
+        if getattr(self, "_mesh_cache_key", None) != key or cached is None:
             cached = adaptive_microslab_thicknesses(
                 total_thick, self.num_slabs, self.mesh_constant
             )

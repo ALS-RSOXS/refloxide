@@ -3,18 +3,16 @@
 //! Port of `refloxide.pxr.tjf4x4.uniaxial_reflectivity`. The implementation
 //! is streaming, holding only the previous-layer `(kz, Di)` snapshot across
 //! iterations of the transfer chain, and parallel across q-points via
-//! [`rayon`]. The closed form `kz` and `(D, H)` polarization eigenvectors
-//! for uniaxial-z with optic axis along `z` are written directly to avoid an
-//! eigensolve per layer.
+//! [`rayon`]. This module validates inputs and packs tensors into
+//! [`LayerCoeffs`]; the per-q transfer chain itself lives in
+//! [`crate::kernel`].
 
-use nalgebra::{Matrix3, Matrix4, Vector3};
+use nalgebra::Matrix3;
 use num_complex::Complex;
 use rayon::prelude::*;
 
-use crate::c4x4;
-use crate::c4x4::Mat4;
 use crate::error::{RefloxideError, Result};
-use crate::math::exact_inv_4x4;
+use crate::kernel::{self, LayerCoeffs};
 
 /// Complex alias used throughout the kernel.
 type C = Complex<f64>;
@@ -83,38 +81,6 @@ pub struct UniaxialBatchOutput {
     pub tran: Vec<Vec<[[C; 2]; 2]>>,
 }
 
-/// Snapshot of per-layer state retained across the streaming chain.
-#[derive(Debug, Clone, Copy)]
-struct LayerSnapshot {
-    /// Mode-ordered z-component wavevectors: `[extraord+, extraord-, ord+, ord-]`.
-    kz: [C; 4],
-    /// Inverse dynamic matrix for the layer.
-    di: Mat4,
-}
-
-/// Reusable scratch for one q-point solve (avoids per-slab allocations).
-struct QScratch {
-    m: Mat4,
-    tmp: Mat4,
-    kernel: Mat4,
-    w: Mat4,
-    d: Mat4,
-    p_diag: [C; 4],
-}
-
-impl QScratch {
-    fn new() -> Self {
-        Self {
-            m: c4x4::identity(),
-            tmp: c4x4::identity(),
-            kernel: c4x4::identity(),
-            w: c4x4::identity(),
-            d: c4x4::identity(),
-            p_diag: [C::new(0.0, 0.0); 4],
-        }
-    }
-}
-
 /// Computes polarized reflectance and transmission for a uniaxial multilayer.
 ///
 /// # Parameters
@@ -157,9 +123,9 @@ pub fn uniaxial_reflectivity(
     let wl = HC_EV_ANGSTROM / energy_ev;
     let k0 = 2.0 * std::f64::consts::PI / wl;
 
-    let eps: Vec<Matrix3<C>> = tensor.iter().map(berreman_dielectric).collect();
+    let coeffs = layer_coeffs(layers, tensor);
 
-    let solve = |(i, qi): (usize, f64)| solve_q(qi, layers, &eps, k0).map_err(|e| annotate(e, i));
+    let solve = |(i, qi): (usize, f64)| solve_q(qi, &coeffs, k0).map_err(|e| annotate(e, i));
     let solved: Vec<PolBlock> = if parallel {
         q.par_iter()
             .copied()
@@ -184,6 +150,49 @@ pub fn uniaxial_reflectivity(
     Ok(UniaxialOutput { refl, tran })
 }
 
+/// Polarized reflectance only, for callers that discard transmission.
+///
+/// Same inputs, validation, and `(0, 0) = R_pp`, `(1, 1) = R_ss` packing as
+/// [`uniaxial_reflectivity`], evaluated with the decoupled uniaxial-z
+/// recursion ([`crate::kernel::solve_point_recursive`]). In this scope the
+/// recursion equals the 4x4 chain in exact arithmetic and is more accurate
+/// in floating point (about `1e-14` relative against a 50-digit reference,
+/// versus `1e-11` for the transfer-matrix product), stable for thick
+/// absorbing films, and several times faster. Cross-polarized entries are
+/// exactly zero.
+///
+/// # Errors
+/// Shape and energy errors as for [`uniaxial_reflectivity`]; the
+/// recursion has no singular dynamic matrix.
+pub fn uniaxial_reflectance(
+    q: &[f64],
+    layers: &[Layer],
+    tensor: &[Matrix3<C>],
+    energy_ev: f64,
+    parallel: bool,
+) -> Result<Vec<[[f64; 2]; 2]>> {
+    if layers.len() != tensor.len() {
+        return Err(RefloxideError::LayerCountMismatch {
+            layers: layers.len(),
+            tensor: tensor.len(),
+        });
+    }
+    if layers.len() < 2 {
+        return Err(RefloxideError::InsufficientLayers(layers.len()));
+    }
+    if !energy_ev.is_finite() || energy_ev <= 0.0 {
+        return Err(RefloxideError::InvalidEnergy(energy_ev));
+    }
+    let k0 = wavenumber(energy_ev);
+    let coeffs = layer_coeffs(layers, tensor);
+    let solve = |&qi: &f64| kernel::solve_point_recursive(qi, k0, &coeffs);
+    Ok(if parallel {
+        q.par_iter().map(solve).collect()
+    } else {
+        q.iter().map(solve).collect()
+    })
+}
+
 /// Computes polarized reflectance for many energies sharing one q-grid.
 ///
 /// # Parameters
@@ -203,49 +212,22 @@ pub fn uniaxial_reflectivity_batch(
     energies_ev: &[f64],
     parallel: bool,
 ) -> Result<UniaxialBatchOutput> {
+    validate_batch(layers, tensor, energies_ev)?;
     let n_e = energies_ev.len();
-    if layers.len() != n_e || tensor.len() != n_e {
-        return Err(RefloxideError::InvalidShape(format!(
-            "layers and tensor batch length must match energies_ev ({n_e}), got layers={}, tensor={}",
-            layers.len(),
-            tensor.len()
-        )));
-    }
-    if n_e == 0 {
-        return Err(RefloxideError::InvalidShape(
-            "uniaxial_reflectivity_batch requires at least one energy".into(),
-        ));
-    }
-    for (ei, energy_ev) in energies_ev.iter().enumerate() {
-        if !energy_ev.is_finite() || *energy_ev <= 0.0 {
-            return Err(RefloxideError::InvalidEnergy(*energy_ev));
-        }
-        if layers[ei].len() != tensor[ei].len() {
-            return Err(RefloxideError::LayerCountMismatch {
-                layers: layers[ei].len(),
-                tensor: tensor[ei].len(),
-            });
-        }
-        if layers[ei].len() < 2 {
-            return Err(RefloxideError::InsufficientLayers(layers[ei].len()));
-        }
-    }
 
-    let eps: Vec<Vec<Matrix3<C>>> = tensor
+    let coeffs: Vec<Vec<LayerCoeffs<f64>>> = layers
         .iter()
-        .map(|stack| stack.iter().map(berreman_dielectric).collect())
+        .zip(tensor)
+        .map(|(l, t)| layer_coeffs(l, t))
         .collect();
-    let k0: Vec<f64> = energies_ev
-        .iter()
-        .map(|&energy_ev| 2.0 * std::f64::consts::PI / (HC_EV_ANGSTROM / energy_ev))
-        .collect();
+    let k0: Vec<f64> = energies_ev.iter().map(|&e| wavenumber(e)).collect();
 
     let pairs: Vec<(usize, usize)> = (0..n_e)
         .flat_map(|ei| (0..q.len()).map(move |qi| (ei, qi)))
         .collect();
 
     let solve = |(ei, qi): (usize, usize)| {
-        let result = solve_q(q[qi], &layers[ei], &eps[ei], k0[ei]);
+        let result = solve_q(q[qi], &coeffs[ei], k0[ei]);
         result.map_err(|err| annotate_batch(err, ei, qi))
     };
 
@@ -275,6 +257,220 @@ pub fn uniaxial_reflectivity_batch(
     Ok(UniaxialBatchOutput { refl, tran })
 }
 
+/// Polarized reflectance and transmission for independent `(q, stack)` points.
+///
+/// Generalizes [`uniaxial_reflectivity_batch`] to ragged q-grids: point `i`
+/// is evaluated at `q[i]` against stack `stack_of[i]`, whose layers, tensors,
+/// and photon energy are `layers[s]`, `tensor[s]`, and `energies_ev[s]`.
+/// Typical use is one stack per photon energy with each energy's measured
+/// q-grid (and per-polarization theta offsets) concatenated into `q`.
+///
+/// # Parameters
+/// - `q`: scattering vector per point in `1/Angstrom`.
+/// - `stack_of`: stack index per point, same length as `q`.
+/// - `layers`, `tensor`, `energies_ev`: per-stack inputs as in
+///   [`uniaxial_reflectivity_batch`].
+/// - `parallel`: distribute points across rayon when true.
+///
+/// # Returns
+/// [`UniaxialOutput`] with one entry per point, in input order.
+///
+/// # Errors
+/// Same contract as [`uniaxial_reflectivity_batch`], plus
+/// [`RefloxideError::InvalidShape`] for a length mismatch or out-of-range
+/// stack index; singularity errors report the stack as `energy_index` and
+/// the point as `q_index`.
+pub fn uniaxial_reflectivity_points(
+    q: &[f64],
+    stack_of: &[usize],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+    parallel: bool,
+) -> Result<UniaxialOutput> {
+    validate_points(q, stack_of, layers, tensor, energies_ev)?;
+    let coeffs: Vec<Vec<LayerCoeffs<f64>>> = layers
+        .iter()
+        .zip(tensor)
+        .map(|(l, t)| layer_coeffs(l, t))
+        .collect();
+    let k0: Vec<f64> = energies_ev.iter().map(|&e| wavenumber(e)).collect();
+    let solve = |i: usize| {
+        let si = stack_of[i];
+        solve_q(q[i], &coeffs[si], k0[si]).map_err(|err| annotate_batch(err, si, i))
+    };
+    let solved: Vec<PolBlock> = if parallel {
+        (0..q.len())
+            .into_par_iter()
+            .map(solve)
+            .collect::<Result<_>>()?
+    } else {
+        (0..q.len()).map(solve).collect::<Result<_>>()?
+    };
+    let (refl, tran) = solved.into_iter().unzip();
+    Ok(UniaxialOutput { refl, tran })
+}
+
+/// Reflectance and Jacobian-vector products for `(q, stack)` points.
+#[derive(Debug, Clone)]
+pub struct PointsJvpOutput {
+    /// `[R_pp, R_ss]` per point, length `n_points`.
+    pub refl: Vec<[f64; 2]>,
+    /// Row-major `(n_dirs, n_points)` derivatives `[dR_pp, dR_ss]`.
+    pub jac: Vec<[f64; 2]>,
+}
+
+/// Direction-major tangent inputs for [`uniaxial_reflectivity_points_jvp`].
+#[derive(Debug, Clone)]
+pub struct PointsTangents {
+    /// `(n_dirs, n_points)` tangent of `q`.
+    pub dq: Vec<Vec<f64>>,
+    /// `(n_dirs, n_stacks, n_layers)` tangent of the slab rows.
+    pub dlayers: Vec<Vec<Vec<Layer>>>,
+    /// `(n_dirs, n_stacks, n_layers)` tangent of the dispersion tensors.
+    pub dtensor: Vec<Vec<Vec<Matrix3<C>>>>,
+}
+
+/// Reflectance and directional derivatives for independent `(q, stack)` points.
+///
+/// Evaluates the decoupled uniaxial-z recursion (equal to the 4x4 kernel in
+/// this scope) with forward-mode derivatives, see
+/// [`crate::kernel::solve_point_recursive_jvp`]. Direction `k` moves `q` by
+/// `tangents.dq[k]` and the stack inputs by `tangents.dlayers[k]` /
+/// `tangents.dtensor[k]`; tangents enter through the same linear packing as
+/// the values, so any parameterization whose host-side Jacobian is known
+/// (analytically or by finite differences of the `f64` materialization)
+/// maps onto exact kernel derivatives.
+///
+/// # Parameters
+/// - `q`, `stack_of`, `layers`, `tensor`, `energies_ev`: as in
+///   [`uniaxial_reflectivity_points`].
+/// - `tangents`: per-direction tangents with matching shapes.
+/// - `parallel`: distribute `(direction, point)` pairs across rayon.
+///
+/// # Errors
+/// Shape and energy errors as for [`uniaxial_reflectivity_points`], plus
+/// [`RefloxideError::InvalidShape`] for tangent shape mismatches.
+pub fn uniaxial_reflectivity_points_jvp(
+    q: &[f64],
+    stack_of: &[usize],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+    tangents: &PointsTangents,
+    parallel: bool,
+) -> Result<PointsJvpOutput> {
+    let (coeffs, dcoeffs) = jvp_coeffs(q, stack_of, layers, tensor, energies_ev, tangents)?;
+    let k0: Vec<f64> = energies_ev.iter().map(|&e| wavenumber(e)).collect();
+    let n_points = q.len();
+    let n_dirs = tangents.dq.len();
+    let solve = |idx: usize| {
+        let (dir, i) = (idx / n_points, idx % n_points);
+        let si = stack_of[i];
+        crate::kernel::solve_point_recursive_jvp(
+            q[i],
+            tangents.dq[dir][i],
+            k0[si],
+            &coeffs[si],
+            &dcoeffs[dir][si],
+        )
+    };
+    let total = n_dirs * n_points;
+    let solved: Vec<([f64; 2], [f64; 2])> = if parallel {
+        (0..total).into_par_iter().map(solve).collect()
+    } else {
+        (0..total).map(solve).collect()
+    };
+    let refl = if n_dirs == 0 {
+        (0..n_points)
+            .map(|i| {
+                let r = crate::kernel::solve_point_recursive(
+                    q[i],
+                    k0[stack_of[i]],
+                    &coeffs[stack_of[i]],
+                );
+                [r[0][0], r[1][1]]
+            })
+            .collect()
+    } else {
+        solved[..n_points].iter().map(|(r, _)| *r).collect()
+    };
+    Ok(PointsJvpOutput {
+        refl,
+        jac: solved.into_iter().map(|(_, d)| d).collect(),
+    })
+}
+
+/// Validated value and tangent layer records for the JVP entry points.
+#[allow(clippy::type_complexity)]
+pub(crate) fn jvp_coeffs(
+    q: &[f64],
+    stack_of: &[usize],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+    tangents: &PointsTangents,
+) -> Result<(Vec<Vec<LayerCoeffs<f64>>>, Vec<Vec<Vec<LayerCoeffs<f64>>>>)> {
+    validate_points(q, stack_of, layers, tensor, energies_ev)?;
+    let n_dirs = tangents.dq.len();
+    let shape_err =
+        |what: &str| RefloxideError::InvalidShape(format!("tangent {what} shape mismatch"));
+    if tangents.dlayers.len() != n_dirs || tangents.dtensor.len() != n_dirs {
+        return Err(shape_err("direction count"));
+    }
+    for dir in 0..n_dirs {
+        if tangents.dq[dir].len() != q.len() {
+            return Err(shape_err("dq"));
+        }
+        let (dl, dt) = (&tangents.dlayers[dir], &tangents.dtensor[dir]);
+        if dl.len() != layers.len() || dt.len() != layers.len() {
+            return Err(shape_err("stack count"));
+        }
+        for si in 0..layers.len() {
+            if dl[si].len() != layers[si].len() || dt[si].len() != layers[si].len() {
+                return Err(shape_err("layer count"));
+            }
+        }
+    }
+    let coeffs = layers
+        .iter()
+        .zip(tensor)
+        .map(|(l, t)| layer_coeffs(l, t))
+        .collect();
+    let dcoeffs = tangents
+        .dlayers
+        .iter()
+        .zip(&tangents.dtensor)
+        .map(|(dl, dt)| dl.iter().zip(dt).map(|(l, t)| layer_coeffs(l, t)).collect())
+        .collect();
+    Ok((coeffs, dcoeffs))
+}
+
+/// Checks shared by the CPU and GPU point entry points.
+pub(crate) fn validate_points(
+    q: &[f64],
+    stack_of: &[usize],
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+) -> Result<()> {
+    validate_batch(layers, tensor, energies_ev)?;
+    if stack_of.len() != q.len() {
+        return Err(RefloxideError::InvalidShape(format!(
+            "stack_of length {} must match q length {}",
+            stack_of.len(),
+            q.len()
+        )));
+    }
+    if let Some(&bad) = stack_of.iter().find(|&&s| s >= energies_ev.len()) {
+        return Err(RefloxideError::InvalidShape(format!(
+            "stack index {bad} out of range for {} stacks",
+            energies_ev.len()
+        )));
+    }
+    Ok(())
+}
+
 fn annotate(err: RefloxideError, q_index: usize) -> RefloxideError {
     match err {
         RefloxideError::SingularDynamicMatrix { layer, .. } => {
@@ -301,228 +497,73 @@ fn annotate_batch(err: RefloxideError, energy_index: usize, q_index: usize) -> R
     }
 }
 
-fn solve_q(qi: f64, layers: &[Layer], eps: &[Matrix3<C>], k0: f64) -> Result<PolBlock> {
-    let nlayers = layers.len();
-    let s = (qi / (2.0 * k0)).clamp(-1.0, 1.0);
-    let theta = std::f64::consts::FRAC_PI_2 - s.asin();
-    let kx = k0 * theta.sin();
-    let ky = 0.0_f64;
+fn solve_q(qi: f64, coeffs: &[LayerCoeffs<f64>], k0: f64) -> Result<PolBlock> {
+    kernel::solve_point(qi, k0, coeffs)
+}
 
-    let mut scratch = QScratch::new();
-    scratch.m = c4x4::identity();
-
-    let mut prev = build_snapshot(0, &eps[0], kx, ky, k0)?;
-
-    for j in 1..nlayers - 1 {
-        let layer = &layers[j];
-        let snap = build_snapshot_with_d(j, &eps[j], kx, ky, k0, &mut scratch.d)?;
-        c4x4::fill_w(&prev.kz, &snap.kz, layer.sigma, &mut scratch.w);
-        c4x4::propagation_diag(&snap.kz, layer.thickness, &mut scratch.p_diag);
-        c4x4::fused_interface_kernel(
-            &prev.di,
-            &scratch.d,
-            &scratch.w,
-            Some(&scratch.p_diag),
-            &mut scratch.tmp,
-            &mut scratch.kernel,
-        );
-        c4x4::mul_assign(&mut scratch.m, &scratch.kernel);
-        prev = snap;
+/// Shape and energy checks shared by the batched CPU and GPU entry points.
+pub(crate) fn validate_batch(
+    layers: &[Vec<Layer>],
+    tensor: &[Vec<Matrix3<C>>],
+    energies_ev: &[f64],
+) -> Result<()> {
+    let n_e = energies_ev.len();
+    if layers.len() != n_e || tensor.len() != n_e {
+        return Err(RefloxideError::InvalidShape(format!(
+            "layers and tensor batch length must match energies_ev ({n_e}), got layers={}, tensor={}",
+            layers.len(),
+            tensor.len()
+        )));
     }
-
-    let snap_last =
-        build_snapshot_with_d(nlayers - 1, &eps[nlayers - 1], kx, ky, k0, &mut scratch.d)?;
-    c4x4::fill_w(
-        &prev.kz,
-        &snap_last.kz,
-        layers[nlayers - 1].sigma,
-        &mut scratch.w,
-    );
-    c4x4::fused_interface_kernel(
-        &prev.di,
-        &scratch.d,
-        &scratch.w,
-        None,
-        &mut scratch.tmp,
-        &mut scratch.kernel,
-    );
-    c4x4::mul_assign(&mut scratch.m, &scratch.kernel);
-
-    Ok(extract_rt(&scratch.m))
-}
-
-fn berreman_dielectric(t: &Matrix3<C>) -> Matrix3<C> {
-    let two = C::new(2.0, 0.0);
-    let scaled = t.map(|v| v * two);
-    let mut m = Matrix3::<C>::identity() - scaled;
-    for v in m.iter_mut() {
-        *v = v.conj();
+    if n_e == 0 {
+        return Err(RefloxideError::InvalidShape(
+            "uniaxial_reflectivity_batch requires at least one energy".into(),
+        ));
     }
-    m
-}
-
-fn compute_eigenstructure(eps: &Matrix3<C>, kx: f64, ky: f64, k0: f64) -> ([C; 4], Matrix4<C>) {
-    let one = C::new(1.0, 0.0);
-    let e_o = eps[(0, 0)];
-    let e_e = eps[(2, 2)];
-    let nu = (e_e - e_o) / e_o;
-    let kpar2 = C::new(kx * kx + ky * ky, 0.0);
-    let k0sq = C::new(k0 * k0, 0.0);
-    let kz_ord = (e_o * k0sq - kpar2).sqrt();
-    let radicand = e_o * k0sq * (one + nu) * (one + nu) - kpar2 * (one + nu);
-    let kz_ext = radicand.sqrt() / (one + nu);
-    let kz = [kz_ext, -kz_ext, kz_ord, -kz_ord];
-
-    let optic_z = one;
-    let mut d = Matrix4::<C>::zeros();
-    for s in 0..4 {
-        let kvec = Vector3::new(C::new(kx, 0.0), C::new(ky, 0.0), kz[s]);
-        let kdotk = kvec.x * kvec.x + kvec.y * kvec.y + kvec.z * kvec.z;
-        let kmag = kdotk.sqrt();
-        let knorm = Vector3::new(kvec.x / kmag, kvec.y / kmag, kvec.z / kmag);
-        let kpol = knorm.z * optic_z;
-
-        let dvec = if s >= 2 {
-            Vector3::new(-knorm.y, knorm.x, C::new(0.0, 0.0))
-        } else {
-            let scale = ((one + nu) / (one + nu * kpol * kpol)) * kpol;
-            Vector3::new(
-                C::new(0.0, 0.0) - knorm.x * scale,
-                C::new(0.0, 0.0) - knorm.y * scale,
-                optic_z - knorm.z * scale,
-            )
-        };
-        let mag2 = dvec.x.norm_sqr() + dvec.y.norm_sqr() + dvec.z.norm_sqr();
-        let inv_norm = 1.0 / (mag2.sqrt() + f64::EPSILON);
-        let dnorm = Vector3::new(dvec.x * inv_norm, dvec.y * inv_norm, dvec.z * inv_norm);
-
-        let h = kvec.cross(&dnorm);
-        let inv_k0 = 1.0 / k0;
-        let hpol = Vector3::new(h.x * inv_k0, h.y * inv_k0, h.z * inv_k0);
-
-        d[(0, s)] = dnorm.x;
-        d[(1, s)] = hpol.y;
-        d[(2, s)] = dnorm.y;
-        d[(3, s)] = hpol.x;
+    for (ei, energy_ev) in energies_ev.iter().enumerate() {
+        if !energy_ev.is_finite() || *energy_ev <= 0.0 {
+            return Err(RefloxideError::InvalidEnergy(*energy_ev));
+        }
+        if layers[ei].len() != tensor[ei].len() {
+            return Err(RefloxideError::LayerCountMismatch {
+                layers: layers[ei].len(),
+                tensor: tensor[ei].len(),
+            });
+        }
+        if layers[ei].len() < 2 {
+            return Err(RefloxideError::InsufficientLayers(layers[ei].len()));
+        }
     }
-
-    (kz, d)
+    Ok(())
 }
 
-fn invert_dynamic(layer_idx: usize, d: &Matrix4<C>) -> Result<Mat4> {
-    match exact_inv_4x4(d) {
-        Some(inv) => Ok(c4x4::from_nalgebra(&inv)),
-        None => Err(RefloxideError::SingularDynamicMatrix {
-            layer: layer_idx,
-            q_index: usize::MAX,
-            energy_index: None,
-        }),
-    }
+/// Vacuum wavenumber `2 pi / lambda` in `1/Angstrom` for a photon energy in eV.
+pub(crate) fn wavenumber(energy_ev: f64) -> f64 {
+    2.0 * std::f64::consts::PI / (HC_EV_ANGSTROM / energy_ev)
 }
 
-fn build_snapshot(
-    layer_idx: usize,
-    eps: &Matrix3<C>,
-    kx: f64,
-    ky: f64,
-    k0: f64,
-) -> Result<LayerSnapshot> {
-    let (kz, d) = compute_eigenstructure(eps, kx, ky, k0);
-    let di = invert_dynamic(layer_idx, &d)?;
-    Ok(LayerSnapshot { kz, di })
+pub(crate) fn layer_coeffs(layers: &[Layer], tensor: &[Matrix3<C>]) -> Vec<LayerCoeffs<f64>> {
+    layers
+        .iter()
+        .zip(tensor)
+        .map(|(layer, t)| LayerCoeffs {
+            chi_o: berreman_susceptibility(t[(0, 0)]),
+            chi_e: berreman_susceptibility(t[(2, 2)]),
+            thickness: layer.thickness,
+            sigma: layer.sigma,
+        })
+        .collect()
 }
 
-fn build_snapshot_with_d(
-    layer_idx: usize,
-    eps: &Matrix3<C>,
-    kx: f64,
-    ky: f64,
-    k0: f64,
-    d_out: &mut Mat4,
-) -> Result<LayerSnapshot> {
-    let (kz, d) = compute_eigenstructure(eps, kx, ky, k0);
-    *d_out = c4x4::from_nalgebra(&d);
-    let di = invert_dynamic(layer_idx, &d)?;
-    Ok(LayerSnapshot { kz, di })
-}
-
-fn extract_rt(m: &Mat4) -> ([[f64; 2]; 2], [[C; 2]; 2]) {
-    let mut denom = m[0][0] * m[2][2] - m[0][2] * m[2][0];
-    if denom.norm() < f64::EPSILON {
-        denom += C::new(f64::EPSILON, 0.0);
-    }
-    let r_ss = (m[1][0] * m[2][2] - m[1][2] * m[2][0]) / denom;
-    let r_sp = (m[3][0] * m[2][2] - m[3][2] * m[2][0]) / denom;
-    let r_ps = (m[0][0] * m[1][2] - m[1][0] * m[0][2]) / denom;
-    let r_pp = (m[0][0] * m[3][2] - m[3][0] * m[0][2]) / denom;
-    let t_ss = m[2][2] / denom;
-    let t_sp = -m[2][0] / denom;
-    let t_ps = -m[0][2] / denom;
-    let t_pp = m[0][0] / denom;
-
-    let refl = [
-        [r_ss.norm_sqr().min(1.0), r_sp.norm_sqr().min(1.0)],
-        [r_ps.norm_sqr().min(1.0), r_pp.norm_sqr().min(1.0)],
-    ];
-    let tran = [[t_ss, t_sp], [t_ps, t_pp]];
-    (refl, tran)
+/// Diagonal susceptibility `eps - 1 = conj(-2 t)` of `eps = conj(I - 2 t)`.
+fn berreman_susceptibility(t: C) -> C {
+    (t * C::new(-2.0, 0.0)).conj()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-
-    #[test]
-    fn c4_mul_matches_nalgebra() {
-        let a = Matrix4::new(
-            C::new(1.0, 0.1),
-            C::new(0.2, 0.0),
-            C::new(0.0, 0.3),
-            C::new(0.1, -0.1),
-            C::new(0.3, 0.0),
-            C::new(1.1, 0.2),
-            C::new(0.4, 0.0),
-            C::new(0.0, 0.2),
-            C::new(0.0, 0.1),
-            C::new(0.2, -0.1),
-            C::new(0.9, 0.0),
-            C::new(0.3, 0.1),
-            C::new(0.1, 0.0),
-            C::new(0.0, 0.2),
-            C::new(0.2, 0.1),
-            C::new(1.2, -0.1),
-        );
-        let b = Matrix4::new(
-            C::new(0.8, 0.0),
-            C::new(0.1, 0.2),
-            C::new(0.0, 0.0),
-            C::new(0.3, 0.0),
-            C::new(0.0, 0.1),
-            C::new(1.0, 0.0),
-            C::new(0.2, 0.1),
-            C::new(0.0, 0.0),
-            C::new(0.4, -0.1),
-            C::new(0.0, 0.0),
-            C::new(0.7, 0.2),
-            C::new(0.1, 0.0),
-            C::new(0.0, 0.0),
-            C::new(0.2, 0.0),
-            C::new(0.0, 0.1),
-            C::new(0.5, 0.0),
-        );
-        let aa = c4x4::from_nalgebra(&a);
-        let bb = c4x4::from_nalgebra(&b);
-        let mut out = c4x4::identity();
-        c4x4::mul(&aa, &bb, &mut out);
-        let ref_prod = a * b;
-        for r in 0..4 {
-            for c in 0..4 {
-                assert_relative_eq!(out[r][c].re, ref_prod[(r, c)].re, epsilon = 1e-12);
-                assert_relative_eq!(out[r][c].im, ref_prod[(r, c)].im, epsilon = 1e-12);
-            }
-        }
-    }
 
     #[test]
     fn batch_matches_sequential_uniaxial() {

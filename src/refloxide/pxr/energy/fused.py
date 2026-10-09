@@ -89,12 +89,17 @@ def evaluate_fused_bookended_reflectivity(
     *,
     structure_energy_offset: float = 0.0,
     parallel: bool = False,
+    with_transmission: bool = True,
 ) -> tuple[NDArray[np.float64], NDArray[np.complex128]] | None:
     """Evaluate reflectivity on the fused Rust path when the stack qualifies.
 
     Returns ``None`` when ``structure`` is not a single
     :class:`~refloxide.pxr.energy.bookended.BookendedOrientationProfile`
-    between a fronting slab and one or more backing slabs.
+    between a fronting slab and one or more backing slabs. With
+    ``with_transmission=False`` the kernel skips transmission (returned as
+    ``nan``) and evaluates reflectance with the faster, more accurate
+    reflectance-only recursion; see
+    :func:`refloxide.rust.bookended_uniaxial_reflectivity`.
     """
     located = find_bookended_profile(structure)
     if located is None:
@@ -137,5 +142,6 @@ def evaluate_fused_bookended_reflectivity(
         density_vac=params["density_vac"],
         num_slabs=num_slabs,
         mesh_constant=params["mesh_constant"],
+        with_transmission=with_transmission,
     )
     return np.asarray(refl, dtype=np.float64), np.asarray(tran, dtype=np.complex128)

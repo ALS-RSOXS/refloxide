@@ -9,6 +9,9 @@
 pub mod bookended;
 mod c4x4;
 pub mod error;
+#[cfg(feature = "gpu")]
+pub mod gpu;
+pub mod kernel;
 pub mod math;
 pub mod optics;
 pub mod sld;
@@ -27,5 +30,6 @@ pub use sld::{
     uniaxial_lab_tensor,
 };
 pub use uniaxial::{
-    uniaxial_reflectivity, uniaxial_reflectivity_batch, Layer, UniaxialBatchOutput, UniaxialOutput,
+    uniaxial_reflectivity, uniaxial_reflectivity_batch, uniaxial_reflectivity_points, Layer,
+    UniaxialBatchOutput, UniaxialOutput,
 };

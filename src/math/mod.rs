@@ -6,3 +6,4 @@
 mod exact_inv4;
 
 pub use exact_inv4::exact_inv_4x4;
+pub(crate) use exact_inv4::exact_inv_4x4_generic;

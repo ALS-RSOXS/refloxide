@@ -9,7 +9,7 @@ use nalgebra::Matrix3;
 use num_complex::Complex;
 
 use crate::optics::{interpolate_ooc_linear, lab_diagonal_uniaxial};
-use crate::uniaxial::{uniaxial_reflectivity, Layer, UniaxialOutput};
+use crate::uniaxial::{uniaxial_reflectance, uniaxial_reflectivity, Layer, UniaxialOutput};
 
 type C = Complex<f64>;
 
@@ -237,9 +237,59 @@ pub fn bookended_uniaxial_reflectivity(
     backing: &[[f64; 4]],
     parallel: bool,
 ) -> crate::error::Result<UniaxialOutput> {
-    // Optical constants use `query_ev` (may include energy_offset); the TMM
-    // wavevector uses nominal `wavelength_ev` so fused and assembled paths
-    // agree when those energies differ.
+    let (layers, tensors) = assemble_bookended_stack(
+        energy_ev, n_xx, n_ixx, n_zz, n_izz, query_ev, params, fronting, backing,
+    );
+    uniaxial_reflectivity(q, &layers, &tensors, wavelength_ev, parallel)
+}
+
+/// Reflectance-only counterpart of [`bookended_uniaxial_reflectivity`].
+///
+/// Builds the identical stack and evaluates it with
+/// [`crate::uniaxial::uniaxial_reflectance`] (decoupled uniaxial-z
+/// recursion, equal to the 4x4 chain in this scope and more accurate), for
+/// callers that discard transmission.
+///
+/// # Errors
+/// As for [`bookended_uniaxial_reflectivity`].
+#[allow(clippy::too_many_arguments)]
+pub fn bookended_uniaxial_reflectance(
+    q: &[f64],
+    energy_ev: &[f64],
+    n_xx: &[f64],
+    n_ixx: &[f64],
+    n_zz: &[f64],
+    n_izz: &[f64],
+    query_ev: f64,
+    wavelength_ev: f64,
+    params: &BookendedParams,
+    fronting: [f64; 4],
+    backing: &[[f64; 4]],
+    parallel: bool,
+) -> crate::error::Result<Vec<[[f64; 2]; 2]>> {
+    let (layers, tensors) = assemble_bookended_stack(
+        energy_ev, n_xx, n_ixx, n_zz, n_izz, query_ev, params, fronting, backing,
+    );
+    uniaxial_reflectance(q, &layers, &tensors, wavelength_ev, parallel)
+}
+
+/// Fronting row, book-ended film, and backing rows as one stack.
+///
+/// Optical constants use `query_ev` (may include energy_offset); the TMM
+/// wavevector uses nominal `wavelength_ev` in the callers so fused and
+/// assembled paths agree when those energies differ.
+#[allow(clippy::too_many_arguments)]
+fn assemble_bookended_stack(
+    energy_ev: &[f64],
+    n_xx: &[f64],
+    n_ixx: &[f64],
+    n_zz: &[f64],
+    n_izz: &[f64],
+    query_ev: f64,
+    params: &BookendedParams,
+    fronting: [f64; 4],
+    backing: &[[f64; 4]],
+) -> (Vec<Layer>, Vec<Matrix3<C>>) {
     let (film_layers, film_tensors) =
         build_bookended_film_stack(energy_ev, n_xx, n_ixx, n_zz, n_izz, query_ev, params);
     let (front_layer, front_tensor) = layer_row_to_parts(fronting);
@@ -252,7 +302,7 @@ pub fn bookended_uniaxial_reflectivity(
         layers.push(layer);
         tensors.push(tensor);
     }
-    uniaxial_reflectivity(q, &layers, &tensors, wavelength_ev, parallel)
+    (layers, tensors)
 }
 
 #[cfg(test)]
