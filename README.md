@@ -4,75 +4,53 @@ An extremely fast 4x4 transfer-matrix engine for **polarized** reflectivity
 from stratified media — written in Rust, with optional wgpu GPU acceleration
 and thin Python bindings.
 
-- Blazing forward models for uniaxial stacks (CPU + GPU)
-- Drop-in polarized path relative to the historical PyPXR / refnx plugin API
-- Opt-in modeling and objective layers for multi-energy fitting
-
 ## Performance
 
-On **10,000 uniaxial film slabs** (256 q-points), GPU finishes in ~4&nbsp;ms —
-about **2,000×** faster than the in-tree PyPXR / refnx plugin path, with ~50×
-less peak RSS.
+**10,000 uniaxial film slabs** · 256 q-points · Apple Silicon
+
+| Backend | Time | vs PyPXR | RSS |
+| --- | ---: | ---: | ---: |
+| **GPU** | **4.1 ms** | **2,117×** | 44 MiB |
+| **CPU parallel** | **139 ms** | **62×** | 32 MiB |
+| **CPU serial** | **784 ms** | **11×** | 32 MiB |
+| PyPXR | 8,615 ms | — | 2,147 MiB |
 
 <p align="center">
-  <img src="docs/assets/performance/bench_hero.png" alt="Uniaxial reflectivity benchmark at 10,000 film slabs" width="820">
-</p>
-
-<p align="center">
-  <sub>
-    Apple Silicon (Darwin arm64) · same uniaxial stack · median of 3 runs ·
-    regenerate with <code>uv run python examples/gpu_backend_bench.py --plot</code>
-  </sub>
+  <img src="docs/assets/performance/bench_hero_light.png#gh-light-mode-only" alt="10k-slab wall time" width="560">
+  <img src="docs/assets/performance/bench_hero_dark.png#gh-dark-mode-only" alt="10k-slab wall time" width="560">
 </p>
 
 <details>
-<summary><strong>Full benchmark details</strong> — 1 slab &amp; 10k slabs, speed + memory, methodology</summary>
+<summary>More charts</summary>
 
 <br>
 
-Same uniaxial problem on four backends:
-
-| Backend | Implementation |
-| --- | --- |
-| CPU serial | Rust kernel, `parallel=False` |
-| CPU parallel | Rust kernel, `parallel=True` |
-| GPU | wgpu recursion (`device="gpu"`) |
-| PyPXR plugin | in-tree `refloxide.pxr.plugin` uniaxial path (pure-Python TMM) |
-
-**1 uniaxial slab**
+**1 slab — time / RSS**
 
 <p align="center">
-  <img src="docs/assets/performance/bench_wall_time_1slab.png" alt="Wall time at 1 uniaxial slab" width="640">
-  <img src="docs/assets/performance/bench_memory_1slab.png" alt="RSS at 1 uniaxial slab" width="640">
+  <img src="docs/assets/performance/bench_time_1slab_light.png#gh-light-mode-only" width="340">
+  <img src="docs/assets/performance/bench_time_1slab_dark.png#gh-dark-mode-only" width="340">
+  <img src="docs/assets/performance/bench_rss_1slab_light.png#gh-light-mode-only" width="340">
+  <img src="docs/assets/performance/bench_rss_1slab_dark.png#gh-dark-mode-only" width="340">
 </p>
 
-**10,000 uniaxial slabs**
+**10k slabs — time / RSS**
 
 <p align="center">
-  <img src="docs/assets/performance/bench_wall_time_10k.png" alt="Wall time at 10k uniaxial slabs" width="640">
-  <img src="docs/assets/performance/bench_memory_10k.png" alt="RSS at 10k uniaxial slabs" width="640">
+  <img src="docs/assets/performance/bench_time_10k_light.png#gh-light-mode-only" width="340">
+  <img src="docs/assets/performance/bench_time_10k_dark.png#gh-dark-mode-only" width="340">
+  <img src="docs/assets/performance/bench_rss_10k_light.png#gh-light-mode-only" width="340">
+  <img src="docs/assets/performance/bench_rss_10k_dark.png#gh-dark-mode-only" width="340">
 </p>
-
-**Combined grid**
-
-<p align="center">
-  <img src="docs/assets/performance/bench_uniaxial_grid.png" alt="Speed and memory grid" width="820">
-</p>
-
-Notes:
-
-- Apples-to-apples **uniaxial** comparison (not scalar Abeles).
-- Memory is peak process RSS in a fresh subprocess.
-- `refnx` is a **dev/plugin** extra for the plugin import graph only — not a
-  core runtime dependency of the Rust kernels.
-- CI runs the same script on Ubuntu and macOS and uploads artifacts; GPU rows
-  appear only when a wgpu adapter is present.
-- Guide: [`docs/guides/gpu.md`](docs/guides/gpu.md)
 
 ```bash
 uv sync --group dev --group plugin
 uv run python examples/gpu_backend_bench.py --plot
 ```
+
+Uniaxial only (not scalar Abeles). RSS = peak process RSS in a fresh
+subprocess. `refnx` is a dev/plugin extra for the PyPXR plugin path.
+Guide: [docs/guides/gpu.md](docs/guides/gpu.md)
 
 </details>
 
@@ -89,8 +67,7 @@ uv add refloxide
 ```python
 from refloxide.tmm import uniaxial_reflectivity
 
-# device="cpu" (default, f64) or device="gpu" (f32 recursion via wgpu)
-refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, device="cpu")
+refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, device="gpu")
 ```
 
 ## Development
@@ -98,18 +75,9 @@ refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, device="cpu")
 ```bash
 git clone https://github.com/ALS-RSOXS/refloxide.git
 cd refloxide
-make develop   # uv sync --group dev --group plugin + maturin develop --release
-make test
-make verify
+make develop
+make test && make verify
 ```
-
-GPU precision tests skip when no adapter is present:
-
-```bash
-uv run pytest tests/test_gpu_precision.py -q
-```
-
-Docs: `make docs-serve`
 
 ## License
 

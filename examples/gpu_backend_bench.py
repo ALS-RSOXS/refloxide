@@ -56,17 +56,37 @@ BACKEND_GPU = "refloxide GPU"
 BACKEND_PYPXR = "PyPXR / refnx plugin"
 
 BACKEND_ORDER = (BACKEND_SERIAL, BACKEND_PARALLEL, BACKEND_GPU, BACKEND_PYPXR)
-BACKEND_COLORS = {
-    BACKEND_SERIAL: "#1d4ed8",
-    BACKEND_PARALLEL: "#2563eb",
-    BACKEND_GPU: "#0f766e",
-    BACKEND_PYPXR: "#6b7280",
-}
 BACKEND_SHORT = {
     BACKEND_SERIAL: "CPU serial",
     BACKEND_PARALLEL: "CPU parallel",
     BACKEND_GPU: "GPU",
-    BACKEND_PYPXR: "PyPXR plugin",
+    BACKEND_PYPXR: "PyPXR",
+}
+
+# Soft accents that read on transparent light and dark README backgrounds.
+THEME = {
+    "light": {
+        "text": "#1d1d1f",
+        "muted": "#86868b",
+        "grid": "#d2d2d7",
+        "bar": {
+            BACKEND_SERIAL: "#5e5ce6",
+            BACKEND_PARALLEL: "#0071e3",
+            BACKEND_GPU: "#00c7be",
+            BACKEND_PYPXR: "#a1a1a6",
+        },
+    },
+    "dark": {
+        "text": "#f5f5f7",
+        "muted": "#98989d",
+        "grid": "#424245",
+        "bar": {
+            BACKEND_SERIAL: "#7d7aff",
+            BACKEND_PARALLEL: "#2997ff",
+            BACKEND_GPU: "#3ce7c8",
+            BACKEND_PYPXR: "#6e6e73",
+        },
+    },
 }
 
 
@@ -429,122 +449,123 @@ def _rows_for(rows: list[BenchRow], n_film: int) -> list[BenchRow]:
     return sorted(selected, key=lambda r: order.get(r.backend, 999))
 
 
-def _style_axes(ax) -> None:
-    ax.set_facecolor("#fafafa")
-    ax.grid(axis="y", color="#e5e7eb", linewidth=0.8, zorder=0)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#9ca3af")
-    ax.spines["bottom"].set_color("#9ca3af")
-    ax.tick_params(colors="#374151")
+def _apple_axes(ax, theme: dict[str, object]) -> None:
+    ax.set_facecolor("none")
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(str(theme["grid"]))
+    ax.spines["bottom"].set_linewidth(0.6)
+    ax.tick_params(colors=str(theme["muted"]), length=0, labelsize=8)
+    ax.yaxis.set_ticks_position("none")
 
 
-def _bar_panel(
-    ax,
-    panel_rows: list[BenchRow],
-    *,
-    values: list[float],
-    ylabel: str,
-    title: str,
-    fmt: str,
-) -> None:
-    _style_axes(ax)
-    labels = [BACKEND_SHORT[r.backend] for r in panel_rows]
-    colors = [BACKEND_COLORS[r.backend] for r in panel_rows]
-    x = np.arange(len(labels))
-    ax.bar(x, values, color=colors, width=0.72, zorder=2)
-    ax.set_xticks(x, labels, rotation=18, ha="right")
-    ax.set_ylabel(ylabel)
-    ax.set_title(title, fontsize=10, color="#111827")
-    ymax = max(values) if values else 1.0
-    for xi, value in zip(x, values, strict=True):
-        ax.text(
-            xi,
-            value + 0.03 * ymax,
-            fmt.format(value),
-            ha="center",
-            va="bottom",
-            fontsize=7.5,
-            color="#374151",
-        )
+def _mem_value(row: BenchRow) -> float:
+    return row.rss_mib if np.isfinite(row.rss_mib) else row.peak_heap_mib
+
+
+def _save_transparent(fig, path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    fig.savefig(path, dpi=200, facecolor="none", edgecolor="none", transparent=True)
+    plt.close(fig)
 
 
 def write_hero_plot(
     rows: list[BenchRow],
     *,
     out_dir: Path,
-    machine: str,
     n_film: int = HEADLINE_FILMS[1],
-) -> Path:
-    """Wide horizontal README hero: wall time at ``n_film`` with speedup labels."""
+) -> list[Path]:
+    """Compact horizontal hero; light + dark variants for GitHub themes."""
+    import matplotlib.pyplot as plt
+
+    ranked = sorted(_rows_for(rows, n_film), key=lambda r: r.median_s)
+    if not ranked:
+        msg = f"no finite rows for n_film={n_film}"
+        raise RuntimeError(msg)
+
+    # barh: y=0 is bottom — put slowest at bottom, fastest (best) at top.
+    panel = list(reversed(ranked))
+    ref = max(ranked, key=lambda r: r.median_s)
+    labels = [BACKEND_SHORT[r.backend] for r in panel]
+    times_ms = [r.median_s * 1e3 for r in panel]
+    speedups = [
+        (ref.median_s / r.median_s) if r.median_s > 0 else float("nan") for r in panel
+    ]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+
+    for mode, theme in THEME.items():
+        fig, ax = plt.subplots(figsize=(5.6, 2.15), layout="constrained")
+        _apple_axes(ax, theme)
+        colors = [theme["bar"][r.backend] for r in panel]  # type: ignore[index]
+        y = np.arange(len(labels))
+        ax.barh(y, times_ms, color=colors, height=0.55, zorder=2)
+        ax.set_yticks(y, labels)
+        ax.set_xscale("log")
+        ax.set_xlabel("ms", color=str(theme["muted"]), fontsize=8, labelpad=2)
+        ax.grid(axis="x", color=str(theme["grid"]), linewidth=0.5, zorder=0)
+        ax.set_axisbelow(True)
+        for yi, ms, speedup in zip(y, times_ms, speedups, strict=True):
+            tag = f"{ms:.1f}" if speedup < 1.05 else f"{ms:.1f} · {speedup:.0f}×"
+            ax.text(
+                ms * 1.12,
+                yi,
+                tag,
+                va="center",
+                ha="left",
+                fontsize=8,
+                color=str(theme["text"]),
+            )
+        ax.set_xlim(min(times_ms) * 0.55, max(times_ms) * 6.5)
+        path = out_dir / f"bench_hero_{mode}.png"
+        _save_transparent(fig, path)
+        written.append(path)
+    return written
+
+
+def write_mini_plot(
+    rows: list[BenchRow],
+    *,
+    out_dir: Path,
+    n_film: int,
+    metric: str,
+    stem: str,
+) -> list[Path]:
+    """Small vertical bars for details; light + dark."""
     import matplotlib.pyplot as plt
 
     panel = _rows_for(rows, n_film)
     if not panel:
-        msg = f"no finite rows for n_film={n_film}"
-        raise RuntimeError(msg)
+        return []
+    if metric == "time":
+        values = [r.median_s * 1e3 for r in panel]
+        xlabel = "ms"
+        log = True
+    else:
+        values = [_mem_value(r) for r in panel]
+        xlabel = "MiB"
+        log = True
 
-    # Slowest finite backend is the reference (PyPXR when present).
-    ref = max(panel, key=lambda r: r.median_s)
-    labels = [BACKEND_SHORT[r.backend] for r in reversed(panel)]
-    colors = [BACKEND_COLORS[r.backend] for r in reversed(panel)]
-    times_ms = [r.median_s * 1e3 for r in reversed(panel)]
-    speedups = [
-        (ref.median_s / r.median_s) if r.median_s > 0 else float("nan")
-        for r in reversed(panel)
-    ]
-
-    fig, ax = plt.subplots(figsize=(8.2, 3.2), layout="constrained")
-    ax.set_facecolor("#ffffff")
-    y = np.arange(len(labels))
-    ax.barh(y, times_ms, color=colors, height=0.62, zorder=2)
-    ax.set_yticks(y, labels)
-    ax.set_xscale("log")
-    ax.set_xlabel("Median wall time (ms, log scale)")
-    ax.set_title(
-        f"Uniaxial reflectivity — {n_film:,} film slabs / {panel[0].n_q} q-points",
-        fontsize=11,
-        color="#111827",
-        loc="left",
-        pad=10,
-    )
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#d1d5db")
-    ax.spines["bottom"].set_color("#d1d5db")
-    ax.grid(axis="x", color="#f3f4f6", linewidth=0.9, zorder=0)
-    ax.tick_params(colors="#374151")
-    xmax = max(times_ms)
-    for yi, ms, speedup in zip(y, times_ms, speedups, strict=True):
-        if speedup >= 1.05:
-            label = f"{ms:.1f} ms  ·  {speedup:.0f}×"
-        else:
-            label = f"{ms:.1f} ms  ·  baseline"
-        ax.text(
-            ms * 1.08,
-            yi,
-            label,
-            va="center",
-            ha="left",
-            fontsize=8,
-            color="#374151",
-        )
-    ax.set_xlim(min(times_ms) * 0.4, xmax * 8)
-    ax.text(
-        0.99,
-        0.02,
-        machine,
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=7,
-        color="#9ca3af",
-    )
+    labels = [BACKEND_SHORT[r.backend] for r in panel]
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "bench_hero.png"
-    fig.savefig(path, dpi=220, facecolor="white")
-    plt.close(fig)
-    return path
+    written: list[Path] = []
+    for mode, theme in THEME.items():
+        fig, ax = plt.subplots(figsize=(3.6, 2.0), layout="constrained")
+        _apple_axes(ax, theme)
+        colors = [theme["bar"][r.backend] for r in panel]  # type: ignore[index]
+        x = np.arange(len(labels))
+        ax.bar(x, values, color=colors, width=0.58, zorder=2)
+        ax.set_xticks(x, labels, fontsize=7)
+        if log:
+            ax.set_yscale("log")
+        ax.set_ylabel(xlabel, color=str(theme["muted"]), fontsize=8)
+        ax.grid(axis="y", color=str(theme["grid"]), linewidth=0.5, zorder=0)
+        ax.set_axisbelow(True)
+        path = out_dir / f"{stem}_{mode}.png"
+        _save_transparent(fig, path)
+        written.append(path)
+    return written
 
 
 def write_plots(
@@ -553,110 +574,87 @@ def write_plots(
     out_dir: Path,
     machine: str,
 ) -> list[Path]:
-    import matplotlib.pyplot as plt
-
+    _ = machine
     out_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = [write_hero_plot(rows, out_dir=out_dir, machine=machine)]
-
-    fig, axes = plt.subplots(2, 2, figsize=(9.5, 6.8), layout="constrained")
-    for col, n_film in enumerate(HEADLINE_FILMS):
-        panel = _rows_for(rows, n_film)
-        if not panel:
-            axes[0, col].set_visible(False)
-            axes[1, col].set_visible(False)
-            continue
-        times_ms = [r.median_s * 1e3 for r in panel]
-        mem_mib = [
-            r.rss_mib if np.isfinite(r.rss_mib) else r.peak_heap_mib for r in panel
-        ]
-        slab_label = "1 uniaxial slab" if n_film == 1 else f"{n_film:,} uniaxial slabs"
-        _bar_panel(
-            axes[0, col],
-            panel,
-            values=times_ms,
-            ylabel="Median wall time (ms)",
-            title=f"Speed — {slab_label}",
-            fmt="{:.2f}",
+    written: list[Path] = []
+    written.extend(write_hero_plot(rows, out_dir=out_dir))
+    written.extend(
+        write_mini_plot(
+            rows,
+            out_dir=out_dir,
+            n_film=1,
+            metric="time",
+            stem="bench_time_1slab",
         )
-        _bar_panel(
-            axes[1, col],
-            panel,
-            values=mem_mib,
-            ylabel="Peak process RSS (MiB)",
-            title=f"Memory — {slab_label}",
-            fmt="{:.1f}",
+    )
+    written.extend(
+        write_mini_plot(
+            rows,
+            out_dir=out_dir,
+            n_film=1,
+            metric="rss",
+            stem="bench_rss_1slab",
         )
-
-    fig.suptitle(
-        f"Uniaxial forward model ({DEFAULT_N_Q} q-points) — {machine}",
-        fontsize=11,
-        color="#111827",
     )
-    fig.text(
-        0.5,
-        0.01,
-        "PyPXR / refnx plugin = in-tree pxr.plugin uniaxial path "
-        "(pure-Python TMM). Memory is peak RSS in a fresh subprocess.",
-        ha="center",
-        fontsize=7.5,
-        color="#6b7280",
+    written.extend(
+        write_mini_plot(
+            rows,
+            out_dir=out_dir,
+            n_film=HEADLINE_FILMS[1],
+            metric="time",
+            stem="bench_time_10k",
+        )
     )
-    path = out_dir / "bench_uniaxial_grid.png"
-    fig.savefig(path, dpi=200, facecolor="white")
-    plt.close(fig)
-    written.append(path)
-
-    # Also emit the four single-metric panels used by the README layout.
-    for n_film, tag in ((1, "1slab"), (HEADLINE_FILMS[1], "10k")):
-        panel = _rows_for(rows, n_film)
-        if not panel:
-            continue
-        slab_label = "1 uniaxial slab" if n_film == 1 else f"{n_film:,} uniaxial slabs"
-        for kind, values, ylabel, fmt, fname in (
-            (
-                "speed",
-                [r.median_s * 1e3 for r in panel],
-                "Median wall time (ms)",
-                "{:.2f}",
-                f"bench_wall_time_{tag}.png",
-            ),
-            (
-                "memory",
-                [
-                    r.rss_mib if np.isfinite(r.rss_mib) else r.peak_heap_mib
-                    for r in panel
-                ],
-                "Peak process RSS (MiB)",
-                "{:.1f}",
-                f"bench_memory_{tag}.png",
-            ),
-        ):
-            _ = kind
-            fig, ax = plt.subplots(figsize=(6.4, 3.4), layout="constrained")
-            _bar_panel(
-                ax,
-                panel,
-                values=values,
-                ylabel=ylabel,
-                title=f"{ylabel.split('(')[0].strip()} — {slab_label}",
-                fmt=fmt,
-            )
-            ax.text(
-                0.99,
-                0.98,
-                machine,
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color="#6b7280",
-            )
-            out = out_dir / fname
-            fig.savefig(out, dpi=200, facecolor="white")
-            plt.close(fig)
-            written.append(out)
-
+    written.extend(
+        write_mini_plot(
+            rows,
+            out_dir=out_dir,
+            n_film=HEADLINE_FILMS[1],
+            metric="rss",
+            stem="bench_rss_10k",
+        )
+    )
     return written
+
+
+def _load_rows_from_csv(path: Path) -> list[BenchRow]:
+    rows: list[BenchRow] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        for item in csv.DictReader(handle):
+            rows.append(
+                BenchRow(
+                    backend=item["backend"],
+                    n_q=int(item["n_q"]),
+                    n_film=int(item["n_film"]),
+                    n_layers=int(item["n_layers"]),
+                    median_s=float(item["median_s"]),
+                    peak_heap_mib=float(item["peak_heap_mib"]),
+                    rss_mib=float(item["rss_mib"]),
+                    notes=item.get("notes", ""),
+                )
+            )
+    return rows
+
+
+def best_results_markdown(rows: list[BenchRow], *, n_film: int = HEADLINE_FILMS[1]) -> str:
+    """Compact comparison table sorted best-first by wall time."""
+    panel = sorted(_rows_for(rows, n_film), key=lambda r: r.median_s)
+    if not panel:
+        return ""
+    ref = max(panel, key=lambda r: r.median_s)
+    lines = [
+        f"| Backend | Time | vs PyPXR | RSS |",
+        f"| --- | ---: | ---: | ---: |",
+    ]
+    for r in panel:
+        ms = r.median_s * 1e3
+        speedup = ref.median_s / r.median_s if r.median_s > 0 else float("nan")
+        vs = "—" if r.backend == ref.backend else f"{speedup:,.0f}×"
+        rss = _mem_value(r)
+        lines.append(
+            f"| **{BACKEND_SHORT[r.backend]}** | **{ms:.1f} ms** | {vs} | {rss:.0f} MiB |"
+        )
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -671,68 +669,94 @@ def main() -> None:
         help="Optional n_q:n_film overrides (default: 1 and 10000 film slabs)",
     )
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument(
+        "--from-csv",
+        type=Path,
+        default=None,
+        help="Skip timing; regenerate plots from an existing results CSV",
+    )
     parser.add_argument("--assets-dir", type=Path, default=ASSETS_DIR)
     args = parser.parse_args()
 
-    if args.sizes:
-        cases = [
-            BenchCase(n_q=int(a), n_film=int(b))
-            for size in args.sizes
-            for a, b in [size.split(":", 1)]
-        ]
-    else:
-        cases = [BenchCase(n_q=args.n_q, n_film=n) for n in HEADLINE_FILMS]
-
-    probe_layers, probe_tensor = _graded_arrays(1)
-    gpu_ok, gpu_note = _gpu_probe(probe_layers, probe_tensor)
-
-    all_rows: list[BenchRow] = []
-    for case in cases:
-        # Fewer repeats for the expensive pure-Python 10k path.
-        repeats = args.repeats
-        if case.n_film >= 10_000:
-            repeats = min(repeats, 3)
-        all_rows.extend(
-            run_case(
-                case,
-                repeats=repeats,
-                warmup=args.warmup,
-                gpu_ok=gpu_ok,
-                gpu_note=gpu_note,
-            )
-        )
-
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    csv_path = RESULTS_DIR / "gpu_backend_bench_results.csv"
+    md_path = RESULTS_DIR / "gpu_backend_bench_results.md"
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     cpu = platform.processor() or "cpu"
     machine = f"{platform.system()} {platform.machine()} / {cpu}"
-    table = _format_table(all_rows)
-    report = (
-        f"# Uniaxial backend bench\n\n"
-        f"- generated: `{stamp}`\n"
-        f"- machine: `{machine}`\n"
-        f"- energy_ev: `{ENERGY_EV}`\n"
-        f"- n_q: `{args.n_q if not args.sizes else 'mixed'}`\n"
-        f"- repeats/warmup: `{args.repeats}` / `{args.warmup}`\n"
-        f"- gpu: `{gpu_note}`\n\n"
-        f"{table}"
-    )
-    print(report)
-    md_path = RESULTS_DIR / "gpu_backend_bench_results.md"
-    csv_path = RESULTS_DIR / "gpu_backend_bench_results.csv"
-    md_path.write_text(report, encoding="utf-8")
-    _write_csv(csv_path, all_rows)
-    print(f"Wrote {md_path}")
-    print(f"Wrote {csv_path}")
 
-    if args.plot:
+    if args.from_csv is not None:
+        all_rows = _load_rows_from_csv(args.from_csv)
+        gpu_note = "from csv"
+        report = (
+            f"# Uniaxial backend bench\n\n"
+            f"- regenerated plots: `{stamp}`\n"
+            f"- source: `{args.from_csv}`\n"
+            f"- machine: `{machine}`\n\n"
+            f"{_format_table(all_rows)}\n"
+            f"## Best results ({HEADLINE_FILMS[1]:,} slabs)\n\n"
+            f"{best_results_markdown(all_rows)}\n"
+        )
+    else:
+        if args.sizes:
+            cases = [
+                BenchCase(n_q=int(a), n_film=int(b))
+                for size in args.sizes
+                for a, b in [size.split(":", 1)]
+            ]
+        else:
+            cases = [BenchCase(n_q=args.n_q, n_film=n) for n in HEADLINE_FILMS]
+
+        probe_layers, probe_tensor = _graded_arrays(1)
+        gpu_ok, gpu_note = _gpu_probe(probe_layers, probe_tensor)
+
+        all_rows = []
+        for case in cases:
+            repeats = args.repeats
+            if case.n_film >= 10_000:
+                repeats = min(repeats, 3)
+            all_rows.extend(
+                run_case(
+                    case,
+                    repeats=repeats,
+                    warmup=args.warmup,
+                    gpu_ok=gpu_ok,
+                    gpu_note=gpu_note,
+                )
+            )
+        report = (
+            f"# Uniaxial backend bench\n\n"
+            f"- generated: `{stamp}`\n"
+            f"- machine: `{machine}`\n"
+            f"- energy_ev: `{ENERGY_EV}`\n"
+            f"- n_q: `{args.n_q if not args.sizes else 'mixed'}`\n"
+            f"- repeats/warmup: `{args.repeats}` / `{args.warmup}`\n"
+            f"- gpu: `{gpu_note}`\n\n"
+            f"{_format_table(all_rows)}\n"
+            f"## Best results ({HEADLINE_FILMS[1]:,} slabs)\n\n"
+            f"{best_results_markdown(all_rows)}\n"
+        )
+        _write_csv(csv_path, all_rows)
+        print(f"Wrote {csv_path}")
+
+    print(report)
+    md_path.write_text(report, encoding="utf-8")
+    print(f"Wrote {md_path}")
+
+    if args.plot or args.from_csv is not None:
         written = write_plots(all_rows, out_dir=args.assets_dir, machine=machine)
         args.assets_dir.mkdir(parents=True, exist_ok=True)
+        source_csv = args.from_csv if args.from_csv is not None else csv_path
+        if not csv_path.exists() and args.from_csv is not None:
+            _write_csv(csv_path, all_rows)
         (args.assets_dir / "gpu_backend_bench_results.csv").write_text(
-            csv_path.read_text(encoding="utf-8"), encoding="utf-8"
+            source_csv.read_text(encoding="utf-8"), encoding="utf-8"
         )
         (args.assets_dir / "gpu_backend_bench_results.md").write_text(
             report, encoding="utf-8"
+        )
+        (args.assets_dir / "best_results.md").write_text(
+            best_results_markdown(all_rows) + "\n", encoding="utf-8"
         )
         for path in written:
             print(f"Wrote {path}")
