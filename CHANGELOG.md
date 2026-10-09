@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
+### Features
+
+- **gpu:** Wgpu uniaxial backend, docs, tests, and CI (#8)
+
+### Miscellaneous Tasks
+
+- Stop re-running CI and Pre-merge on push to main
+- **release:** Add Prepare and Finalize manual release workflows
+
+
 ## [0.1.7] - 2026-10-09
 
 ### Added
