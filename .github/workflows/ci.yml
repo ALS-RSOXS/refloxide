@@ -1,10 +1,10 @@
 name: CI
 
+# Continuous on every PR push; re-run inside the merge queue (merge_group)
+# together with Pre-merge performance / security jobs. No push-to-main.
 on:
   pull_request:
     branches: [main]
-  # Re-validate the prospective merge commit inside the merge queue.
-  # No push-to-main: that would duplicate work already done on the PR / queue.
   merge_group:
 
 concurrency:
