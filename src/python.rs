@@ -15,6 +15,7 @@ use pyo3::prelude::*;
 
 use crate::bookended::{bookended_uniaxial_reflectivity as core_bookended, BookendedParams};
 use crate::error::{RefloxideError, Result};
+use crate::general_stack::general_reflectivity as core_general_solve;
 use crate::optics::{
     interpolate_ooc_linear, isotropic_tensor, lab_diagonal_uniaxial_batch, pack_diagonal_tensors,
 };
@@ -22,7 +23,6 @@ use crate::sld::{
     molecular_index_at_ooc as core_molecular_index_at_ooc,
     tensor_to_slab_row as core_tensor_to_slab_row, uniaxial_lab_tensor as core_uniaxial_lab_tensor,
 };
-use crate::general_stack::general_reflectivity as core_general_solve;
 use crate::uniaxial::{
     uniaxial_reflectivity as core_solve, uniaxial_reflectivity_batch as core_solve_batch, Layer,
 };
@@ -789,9 +789,7 @@ fn general_reflectivity<'py>(
     let (q_vec, layers_rust, tensor_rust) =
         unpack_inputs(&q, &layers, &tensor).map_err(PyErr::from)?;
     let refl = py
-        .detach(|| {
-            core_general_solve(&q_vec, &layers_rust, &tensor_rust, energy_ev, parallel)
-        })
+        .detach(|| core_general_solve(&q_vec, &layers_rust, &tensor_rust, energy_ev, parallel))
         .map_err(PyErr::from)?;
     let numpnts = refl.len();
     let mut refl_arr = Array3::<f64>::zeros((numpnts, 2, 2));
