@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import platform
 import statistics
 import subprocess
@@ -886,7 +887,7 @@ def evaluate_gates(
     max_time_ratio: float,
     max_rss_ratio: float,
 ) -> list[str]:
-    """Collect ranking and baseline-regression failure messages."""
+    """Collect ranking and optional local CSV-regression failure messages."""
     failures: list[str] = []
     if enforce_ranking:
         failures.extend(
@@ -903,6 +904,48 @@ def evaluate_gates(
         )
     return failures
 
+
+def benchmark_action_entries(rows: list[BenchRow]) -> list[dict[str, object]]:
+    """Build ``customSmallerIsBetter`` entries for github-action-benchmark.
+
+    Emits wall time (ms) and RSS (MiB) for each finite backend/size so the
+    Action can chart history and alert on regressions. Names are stable
+    identifiers; do not rename lightly or history splits.
+    """
+    entries: list[dict[str, object]] = []
+    for n_film in HEADLINE_FILMS:
+        for row in _rows_for(rows, n_film):
+            short = BACKEND_SHORT[row.backend]
+            size = "1slab" if n_film == 1 else f"{n_film // 1000}k"
+            entries.append(
+                {
+                    "name": f"{size} / {short} / time",
+                    "unit": "ms",
+                    "value": row.median_s * 1e3,
+                    "extra": f"n_q={row.n_q}; n_layers={row.n_layers}",
+                }
+            )
+            rss = _mem_value(row)
+            if np.isfinite(rss):
+                entries.append(
+                    {
+                        "name": f"{size} / {short} / rss",
+                        "unit": "MiB",
+                        "value": float(rss),
+                        "extra": f"n_q={row.n_q}; n_layers={row.n_layers}",
+                    }
+                )
+    return entries
+
+
+def write_benchmark_action_json(rows: list[BenchRow], path: Path) -> Path:
+    """Write github-action-benchmark custom JSON and return ``path``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(benchmark_action_entries(rows), indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def main() -> None:
@@ -925,21 +968,30 @@ def main() -> None:
     )
     parser.add_argument("--assets-dir", type=Path, default=ASSETS_DIR)
     parser.add_argument(
+        "--benchmark-json",
+        type=Path,
+        default=None,
+        help=(
+            "Write github-action-benchmark customSmallerIsBetter JSON "
+            "(default: <assets-dir>/benchmark-action.json when plotting)"
+        ),
+    )
+    parser.add_argument(
         "--compare-baseline",
         type=Path,
         default=None,
-        help="CSV of accepted stats; fail if current results regress past ratios",
+        help="Optional local CSV floor; CI uses github-action-benchmark instead",
     )
     parser.add_argument(
         "--allow-missing-baseline",
         action="store_true",
-        help="If --compare-baseline path is absent, skip absolute regression gates",
+        help="If --compare-baseline path is absent, skip local CSV regression gates",
     )
     parser.add_argument(
         "--write-baseline",
         type=Path,
         default=None,
-        help="Write current results as the new accepted baseline CSV and exit 0",
+        help="Write current results as a local CSV floor (optional; not used by CI)",
     )
     parser.add_argument(
         "--enforce-ranking",
@@ -956,19 +1008,20 @@ def main() -> None:
         "--max-time-ratio",
         type=float,
         default=1.35,
-        help="Fail when median_s exceeds baseline by more than this factor",
+        help="Local CSV only: fail when median_s exceeds baseline by this factor",
     )
     parser.add_argument(
         "--max-rss-ratio",
         type=float,
         default=2.0,
-        help="Fail when RSS exceeds baseline by more than this factor",
+        help="Local CSV only: fail when RSS exceeds baseline by this factor",
     )
     args = parser.parse_args()
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = RESULTS_DIR / "gpu_backend_bench_results.csv"
     md_path = RESULTS_DIR / "gpu_backend_bench_results.md"
+    default_bench_json = args.assets_dir / "benchmark-action.json"
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     cpu = platform.processor() or "cpu"
     machine = f"{platform.system()} {platform.machine()} / {cpu}"
@@ -1049,6 +1102,14 @@ def main() -> None:
         for path in written:
             print(f"Wrote {path}")
 
+    json_path = args.benchmark_json
+    if json_path is None and (args.plot or args.from_csv is not None):
+        json_path = default_bench_json
+    if json_path is None:
+        json_path = RESULTS_DIR / "benchmark-action.json"
+    write_benchmark_action_json(all_rows, json_path)
+    print(f"Wrote {json_path}")
+
     if args.write_baseline is not None:
         args.write_baseline.parent.mkdir(parents=True, exist_ok=True)
         _write_csv(args.write_baseline, all_rows)
@@ -1062,7 +1123,7 @@ def main() -> None:
         elif args.allow_missing_baseline:
             print(
                 f"No baseline at {args.compare_baseline}; "
-                "skipping absolute regression gates"
+                "skipping local CSV regression gates"
             )
         else:
             raise SystemExit(

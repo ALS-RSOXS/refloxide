@@ -116,6 +116,13 @@ uv sync --group dev --group plugin
 uv run python examples/gpu_backend_bench.py --plot
 ```
 
-CI runs the same script on Ubuntu and macOS and uploads CSV / PNG artifacts.
-Automated precision checks live in `tests/test_gpu_precision.py` and skip
-when no GPU adapter is present; those tests do not import `refnx`.
+Pre-merge CI runs the same script on Ubuntu and macOS, enforces ranking
+invariants (`GPU < parallel < serial < PyPXR` at 10k slabs), and feeds
+`benchmark-action.json` into
+[`github-action-benchmark`](https://github.com/benchmark-action/github-action-benchmark)
+(`customSmallerIsBetter`). History is restored from Actions cache (updated
+only on `main` / merge queue); PRs compare against that baseline, comment on
+alert, and fail above a 2× wall-time/RSS regression. CSV / PNG artifacts are
+still uploaded. Automated precision checks live in
+`tests/test_gpu_precision.py` and skip when no GPU adapter is present; those
+tests do not import `refnx`.

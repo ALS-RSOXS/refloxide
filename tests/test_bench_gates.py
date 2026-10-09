@@ -19,8 +19,10 @@ BACKEND_PYPXR = _MOD.BACKEND_PYPXR
 BACKEND_SERIAL = _MOD.BACKEND_SERIAL
 BenchRow = _MOD.BenchRow
 baseline_regressions = _MOD.baseline_regressions
+benchmark_action_entries = _MOD.benchmark_action_entries
 evaluate_gates = _MOD.evaluate_gates
 ranking_failures = _MOD.ranking_failures
+write_benchmark_action_json = _MOD.write_benchmark_action_json
 
 
 def _row(backend: str, median_s: float, *, rss_mib: float = 40.0) -> BenchRow:
@@ -89,3 +91,23 @@ def test_evaluate_gates_combines_checks() -> None:
         )
         == []
     )
+
+
+def test_benchmark_action_json_is_custom_smaller_is_better(tmp_path) -> None:
+    rows = [
+        _row(BACKEND_GPU, 0.004, rss_mib=44.0),
+        _row(BACKEND_PARALLEL, 0.14, rss_mib=32.0),
+        _row(BACKEND_SERIAL, 0.78, rss_mib=32.0),
+        _row(BACKEND_PYPXR, 8.6, rss_mib=2000.0),
+    ]
+    entries = benchmark_action_entries(rows)
+    names = {e["name"] for e in entries}
+    assert "10k / GPU / time" in names
+    assert "10k / GPU / rss" in names
+    assert "10k / PyPXR / time" in names
+    gpu_time = next(e for e in entries if e["name"] == "10k / GPU / time")
+    assert gpu_time["unit"] == "ms"
+    assert abs(float(gpu_time["value"]) - 4.0) < 1e-9
+    path = write_benchmark_action_json(rows, tmp_path / "benchmark-action.json")
+    assert path.is_file()
+    assert path.read_text(encoding="utf-8").lstrip().startswith("[")
