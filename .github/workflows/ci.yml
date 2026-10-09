@@ -1,11 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   # Re-validate the prospective merge commit inside the merge queue.
+  # No push-to-main: that would duplicate work already done on the PR / queue.
   merge_group:
 
 concurrency:
