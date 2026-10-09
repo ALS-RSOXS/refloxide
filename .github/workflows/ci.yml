@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Re-validate the prospective merge commit inside the merge queue.
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
