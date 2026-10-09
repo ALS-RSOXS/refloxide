@@ -3,12 +3,15 @@
 # How this stays out of the hot path but still blocks merge:
 #   1. Branch ruleset requires these job names as status checks.
 #   2. This workflow only runs when you opt in (button / ready / label)
-#      or when the PR enters the merge queue / lands on main.
+#      or when the PR enters the merge queue.
 #   3. Until it runs on the current HEAD, required checks are missing
 #      and GitHub will not show the PR as mergeable.
 #
+# No push-to-main: the merge queue already ran these jobs on merge_group.
+# Re-running bench / pysentry / semgrep after land is wasted work.
+#
 # Benchmark watching uses github-action-benchmark:
-#   • history lives in Actions cache (per OS), updated only on main/merge_group
+#   • history lives in Actions cache (per OS), promoted on merge_group only
 #   • PRs restore that baseline, alert + fail on regression, do not overwrite it
 #   • ranking invariants (GPU < parallel < serial < PyPXR) stay in the bench CLI
 #
@@ -16,15 +19,13 @@
 #   • Actions → Pre-merge → Run workflow  (native button)
 #   • Mark the PR Ready for review (leaves draft)
 #   • Apply the `pre-merge` label
-#   • Enable the merge queue / add the PR to the queue
+#   • Add the PR to the merge queue
 #   • gh workflow run pre-merge.yml --ref <branch>
 name: Pre-merge
 
 on:
   workflow_dispatch:
   merge_group:
-  push:
-    branches: [main]
   pull_request:
     types: [labeled, ready_for_review]
     branches: [main]
@@ -46,7 +47,6 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'merge_group' ||
-      github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
        (github.event.action == 'ready_for_review' ||
         github.event.label.name == 'pre-merge'))
@@ -122,10 +122,11 @@ jobs:
           auto-push: false
 
       - name: Save benchmark history
-        # Only promote history from main / merge-queue — never from PR noise.
+        # Promote history from the merge queue (or a manual dispatch seed).
+        # Never from labeled PR runs — those must not overwrite the baseline.
         if: >
-          github.event_name == 'push' ||
-          github.event_name == 'merge_group'
+          github.event_name == 'merge_group' ||
+          github.event_name == 'workflow_dispatch'
         uses: actions/cache/save@v4
         with:
           path: ./bench-cache
