@@ -57,6 +57,27 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Here are so
 3. Ensure all tests pass
 4. Submit a pull request with a clear description
 
+## Releasing
+
+Releases are a two-step, manual Actions flow (no auto-publish from a version bump alone).
+
+1. **Prepare Release** (`workflow_dispatch`)
+   - Computes the next semver from conventional commits since the latest `v*`
+     tag (git-cliff / Commitizen rules), or an explicit `patch` / `minor` /
+     `major` override.
+   - Updates `pyproject.toml`, `Cargo.toml`, `src/refloxide/__init__.py`,
+     lockfiles, and `CHANGELOG.md`.
+   - Opens a `release/vX.Y.Z` pull request for review and optional Pre-merge
+     checks.
+2. Merge the release PR into `main` after review.
+3. **Finalize Release** (`workflow_dispatch`)
+   - Set `confirm` to `publish`.
+   - Cuts annotated tag `vX.Y.Z` on `main`, which triggers the existing
+     **Release** workflow (wheels, PyPI, GitHub Release notes).
+
+Dry-run Prepare with `dry_run=true` to print the next version without opening
+a PR.
+
 ## Dependency Updates
 
 This project uses [Renovate](https://renovateapp.com/) for automated dependency updates. Renovate will automatically open pull requests when new versions are available for:

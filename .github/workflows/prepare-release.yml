@@ -1,0 +1,138 @@
+# Manual review gate: bump versions from conventional commits and open a PR.
+# After merge + testing, run Finalize Release to cut the v* tag (publishes via Release).
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semver bump (auto uses git-cliff / conventional commits)"
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+        default: auto
+      dry_run:
+        description: "Compute the next version without opening a PR"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Compute bump and rewrite version files
+        id: bump
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            extra+=(--dry-run)
+          fi
+          uv run python scripts/prepare_release.py \
+            --bump "${{ inputs.bump }}" \
+            "${extra[@]}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Guard against duplicate release PRs
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          set -euo pipefail
+          existing="$(gh pr list --state open --head "$BRANCH" --json number --jq 'length')"
+          if [[ "$existing" != "0" ]]; then
+            echo "An open PR already exists for $BRANCH"
+            gh pr list --state open --head "$BRANCH"
+            exit 1
+          fi
+
+      - name: Create release branch and PR
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          VERSION: ${{ steps.bump.outputs.new_version }}
+          REASON: ${{ steps.bump.outputs.bump_reason }}
+          NOTES: ${{ steps.bump.outputs.notes }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add \
+            pyproject.toml \
+            Cargo.toml \
+            Cargo.lock \
+            uv.lock \
+            src/refloxide/__init__.py \
+            CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No release file changes staged"
+            exit 1
+          fi
+          git commit -m "chore(release): bump version to ${VERSION}"
+          git push -u origin "$BRANCH" --force-with-lease
+
+          body_file="$(mktemp)"
+          {
+            echo "## Release ${VERSION}"
+            echo
+            echo "Bump reason: \`${REASON}\`"
+            echo
+            echo "### Proposed notes"
+            echo
+            echo "${NOTES}"
+            echo
+            echo "### Checklist"
+            echo
+            echo "- [ ] Review CHANGELOG and version lockstep (pyproject / Cargo / \`__init__\`)"
+            echo "- [ ] Optional: run Pre-merge checks on this PR"
+            echo "- [ ] Merge this PR into \`main\`"
+            echo "- [ ] Run **Finalize Release** with confirm=\`publish\` to cut \`v${VERSION}\`"
+            echo
+            echo "Finalize triggers the existing Release workflow (wheels, PyPI, GitHub Release)."
+          } >"$body_file"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): bump version to ${VERSION}" \
+            --body-file "$body_file"
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "Would open branch \`${{ steps.bump.outputs.branch }}\`"
+          echo "Version: ${{ steps.bump.outputs.new_version }}"
+          echo "Reason: ${{ steps.bump.outputs.bump_reason }}"

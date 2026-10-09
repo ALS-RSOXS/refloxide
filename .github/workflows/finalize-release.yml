@@ -1,0 +1,67 @@
+# Manual publish gate: after a prepare-release PR is merged to main, cut vX.Y.Z.
+# Pushing the tag triggers the existing Release workflow (wheels, PyPI, GitHub Release).
+name: Finalize Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Safety latch — type publish to cut the tag'
+        type: string
+        required: true
+      version:
+        description: "Version to tag (default: pyproject.toml on main)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-release
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    name: Tag release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Validate versions and tag name
+        id: meta
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ -n "${{ inputs.version }}" ]]; then
+            extra+=(--version "${{ inputs.version }}")
+          fi
+          uv run python scripts/finalize_release.py \
+            --confirm "${{ inputs.confirm }}" \
+            "${extra[@]}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Create and push annotated tag
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "v${VERSION}"
+          git push origin "$TAG"
+          echo "Pushed ${TAG}. The Release workflow should build wheels and publish."
