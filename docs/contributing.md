@@ -9,10 +9,10 @@ Thank you for your interest in contributing to refloxide!
    git clone https://github.com/HarlanHeilman/refloxide.git
    cd refloxide
   ```
-2. Install dependencies using uv:
+2. Install dependencies using uv (dev tooling + `[plugin]` modeling stack):
   ```bash
-   uv sync --group dev
-  ```
+   uv sync --group dev --extra plugin
+   ```
 3. Install prek hooks:
   ```bash
    prek install
@@ -106,4 +106,3 @@ The `renovate.json` at the root of this project is pre-configured to manage:
 - We use [ty](https://docs.astral.sh/ty/) for type checking
 - All code should be properly typed
 - Write docstrings for public functions and classes
-

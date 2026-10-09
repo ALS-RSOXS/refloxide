@@ -42,26 +42,50 @@ from stratified media — Rust core, optional wgpu GPU, thin Python bindings.
 <p align="center"><sub>10k slabs · peak RSS</sub></p>
 
 ```bash
-uv sync --group dev --group plugin
+uv sync --group dev --extra plugin
 uv run python examples/gpu_backend_bench.py --plot
 ```
-
 </details>
 
 ## Installation
 
+CPU and GPU ship as **separate wheels** (same `import refloxide`; install one):
+
+| Install | What you get |
+| --- | --- |
+| `refloxide` / `refloxide[core]` | Fast Rust TMM on CPU (lightweight wheel) |
+| `refloxide[plugin]` | CPU core plus the refnx modeling / fitting stack |
+| `refloxide-gpu` | Same API with the wgpu GPU backend (`device="gpu"`) |
+| `refloxide[all]` | Alias for `refloxide[plugin]` |
+
 ```bash
-pip install refloxide
-# or
-uv add refloxide
+pip install 'refloxide[core]'       # CPU
+pip install 'refloxide[plugin]'     # CPU + modeling
+pip install refloxide-gpu           # GPU wheel (do not also install refloxide)
 ```
+
+With uv:
+
+```bash
+uv add 'refloxide[core]'
+uv add 'refloxide[plugin]'
+uv add refloxide-gpu
+```
+
+Bare `pip install refloxide` is the same as `[core]` (numpy + the CPU extension).
 
 ## Quick start
 
 ```python
 from refloxide.tmm import uniaxial_reflectivity
 
-refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, device="gpu")
+# CPU (default)
+refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, parallel=False)
+
+# GPU (install the refloxide-gpu wheel, not refloxide)
+refl, tran = uniaxial_reflectivity(
+    q, layers, tensor, energy_ev, parallel=False, device="gpu"
+)
 ```
 
 ## Development
