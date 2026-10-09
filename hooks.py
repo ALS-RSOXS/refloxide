@@ -56,5 +56,7 @@ def on_pre_build(config, **_kwargs) -> None:
         logger.warning("rustdoc: %s missing after cargo doc; using stub", target_doc)
         _write_rustdoc_stub(dest)
         return
+    if dest.exists():
+        shutil.rmtree(dest)
     shutil.copytree(target_doc, dest)
     logger.info("rustdoc: materialized under %s", dest)

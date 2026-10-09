@@ -13,6 +13,49 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
+def general_reflectivity(
+    q: NDArray[np.float64],
+    layers: NDArray[np.float64],
+    tensor: NDArray[np.complex128],
+    energy_ev: float,
+    parallel: bool = True,
+) -> NDArray[np.float64]:
+    """Compute general anisotropic 4x4 power reflectance (incl. cross-pol).
+
+    Parameters
+    ----------
+    q
+        Scattering wavevectors in inverse angstroms. Shape ``(numpnts,)``.
+    layers
+        Per-layer rows ``[d, sld_real, sld_imag, sigma]`` of shape
+        ``(nlayers, 4)``. Fronting and backing thicknesses are ignored.
+    tensor
+        Per-layer 3x3 dispersion tensor of shape ``(nlayers, 3, 3)``. The
+        Berreman dielectric is ``eps = conj(I - 2 * tensor)``.
+    energy_ev
+        Photon energy in eV (strictly positive).
+    parallel
+        When ``True``, distribute q-points across rayon. Pass ``False`` from
+        nested fitting loops to avoid oversubscription.
+
+    Returns
+    -------
+    refl
+        Real power reflectance with shape ``(numpnts, 2, 2)``:
+        ``[:, 0, 0] = R_pp``, ``[:, 0, 1] = R_sp``, ``[:, 1, 0] = R_ps``,
+        ``[:, 1, 1] = R_ss``. Cross-polarized channels are nonzero for
+        biaxial and tilted tensors.
+
+    Raises
+    ------
+    ValueError
+        Layer count mismatch, fewer than two slabs, malformed shapes, or
+        non-finite / non-positive ``energy_ev``.
+    RuntimeError
+        Dynamic matrix singular at some (layer, q-index).
+    """
+    ...
+
 def uniaxial_reflectivity(
     q: NDArray[np.float64],
     layers: NDArray[np.float64],

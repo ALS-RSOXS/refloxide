@@ -22,6 +22,7 @@ use crate::sld::{
     molecular_index_at_ooc as core_molecular_index_at_ooc,
     tensor_to_slab_row as core_tensor_to_slab_row, uniaxial_lab_tensor as core_uniaxial_lab_tensor,
 };
+use crate::general_stack::general_reflectivity as core_general_solve;
 use crate::uniaxial::{
     uniaxial_reflectivity as core_solve, uniaxial_reflectivity_batch as core_solve_batch, Layer,
 };
@@ -770,6 +771,40 @@ fn pack_uniaxial_batch_output<'py>(
     Ok((refl_arr.into_pyarray(py), tran_arr.into_pyarray(py)))
 }
 
+/// General anisotropic reflectivity (includes cross-polarized channels).
+///
+/// See [`crate::general_stack::general_reflectivity`]. Returns power
+/// reflectance only (no transmission), shape ``(n_q, 2, 2)`` with
+/// ``[:,0,0]=R_pp``, ``[:,0,1]=R_sp``, ``[:,1,0]=R_ps``, ``[:,1,1]=R_ss``.
+#[pyfunction]
+#[pyo3(signature = (q, layers, tensor, energy_ev, parallel = true))]
+fn general_reflectivity<'py>(
+    py: Python<'py>,
+    q: PyReadonlyArray1<'py, f64>,
+    layers: PyReadonlyArray2<'py, f64>,
+    tensor: PyReadonlyArray3<'py, C>,
+    energy_ev: f64,
+    parallel: bool,
+) -> PyResult<Bound<'py, PyArray3<f64>>> {
+    let (q_vec, layers_rust, tensor_rust) =
+        unpack_inputs(&q, &layers, &tensor).map_err(PyErr::from)?;
+    let refl = py
+        .detach(|| {
+            core_general_solve(&q_vec, &layers_rust, &tensor_rust, energy_ev, parallel)
+        })
+        .map_err(PyErr::from)?;
+    let numpnts = refl.len();
+    let mut refl_arr = Array3::<f64>::zeros((numpnts, 2, 2));
+    for i in 0..numpnts {
+        for r in 0..2 {
+            for c in 0..2 {
+                refl_arr[[i, r, c]] = refl[i][r][c];
+            }
+        }
+    }
+    Ok(refl_arr.into_pyarray(py))
+}
+
 /// Registers the Python-facing module `refloxide.rust`.
 #[pymodule]
 pub fn rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -777,6 +812,7 @@ pub fn rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(uniaxial_reflectivity_batch, m)?)?;
     m.add_function(wrap_pyfunction!(uniaxial_reflectivity_points, m)?)?;
     m.add_function(wrap_pyfunction!(uniaxial_reflectivity_points_jvp, m)?)?;
+    m.add_function(wrap_pyfunction!(general_reflectivity, m)?)?;
     m.add_function(wrap_pyfunction!(bookended_uniaxial_reflectivity, m)?)?;
     m.add_function(wrap_pyfunction!(interp_ooc_linear, m)?)?;
     m.add_function(wrap_pyfunction!(lab_tensor_diagonals_batch, m)?)?;

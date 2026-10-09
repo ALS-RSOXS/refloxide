@@ -16,6 +16,7 @@ own energy-dependent scatterer in Python" for a full worked example.
 from __future__ import annotations
 
 import functools
+import warnings
 from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -1048,6 +1049,8 @@ class Structure:
         current_runs: dict[str, list[_NamedProfileSegment]] = {}
         completed_runs: dict[str, list[list[_NamedProfileSegment]]] = {}
         bookended: list[tuple[int, BookendedComponent, float, float]] = []
+        # Lazy import avoids model <-> profiles circular import at module load.
+        from refloxide.profiles import DepthProfile as _DepthProfile
 
         def set_value(
             key: str, mask: NDArray[np.bool_], value: float | NDArray[np.float64]
@@ -1086,6 +1089,10 @@ class Structure:
                     np.asarray(component.profile.orientation(local_z)),
                 )
                 bookended.append((i, component, z_start, z_end))
+            elif isinstance(component, _DepthProfile):
+                local_z = z[mask] - z_start
+                for key, values in component.named_values_at(local_z).items():
+                    set_value(key, mask, values)
             elif isinstance(component, Slab):
                 sld = cast("Scatterer", component.sld)
                 scalars: dict[str, float] = {}
@@ -1865,6 +1872,128 @@ class UniTensorSLD(Scatterer):
         return f"UniTensorSLD(name={self.name!r})"
 
 
+class Mix(Scatterer):
+    """Volume-fraction mixture of arbitrary scatterers with a named mix rule.
+
+    Mixing is applied to laboratory-frame ordinary/extraordinary channels
+    **after** each component's `tensor_at` (same frame as `MixedUniTensorSLD`).
+    Supported rules: ``linear`` (default), ``maxwell_garnett``, ``bruggeman``.
+
+    Parameters
+    ----------
+    materials : sequence of Scatterer
+        Components to mix. Exactly two are required for Maxwell-Garnett /
+        Bruggeman.
+    fractions : sequence of float, optional
+        Homogeneous volume fractions. When omitted, fractions default to
+        equal weights; a depth-dependent ``phi`` on `DepthProfile` overrides
+        via `mix_tensors_at`.
+    rule : {'linear', 'maxwell_garnett', 'bruggeman'}, optional
+        Mixing rule. Maxwell-Garnett uses `host_index` as the continuous phase.
+    host_index : int, optional
+        Host component index for Maxwell-Garnett (default 0).
+    name : str, optional
+    """
+
+    def __init__(
+        self,
+        materials: Sequence[Scatterer],
+        fractions: Sequence[float] | None = None,
+        *,
+        rule: Literal["linear", "maxwell_garnett", "bruggeman"] = "linear",
+        host_index: int = 0,
+        name: str = "",
+    ) -> None:
+        super().__init__(name=name)
+        if not materials:
+            msg = "Mix requires at least one material"
+            raise ValueError(msg)
+        if rule not in ("linear", "maxwell_garnett", "bruggeman"):
+            msg = f"unknown mix rule {rule!r}"
+            raise ValueError(msg)
+        self.materials = list(materials)
+        n = len(self.materials)
+        if fractions is None:
+            fractions = [1.0 / n] * n
+        if len(fractions) != n:
+            msg = "fractions must match materials length"
+            raise ValueError(msg)
+        self.rule: Literal["linear", "maxwell_garnett", "bruggeman"] = rule
+        self.host_index = int(host_index)
+        self.vf = [
+            possibly_create_parameter(
+                v, name=f"{name}_vf_{i}", vary=True, bounds=(0.0, 1.0)
+            )
+            for i, v in enumerate(fractions)
+        ]
+        self._parameters = Parameters(name=name)
+        self._parameters.extend(self.vf)
+        for mat in self.materials:
+            self._parameters.extend(list(mat.parameters))
+
+    def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
+        from refloxide.mixing import mix_channels, pack_lab_diagonal
+
+        fracs = [float(v.value or 0.0) for v in self.vf]
+        n_o_vals: list[complex] = []
+        n_e_vals: list[complex] = []
+        for mat in self.materials:
+            tensor = mat.tensor_at(energy_ev)
+            n_o_vals.append(complex(tensor[0, 0]))
+            n_e_vals.append(complex(tensor[2, 2]))
+        n_o = mix_channels(n_o_vals, fracs, rule=self.rule, host_index=self.host_index)
+        n_e = mix_channels(n_e_vals, fracs, rule=self.rule, host_index=self.host_index)
+        return pack_lab_diagonal(complex(np.asarray(n_o)), complex(np.asarray(n_e)))
+
+    def mix_tensors_at(
+        self, energy_ev: float, phi: NDArray[np.float64]
+    ) -> NDArray[np.complex128]:
+        """Depth-dependent binary mix: ``phi`` is volume fraction of materials[0]."""
+        from refloxide.mixing import mix_channels, pack_lab_diagonal
+
+        if len(self.materials) != 2:
+            msg = "mix_tensors_at currently requires exactly two materials"
+            raise ValueError(msg)
+        t0 = self.materials[0].tensor_at(energy_ev)
+        t1 = self.materials[1].tensor_at(energy_ev)
+        n_o0, n_e0 = complex(t0[0, 0]), complex(t0[2, 2])
+        n_o1, n_e1 = complex(t1[0, 0]), complex(t1[2, 2])
+        phi_arr = np.asarray(phi, dtype=np.float64)
+        n_o = mix_channels(
+            [n_o0, n_o1],
+            [phi_arr, 1.0 - phi_arr],
+            rule=self.rule,
+            host_index=self.host_index,
+        )
+        n_e = mix_channels(
+            [n_e0, n_e1],
+            [phi_arr, 1.0 - phi_arr],
+            rule=self.rule,
+            host_index=self.host_index,
+        )
+        return pack_lab_diagonal(n_o, n_e)
+
+    @property
+    def parameters(self) -> Parameters:
+        return self._parameters
+
+    def effective_density(self) -> float | None:
+        dens = []
+        fracs = []
+        for mat, vf in zip(self.materials, self.vf, strict=True):
+            d = mat.effective_density()
+            if d is None:
+                return None
+            dens.append(d)
+            fracs.append(float(vf.value or 0.0))
+        total = sum(fracs) or 1.0
+        return float(sum(d * f for d, f in zip(dens, fracs, strict=True)) / total)
+
+    def __repr__(self) -> str:
+        n = len(self.materials)
+        return f"Mix({n} materials, rule={self.rule!r}, name={self.name!r})"
+
+
 class MixedUniTensorSLD(Scatterer):
     """Volume-fraction-weighted mixture of uniaxial materials from tabulated OOC tables.
 
@@ -2260,34 +2389,38 @@ class FreeTensorSLD(Scatterer):
             root.append(block)
         return root
 
+    def lab_diagonal_at(self, energy_ev: float) -> tuple[complex, complex]:
+        """Ordinary and extraordinary ``delta+i*beta`` at the nearest channel."""
+        tensor = self.tensor_at(energy_ev)
+        return complex(tensor[0, 0]), complex(tensor[2, 2])
+
     def __repr__(self) -> str:
         return f"FreeTensorSLD(n_energies={len(self._channels)}, name={self.name!r})"
 
 
-class BookendedComponent(MultiRowComponent):
-    """Adapts a `BookendedOrientationProfile` to refloxide.model's `Structure` protocol.
+FreeUniTensor = FreeTensorSLD
 
-    `BookendedOrientationProfile` (`refloxide.pxr.energy.bookended`)
-    implements the legacy `refloxide.pxr.plugin.structure.Component`
-    protocol (`.slabs()`/`.tensor()`) so it keeps working with the
-    load-bearing `pxr.plugin` stack unchanged. This is a thin wrapper around
-    the SAME profile instance — same live `Parameters`, same OOC binding —
-    exposed through `refloxide.model.MultiRowComponent` instead, so a
-    book-ended film composes into a `refloxide.model.Structure` with `|`
-    alongside ordinary `MaterialSLD`/`UniTensorSLD` slabs and fits through
-    `refloxide.model.ReflectModel`/`refloxide.objective.Objective` like any
-    other component.
+
+class BookendedComponent(MultiRowComponent):
+    """Deprecated adapter for `BookendedOrientationProfile` into `Structure`.
+
+    Prefer `refloxide.profiles.DepthProfile` with
+    `SecondOrderTransition` driving `gamma` and/or `density`. This class
+    remains for one release so existing `pxr` notebooks keep importing.
 
     Parameters
     ----------
     profile : refloxide.pxr.energy.bookended.BookendedOrientationProfile
-        The profile to wrap. Its OOC table and nominal energy may be bound
-        already (`ooc=`/`energy=` at construction) or deferred via
-        `profile.bind_ooc(...)` before this component is ever evaluated —
-        same deferred-by-default contract as the profile itself.
+        Legacy book-ended orientation/density profile to wrap.
     """
 
     def __init__(self, profile: BookendedOrientationProfile) -> None:
+        warnings.warn(
+            "BookendedComponent is deprecated; use DepthProfile with "
+            "SecondOrderTransition (tau_top/tau_bottom) instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(name=profile.name)
         self.profile = profile
 
