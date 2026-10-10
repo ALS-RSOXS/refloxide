@@ -49,40 +49,24 @@ uv run python examples/gpu_backend_bench.py --plot
 
 ## Installation
 
-CPU and GPU ship as **separate wheels** (same `import refloxide`; install one):
-
-| Install | What you get |
-| --- | --- |
-| `refloxide` / `refloxide[core]` | Fast Rust TMM on CPU (lightweight wheel) |
-| `refloxide[plugin]` | CPU core plus the refnx modeling / fitting stack |
-| `refloxide-gpu` | Same API with the wgpu GPU backend (`device="gpu"`) |
-| `refloxide[all]` | Alias for `refloxide[plugin]` |
-
 ```bash
-pip install 'refloxide[core]'       # CPU
-pip install 'refloxide[plugin]'     # CPU + modeling
-pip install refloxide-gpu           # GPU wheel (do not also install refloxide)
-```
-
-With uv:
-
-```bash
-uv add 'refloxide[core]'
+pip install refloxide              # core TMM (CPU + GPU feature)
+pip install 'refloxide[plugin]'    # plus refnx modeling / fitting
+# or
+uv add refloxide
 uv add 'refloxide[plugin]'
-uv add refloxide-gpu
 ```
 
-Bare `pip install refloxide` is the same as `[core]` (numpy + the CPU extension).
+`refloxide[core]` is an empty alias of the bare install. `refloxide[all]`
+aliases `[plugin]`. Wheels build with Maturin features `python` and `gpu`;
+use `device="gpu"` when a wgpu adapter is available (see [GPU guide](docs/guides/gpu.md)).
 
 ## Quick start
 
 ```python
 from refloxide.tmm import uniaxial_reflectivity
 
-# CPU (default)
 refl, tran = uniaxial_reflectivity(q, layers, tensor, energy_ev, parallel=False)
-
-# GPU (install the refloxide-gpu wheel, not refloxide)
 refl, tran = uniaxial_reflectivity(
     q, layers, tensor, energy_ev, parallel=False, device="gpu"
 )

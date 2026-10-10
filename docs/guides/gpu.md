@@ -7,31 +7,17 @@ double-single (`df64`) and general-tensor shaders exist behind the Rust
 
 ## Enablement
 
-GPU support is a **separate wheel** from the default CPU package (PyPI cannot
-publish two different binaries under the same name and tag):
+Wheels and local Maturin builds already request the feature:
 
-```bash
-pip install refloxide-gpu          # GPU wheel (import path still `refloxide`)
-# modeling on top of a GPU wheel: install plugin deps into the same env, e.g.
-pip install 'refloxide-gpu' refnx periodictable polars pyarrow scipy arviz
+```toml
+# pyproject.toml [tool.maturin]
+features = ["python", "gpu"]
 ```
 
-Do **not** install both `refloxide` and `refloxide-gpu` in one environment;
-they both provide the `refloxide` package.
-
-Default `pip install refloxide` wheels are CPU-only (`features = ["python"]`).
-GPU wheels are built with:
+Rebuild the extension after pulling GPU changes:
 
 ```bash
-bash scripts/build_wheel_variant.sh gpu
-# cargo: --no-default-features --features python,gpu
-# PyPI name temporarily set to refloxide-gpu for that build
-```
-
-Local editable installs (for contributors) enable GPU:
-
-```bash
-make develop   # maturin develop --features python,gpu
+make develop
 ```
 
 For Rust-only work:
@@ -41,9 +27,9 @@ cargo check --features gpu
 cargo run --profile perf --no-default-features --features gpu --example gpu_recursive
 ```
 
-If the crate was built without `gpu` (the CPU wheel), `device="gpu"` raises a
-clear error that the feature is missing. If the feature is present but no
-adapter is available, the same path fails at device acquisition.
+If the crate was built without `gpu`, `device="gpu"` raises a clear
+`RuntimeError`. If the feature is present but no adapter is available,
+the same path fails at device acquisition.
 
 ## Usage
 
@@ -67,18 +53,16 @@ model = ReflectModel(structure, device="gpu", parallel=False)
 
 For differential evolution or MCMC, keep `device="gpu"` and pass
 `refloxide.objective.gpu_batch` as the worker/pool so each generation or
-walker ensemble is one dispatch. Fitting helpers that wrap refnx need the
-plugin stack (`refnx`, …) installed alongside `refloxide-gpu`:
-
-```bash
-pip install refloxide-gpu
-pip install refnx periodictable polars pyarrow scipy arviz
-```
+walker ensemble is one dispatch. Fitting helpers that wrap refnx
+(`CurveFitter`, and the optional `refnx` Abeles row in the benchmark) need
+the **dev** or **plugin** extra — `refnx` is not a runtime dependency of the
+core package:
 
 ```python
 from refloxide.objective import gpu_batch
 
 model.device = "gpu"
+# with refnx installed in the dev/plugin environment:
 # from refnx.analysis import CurveFitter
 # fitter = CurveFitter(objective)
 # fitter.fit("differential_evolution", workers=gpu_batch(objective))
@@ -123,13 +107,12 @@ stacks).
 
 Regenerate the uniaxial backend benchmark (1 slab and **10,000** film
 slabs). Backends: Rust CPU serial, Rust CPU parallel, GPU, and the in-tree
-**PyPXR / refnx plugin** uniaxial path (`refloxide.pxr.plugin`). Core CPU
-rows need `refloxide`; GPU rows need a `refloxide-gpu` (or `make develop`)
-build; the plugin row needs the plugin deps:
+**PyPXR / refnx plugin** uniaxial path (`refloxide.pxr.plugin`). Core
+refloxide CPU/GPU rows need only the built extension; the plugin row needs
+`refnx` from the **dev** or **plugin** extra:
 
 ```bash
-uv sync --group dev --extra plugin
-make develop
+uv sync --group dev --group plugin
 uv run python examples/gpu_backend_bench.py --plot
 ```
 

@@ -8,8 +8,7 @@ uv python install 3.13
 # dev: tooling; plugin extra/group: refnx modeling stack for tests/benches
 uv sync --group dev --extra plugin
 
-# Editable install with GPU enabled so local device=\"gpu\" matches refloxide-gpu wheels.
-UV_NO_CONFIG=1 uv run maturin develop --release --no-default-features --features python,gpu
+UV_NO_CONFIG=1 uv run maturin develop --release
 
 uv run python - <<'PY'
 import refloxide

@@ -31,11 +31,10 @@ dependencies = [
     "tqdm>=4.68.4",
 ]
 
-# Install extras (pip / uv) for the CPU distribution ``refloxide``:
-#   refloxide[core]   — fast Rust TMM engine (same as bare install)
+# Install extras (pip / uv):
+#   refloxide[core]   — Rust TMM (same as bare install; includes GPU feature)
 #   refloxide[plugin] — refnx modeling / fitting stack
-# GPU builds are a separate PyPI project (``refloxide-gpu``) with the same
-# import path; install one or the other, not both. See guides/gpu.md.
+#   refloxide[all]    — alias for [plugin]
 [project.optional-dependencies]
 core = []
 plugin = [
@@ -85,9 +84,7 @@ Changelog = "https://github.com/ALS-RSOXS/refloxide/blob/main/CHANGELOG.md"
 [tool.maturin]
 python-source = "src"
 module-name = "refloxide.rust"
-# Default published wheels are CPU-only. GPU wheels are built separately as
-# ``refloxide-gpu`` via ``scripts/build_wheel_variant.sh gpu``.
-features = ["python"]
+features = ["python", "gpu"]
 compatibility = "pypi"
 
 [tool.uv]

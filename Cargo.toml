@@ -58,6 +58,6 @@ opt-level = 3
 codegen-units = 1
 
 [profile.release]
-# Keep CPU-only macOS cdylibs loadable (strip can break LINKEDIT).
+# Keep macOS cdylibs loadable (strip can break LINKEDIT).
 strip = "none"
 

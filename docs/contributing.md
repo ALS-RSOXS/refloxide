@@ -63,7 +63,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Here are so
 
 | When | What runs |
 | --- | --- |
-| Every PR push | **CI** — lint, types, tests, Rust check, CPU + GPU wheels |
+| Every PR push | **CI** — lint, types, tests, Rust check, wheels |
 | PR enters the merge queue | **CI again** on the prospective merge commit, plus **Pre-merge** — benchmarks (`github-action-benchmark`), pysentry, semgrep |
 
 Land with **Merge when ready** / add to the merge queue (do not push straight to `main`). Optional early Pre-merge: apply the `pre-merge` label, mark Ready for review, or `gh workflow run pre-merge.yml --ref <branch>`.

@@ -1,7 +1,7 @@
 # Heavy checks that run when landing on main — not on every PR push.
 #
 # Intended flow (enforced by the "main protection" ruleset + merge queue):
-#   1. Every PR push → CI only (lint, types, tests, Rust, CPU/GPU wheels).
+#   1. Every PR push → CI only (lint, types, tests, Rust, wheels).
 #   2. Add PR to the merge queue → GitHub builds a merge_group commit and
 #      re-runs CI *and* this Pre-merge workflow (bench / pysentry / semgrep).
 #   3. ALLGREEN merge queue merges only when those required checks pass.

@@ -4,30 +4,20 @@ A blaxingly fast 4x4 transfer matrix method for simulating reflection though str
 
 ## Installation
 
-CPU and GPU are **separate wheels** (same import path; install one):
-
-| Install | Purpose |
-| --- | --- |
-| `refloxide` / `refloxide[core]` | Fast Rust TMM on CPU |
-| `refloxide[plugin]` | CPU core plus refnx modeling / fitting |
-| `refloxide-gpu` | GPU wheel with wgpu (`device="gpu"`; see [GPU backend](guides/gpu.md)) |
-| `refloxide[all]` | Alias for `refloxide[plugin]` |
-
 ```bash
-pip install 'refloxide[core]'
-pip install 'refloxide[plugin]'
-pip install refloxide-gpu
+pip install refloxide
+pip install 'refloxide[plugin]'   # refnx modeling / fitting stack
 ```
 
 With uv (recommended):
 
 ```bash
-uv add 'refloxide[core]'
+uv add refloxide
 uv add 'refloxide[plugin]'
-uv add refloxide-gpu
 ```
 
-Bare `pip install refloxide` matches `[core]`.
+Wheels include the wgpu GPU path (`device="gpu"`; see [GPU backend](guides/gpu.md)).
+`refloxide[core]` matches the bare install; `refloxide[all]` aliases `[plugin]`.
 
 ## Quick Start
 

@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Publish separate CPU (`refloxide`) and GPU (`refloxide-gpu`) wheels; default Maturin features are CPU-only.
-- Release and CI wheel jobs build both variants; install GPU via `pip install refloxide-gpu`.
+- Single `refloxide` wheel again (Maturin features `python` + `gpu`); no
+  separate `refloxide-gpu` PyPI project.
 
 ## [Unreleased]
 
