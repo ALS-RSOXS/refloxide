@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using these metadata.
+type: software
+title: "ALS-RSOXS/refloxide"
+version: 0.2.1
+date-released: "2026-10-10"
+authors:
+  - family-names: Heilman
+    given-names: Harlan D
+repository-code: "https://github.com/ALS-RSOXS/refloxide"
+url: "https://als-rsoxs.github.io/refloxide/"
+license: GPL-3.0
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22759134
+    description: Concept DOI (resolves to the latest Zenodo version)
+abstract: >-
+  Extremely fast 4x4 transfer-matrix engine for polarized reflectivity from
+  stratified media — Rust core, optional wgpu GPU, thin Python bindings.

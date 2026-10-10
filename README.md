@@ -1,5 +1,7 @@
 # refloxide
 
+[![DOI](https://zenodo.org/badge/1218699552.svg)](https://doi.org/10.5281/zenodo.22759134)
+
 An extremely fast 4×4 transfer-matrix engine for **polarized** reflectivity
 from stratified media — Rust core, optional wgpu GPU, thin Python bindings.
 
@@ -80,6 +82,27 @@ cd refloxide
 make develop
 make test && make verify
 ```
+
+## Citation
+
+If you use refloxide in published work, please cite the Zenodo archive:
+
+Heilman, H. D. (2026). *ALS-RSOXS/refloxide* (v0.2.1). Zenodo.
+https://doi.org/10.5281/zenodo.22759134
+
+```bibtex
+@software{heilman_refloxide_2026,
+  author       = {Heilman, Harlan D},
+  title        = {{ALS-RSOXS/refloxide}},
+  version      = {v0.2.1},
+  year         = {2026},
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.22759134},
+  url          = {https://doi.org/10.5281/zenodo.22759134}
+}
+```
+
+GitHub’s “Cite this repository” button uses [`CITATION.cff`](CITATION.cff).
 
 ## License
 
