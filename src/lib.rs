@@ -9,6 +9,7 @@
 pub mod bookended;
 mod c4x4;
 pub mod error;
+pub mod general_stack;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod kernel;
@@ -25,6 +26,7 @@ pub use bookended::{
     density_profile_bookended, orientation_profile_bookended, BookendedParams,
 };
 pub use error::{RefloxideError, Result};
+pub use general_stack::general_reflectivity;
 pub use sld::{
     isotropic_lab_tensor, molecular_index, molecular_index_at_ooc, tensor_to_slab_row,
     uniaxial_lab_tensor,

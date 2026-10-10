@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from refloxide.rust import (
     bookended_uniaxial_reflectivity,
+    general_reflectivity,
     uniaxial_reflectivity,
     uniaxial_reflectivity_batch,
     uniaxial_reflectivity_points,
@@ -23,6 +24,7 @@ from refloxide.rust import (
 
 __all__ = [
     "bookended_uniaxial_reflectivity",
+    "general_reflectivity",
     "uniaxial_reflectivity",
     "uniaxial_reflectivity_batch",
     "uniaxial_reflectivity_points",

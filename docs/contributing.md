@@ -9,10 +9,10 @@ Thank you for your interest in contributing to refloxide!
    git clone https://github.com/HarlanHeilman/refloxide.git
    cd refloxide
   ```
-2. Install dependencies using uv:
+2. Install dependencies using uv (dev tooling + `[plugin]` modeling stack):
   ```bash
-   uv sync --group dev
-  ```
+   uv sync --group dev --extra plugin
+   ```
 3. Install prek hooks:
   ```bash
    prek install
@@ -56,6 +56,17 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Here are so
 2. Add tests for new functionality
 3. Ensure all tests pass
 4. Submit a pull request with a clear description
+
+### CI and the merge queue
+
+`main` is protected by a ruleset that **requires the merge queue**.
+
+| When | What runs |
+| --- | --- |
+| Every PR push | **CI** — lint, types, tests, Rust check, CPU + GPU wheels |
+| PR enters the merge queue | **CI again** on the prospective merge commit, plus **Pre-merge** — benchmarks (`github-action-benchmark`), pysentry, semgrep |
+
+Land with **Merge when ready** / add to the merge queue (do not push straight to `main`). Optional early Pre-merge: apply the `pre-merge` label, mark Ready for review, or `gh workflow run pre-merge.yml --ref <branch>`.
 
 ## Releasing
 
@@ -106,4 +117,3 @@ The `renovate.json` at the root of this project is pre-configured to manage:
 - We use [ty](https://docs.astral.sh/ty/) for type checking
 - All code should be properly typed
 - Write docstrings for public functions and classes
-

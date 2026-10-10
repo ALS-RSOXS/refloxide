@@ -11,6 +11,9 @@ hooks:
 not_in_nav: |
   rustdoc/**
 
+exclude_docs: |
+  guides/building_structures/_preamble.md
+
 extra:
   als_group:
     full_name: ALS RSOXS Group Project
@@ -64,7 +67,10 @@ markdown_extensions:
       anchor_linenums: true
       css_class: codehilite
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      base_path:
+        - docs
+      check_paths: true
   - pymdownx.tabbed:
       alternate_style: true
   - toc:
@@ -74,6 +80,18 @@ nav:
   - Home: index.md
   - Guides:
       - GPU backend: guides/gpu.md
+      - Building structures:
+          - Overview: guides/building_structures/index.md
+          - Homogeneous slabs: guides/building_structures/homogeneous.md
+          - Mixed slabs: guides/building_structures/mixed.md
+          - Functional forms:
+              - Overview: guides/building_structures/functional_forms.md
+              - Splines: guides/building_structures/splines.md
+              - Polynomials: guides/building_structures/polynomials.md
+              - Callable profiles: guides/building_structures/callables.md
+          - Phase transitions: guides/building_structures/phase_transitions.md
+          - Diffusion: guides/building_structures/diffusion.md
+          - Stacking examples: guides/building_structures/stacking.md
   - Theory:
       - Overview: theory/overview.md
       - Narrative context:

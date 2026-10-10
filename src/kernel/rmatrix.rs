@@ -303,6 +303,9 @@ pub(crate) fn reflect_chain<T: Real, M: Eigenmodes<T>>(
         below = above;
     }
     let norms = front.ok_or_else(|| singular(0))?.e_norms();
+    // refl(a, b): UP[a] amplitude from DOWN[b] incident.
+    // DOWN = [p+, s+], UP = [p-, s-] => [[R_pp, R_sp], [R_ps, R_ss]]
+    // with R_sp = s reflected from p and R_ps = p reflected from s.
     let refl = |a: usize, b: usize| {
         (g[a][b] * (norms[UP[a]] / norms[DOWN[b]]))
             .norm_sqr()

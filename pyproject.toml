@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "refloxide"
-version = "0.2.0"
+version = "0.2.1"
 description = "A blazingly fast 4x4 transfer matrix method for simulating reflection though stratified media"
 readme = "README.md"
 license = "GPL-3.0"
@@ -15,17 +15,39 @@ authors = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
+    "Environment :: GPU",
     "Typing :: Typed",
 ]
 keywords = []
 dependencies = [
+    "numpy>=2.0",
     "tqdm>=4.68.4",
+]
+
+# Install extras (pip / uv) for the CPU distribution ``refloxide``:
+#   refloxide[core]   — fast Rust TMM engine (same as bare install)
+#   refloxide[plugin] — refnx modeling / fitting stack
+# GPU builds are a separate PyPI project (``refloxide-gpu``) with the same
+# import path; install one or the other, not both. See guides/gpu.md.
+[project.optional-dependencies]
+core = []
+plugin = [
+    "polars>=1.40.1",
+    "pyarrow>=20.0.0",
+    "refnx>=0.1.63",
+    "periodictable>=2.1.0",
+    "scipy>=1.17.1",
+    "arviz>=1.1.0",
+]
+all = [
+    "refloxide[plugin]",
 ]
 
 [dependency-groups]
@@ -37,13 +59,10 @@ dev = [
     "prek>=0.1.0",
     "pysentry-rs>=0.1.0",
     "maturin>=1.13.1",
-    "numpy>=2.0",
     "ipykernel>=7.2.0",
-    "periodictable>=2.1.0",
     "matplotlib>=3.10.9",
     "marimo>=0.23.9",
-    "refnx>=0.1.63",
-    "pyarrow>=20.0.0",
+    "refloxide[plugin]",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -51,13 +70,9 @@ docs = [
     "mkdocstrings-python>=2.0.1",
     "pymdown-extensions>=11.0.0",
 ]
+# Local alias of the pip [plugin] extra for `uv sync --group plugin`.
 plugin = [
-    "polars>=1.40.1",
-    "pyarrow>=20.0.0",
-    "refnx>=0.1.63",
-    "periodictable>=2.1.0",
-    "marimo>=0.23.9",
-    "arviz>=1.1.0",
+    "refloxide[plugin]",
 ]
 
 [project.urls]
@@ -70,7 +85,9 @@ Changelog = "https://github.com/ALS-RSOXS/refloxide/blob/main/CHANGELOG.md"
 [tool.maturin]
 python-source = "src"
 module-name = "refloxide.rust"
-features = ["python", "gpu"]
+# Default published wheels are CPU-only. GPU wheels are built separately as
+# ``refloxide-gpu`` via ``scripts/build_wheel_variant.sh gpu``.
+features = ["python"]
 compatibility = "pypi"
 
 [tool.uv]

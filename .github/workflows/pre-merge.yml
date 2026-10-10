@@ -1,26 +1,23 @@
-# Heavy checks that should gate merge without running on every push.
+# Heavy checks that run when landing on main — not on every PR push.
 #
-# How this stays out of the hot path but still blocks merge:
-#   1. Branch ruleset requires these job names as status checks.
-#   2. This workflow only runs when you opt in (button / ready / label)
-#      or when the PR enters the merge queue.
-#   3. Until it runs on the current HEAD, required checks are missing
-#      and GitHub will not show the PR as mergeable.
+# Intended flow (enforced by the "main protection" ruleset + merge queue):
+#   1. Every PR push → CI only (lint, types, tests, Rust, CPU/GPU wheels).
+#   2. Add PR to the merge queue → GitHub builds a merge_group commit and
+#      re-runs CI *and* this Pre-merge workflow (bench / pysentry / semgrep).
+#   3. ALLGREEN merge queue merges only when those required checks pass.
 #
-# No push-to-main: the merge queue already ran these jobs on merge_group.
-# Re-running bench / pysentry / semgrep after land is wasted work.
+# Optional early Pre-merge (same jobs, before queueing):
+#   • Actions → Pre-merge → Run workflow
+#   • Apply the `pre-merge` label
+#   • Mark the PR Ready for review
+#   • gh workflow run pre-merge.yml --ref <branch>
+#
+# No push-to-main triggers: the queue already validated the land commit.
 #
 # Benchmark watching uses github-action-benchmark:
 #   • history lives in Actions cache (per OS), promoted on merge_group only
 #   • PRs restore that baseline, alert + fail on regression, do not overwrite it
 #   • ranking invariants (GPU < parallel < serial < PyPXR) stay in the bench CLI
-#
-# Run it (any one is enough):
-#   • Actions → Pre-merge → Run workflow  (native button)
-#   • Mark the PR Ready for review (leaves draft)
-#   • Apply the `pre-merge` label
-#   • Add the PR to the merge queue
-#   • gh workflow run pre-merge.yml --ref <branch>
 name: Pre-merge
 
 on:
