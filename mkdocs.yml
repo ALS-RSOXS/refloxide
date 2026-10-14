@@ -84,11 +84,10 @@ nav:
           - Overview: guides/building_structures/index.md
           - Homogeneous slabs: guides/building_structures/homogeneous.md
           - Mixed slabs: guides/building_structures/mixed.md
-          - Functional forms:
-              - Overview: guides/building_structures/functional_forms.md
-              - Splines: guides/building_structures/splines.md
-              - Polynomials: guides/building_structures/polynomials.md
-              - Callable profiles: guides/building_structures/callables.md
+          - Functional forms: guides/building_structures/functional_forms.md
+          - Splines: guides/building_structures/splines.md
+          - Polynomials: guides/building_structures/polynomials.md
+          - Callable profiles: guides/building_structures/callables.md
           - Phase transitions: guides/building_structures/phase_transitions.md
           - Diffusion: guides/building_structures/diffusion.md
           - Stacking examples: guides/building_structures/stacking.md
