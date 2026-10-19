@@ -35,6 +35,6 @@ Shared preamble used on every child page:
 | &nbsp;&nbsp;[Splines](splines.md) | Knotted $\phi(z)$ and free-optical Splines |
 | &nbsp;&nbsp;[Polynomials](polynomials.md) | Polynomial $\phi(z)$ and free $\delta_o$/$\delta_e$ |
 | &nbsp;&nbsp;[Callable profiles](callables.md) | User callables on any channel or full tensors |
-| [Phase transitions](phase_transitions.md) | `SecondOrderTransition` on $\gamma$, $\phi$, $\langle\cos^2\gamma\rangle$ |
+| [Phase transitions](phase_transitions.md) | `SecondOrderTransition` on $\gamma$, $\phi$, $\langle\cos^2\gamma\rangle$, and composed $\phi$/density/orientation |
 | [Diffusion](diffusion.md) | Couple vs exponential diffusion kinds |
 | [Stacking examples](stacking.md) | Multi-layer stacks, incl. free-optical Poly/Spline/$\cos$ stack |

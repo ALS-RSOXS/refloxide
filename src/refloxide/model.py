@@ -1745,6 +1745,30 @@ class MaterialSLD(Scatterer):
         )
 
 
+def _is_depth_field(value: object) -> bool:
+    return callable(getattr(value, "evaluate", None)) and hasattr(value, "parameters")
+
+
+def _depth_field_scalar(field: Any) -> float:
+    """Homogeneous stand-in for a depth field: bulk pin, else midpoint."""
+    bulk = getattr(field, "bulk", None)
+    if isinstance(bulk, Parameter):
+        return float(bulk.value or 0.0)
+    value = getattr(field, "value", None)
+    if isinstance(value, Parameter):
+        return float(value.value or 0.0)
+    thickness_param = getattr(field, "thickness", None)
+    thickness = (
+        float(thickness_param.value or 1.0)
+        if isinstance(thickness_param, Parameter)
+        else 1.0
+    )
+    sampled = np.asarray(
+        field.evaluate(0.5 * thickness, thickness=thickness), dtype=np.float64
+    )
+    return float(sampled.reshape(-1)[0])
+
+
 class UniTensorSLD(Scatterer):
     """Uniaxial material index of refraction from a tabulated optical-constants source.
 
@@ -1754,14 +1778,19 @@ class UniTensorSLD(Scatterer):
     loading and interpolating their own copy (see tmp/USAGE.md "Verifying
     the sharing guarantee").
 
+    `density` and `rotation` accept a scalar, a `Parameter`, or a depth
+    field such as `SecondOrderTransition`. A depth field is evaluated by
+    `DepthProfile` at each microslab. `tensor_at` uses that field's bulk
+    pin when the call has no depth.
+
     Parameters
     ----------
     ooc : OpticalConstants, polars.DataFrame, str, or pathlib.Path
         Optical-constants source, resolved via
         `refloxide.data.OpticalConstants.from_source`.
-    density : float or refnx.analysis.Parameter, optional
+    density : float, Parameter, or depth field, optional
         Mass-density scale applied to tabulated indices (g/cm^3).
-    rotation : float or refnx.analysis.Parameter, optional
+    rotation : float, Parameter, or depth field, optional
         Polar rotation of the molecular frame in radians.
     energy : float, optional
         Nominal photon energy (eV) used only by `__complex__`'s quick
@@ -1778,19 +1807,19 @@ class UniTensorSLD(Scatterer):
         self,
         ooc: OpticalConstants | pl.DataFrame | str | Path,
         *,
-        density: float = 1.0,
-        rotation: float = 0.0,
+        density: float | Parameter | Any = 1.0,
+        rotation: float | Parameter | Any = 0.0,
         energy: float = 250.0,
         energy_offset: float = 0.0,
         name: str = "",
     ) -> None:
         super().__init__(name=name)
         self.ooc = OpticalConstants.from_source(ooc)
-        self.density = possibly_create_parameter(
-            density, name=f"{name}_density", vary=True, bounds=(0.0, 5.0 * density)
+        self.density = self._store_channel(
+            density, name=f"{name}_density", kind="density"
         )
-        self.rotation = possibly_create_parameter(
-            rotation, name=f"{name}_rotation", vary=True, bounds=(-np.pi, np.pi)
+        self.rotation = self._store_channel(
+            rotation, name=f"{name}_rotation", kind="rotation"
         )
         self.energy_offset = possibly_create_parameter(
             energy_offset,
@@ -1800,15 +1829,43 @@ class UniTensorSLD(Scatterer):
         )
         self.energy = float(energy)
         self._parameters = Parameters(name=name)
-        self._parameters.extend([self.density, self.rotation, self.energy_offset])
+        self._parameters.extend(self._channel_parameters(self.density))
+        self._parameters.extend(self._channel_parameters(self.rotation))
+        self._parameters.append(self.energy_offset)
         self._tensor_cache: dict[
             tuple[float, float, float], NDArray[np.complex128]
         ] = {}
 
+    @staticmethod
+    def _store_channel(value: float | Parameter | Any, *, name: str, kind: str) -> Any:
+        if _is_depth_field(value):
+            return value
+        if kind == "density":
+            rho = float(value.value if isinstance(value, Parameter) else value)
+            upper = 5.0 * rho if rho > 0.0 else 1.0
+            return possibly_create_parameter(
+                value, name=name, vary=True, bounds=(0.0, upper)
+            )
+        return possibly_create_parameter(
+            value, name=name, vary=True, bounds=(-np.pi, np.pi)
+        )
+
+    @staticmethod
+    def _channel_parameters(value: Any) -> list[Any]:
+        if _is_depth_field(value):
+            return list(value.parameters)
+        return [value]
+
+    @staticmethod
+    def _channel_scalar(value: Any) -> float:
+        if _is_depth_field(value):
+            return _depth_field_scalar(value)
+        return float(value.value or 0.0)
+
     def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
         eff_ev = float(energy_ev) + float(self.energy_offset.value or 0.0)
-        density = float(self.density.value or 0.0)
-        rotation = float(self.rotation.value or 0.0)
+        density = self._channel_scalar(self.density)
+        rotation = self._channel_scalar(self.rotation)
         key = (eff_ev, density, rotation)
         cached = self._tensor_cache.get(key)
         if cached is not None:
@@ -1839,8 +1896,8 @@ class UniTensorSLD(Scatterer):
         eff_ev = np.asarray(energies_ev, dtype=np.float64) + float(
             self.energy_offset.value or 0.0
         )
-        density = float(self.density.value or 0.0)
-        rotation = float(self.rotation.value or 0.0)
+        density = self._channel_scalar(self.density)
+        rotation = self._channel_scalar(self.rotation)
         n_mol_xx, n_mol_zz = self.ooc.molecular_index_at_many(eff_ev, density)
         cos2 = np.cos(rotation) ** 2
         sin2 = 1.0 - cos2
@@ -1863,10 +1920,10 @@ class UniTensorSLD(Scatterer):
         return complex((2 * tensor[0, 0] + tensor[2, 2]) / 3)
 
     def effective_density(self) -> float | None:
-        return float(self.density.value or 0.0)
+        return self._channel_scalar(self.density)
 
     def effective_rotation(self) -> float | None:
-        return float(self.rotation.value or 0.0)
+        return self._channel_scalar(self.rotation)
 
     def __repr__(self) -> str:
         return f"UniTensorSLD(name={self.name!r})"

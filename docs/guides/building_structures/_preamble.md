@@ -1,5 +1,5 @@
 ```python
-from refloxide.model import MaterialSLD, FreeUniTensor, Mix, ReflectModel
+from refloxide.model import MaterialSLD, FreeUniTensor, Mix, ReflectModel, UniTensorSLD
 from refloxide.profiles import (
     Diffusion,
     SecondOrderTransition,
