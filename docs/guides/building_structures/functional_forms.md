@@ -10,8 +10,8 @@ orientation $\gamma$ / $\langle\cos^2\gamma\rangle$.
 | Channel kwargs | Typical use |
 |----------------|-------------|
 | `phi` | Volume fraction of `materials[0]` in a `Mix` |
-| `gamma`, `cos2_gamma` | Orientation / order parameter on a uniaxial material |
-| `density` | Density scale on the material |
+| `gamma`, `cos2_gamma` | Orientation of one material. On a `Mix`, set `UniTensorSLD.rotation` |
+| `density` | Density of one material. On a `Mix`, set `UniTensorSLD.density` |
 | `delta_o`, `delta_e`, `beta_o`, `beta_e` | Free laboratory optical diagonals (no Mix required) |
 
 Attach the same form class to different kwargs:
@@ -35,9 +35,10 @@ Depth panels annotate the controlling constants. Figure builders live in
 [`build_figures.py`](../builtin_slabs/build_figures.py); conventions are on
 the [Building structures overview](index.md).
 
-For interfacial orientation / composition transitions see
-[Phase transitions](phase_transitions.md). For Fick couple / exponential
-profiles see [Diffusion](diffusion.md).
+For interfacial orientation / composition transitions, including a `Mix`
+whose volume fraction, density, and tilt are all `SecondOrderTransition`
+fields, see [Phase transitions](phase_transitions.md). For Fick couple /
+exponential profiles see [Diffusion](diffusion.md).
 
 ## Pages
 

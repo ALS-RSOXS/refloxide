@@ -2,8 +2,9 @@
 
 `SecondOrderTransition` profiles with annotated `top` / `bulk` / `bottom` and
 decay lengths $\tau_\mathrm{top}$, $\tau_\mathrm{bottom}$. Drive orientation
-($\gamma$), Mix composition ($\phi$), $\langle\cos^2\gamma\rangle$, or free
-optical diagonals (`delta_o` / `delta_e` / …) with the same form object.
+($\gamma$), Mix composition ($\phi$), $\langle\cos^2\gamma\rangle$, free
+optical diagonals (`delta_o` / `delta_e` / …), or, on one `Mix`, $\phi$
+together with each component's density and tilt.
 
 Shared preamble:
 
@@ -58,6 +59,89 @@ stack = vac | layer | si
 ![second-order phi depth](../builtin_slabs/second-order-phi.png)
 
 ![second-order phi reflectivity](../builtin_slabs/second-order-phi-R.png)
+
+## Composed pins (`phi`, density, orientation)
+
+**Builder:** `case_second_order_composed`
+
+Same `Mix` of uniaxial tensors as a homogeneous blend. `phi` on the
+`DepthProfile` is the volume fraction of component A. Each component's
+density and tilt are `SecondOrderTransition` fields passed to
+`UniTensorSLD`, and the profile evaluates those fields at every microslab
+before mixing. `Mix.vf` is frozen, because `phi(z)` is the composition
+that is evaluated.
+
+The reflectivity panel compares this film with the same $\phi(z)$ and with
+density and tilt fixed at the **bulk** pins. Depth panels are the composed
+film only ($n_o$/$n_e$, birefringence, $\phi$, $\rho$, $\gamma$; sharp |
+broadened). `ooc_a` and `ooc_b` are `OpticalConstants` tables.
+
+```python
+a = UniTensorSLD(
+    ooc_a,
+    density=SecondOrderTransition(
+        thickness=220.0,
+        bulk=1.40,
+        top=1.10,
+        bottom=1.60,
+        tau_top=18.0,
+        tau_bottom=36.0,
+        name="rho_a",
+    ),
+    rotation=SecondOrderTransition(
+        thickness=220.0,
+        bulk=0.40,
+        top=0.12,
+        bottom=1.15,
+        tau_top=24.0,
+        tau_bottom=48.0,
+        name="gamma_a",
+    ),
+    name="a",
+)
+b = UniTensorSLD(
+    ooc_b,
+    density=SecondOrderTransition(
+        thickness=220.0,
+        bulk=1.05,
+        top=0.85,
+        bottom=1.40,
+        tau_top=22.0,
+        tau_bottom=42.0,
+        name="rho_b",
+    ),
+    rotation=SecondOrderTransition(
+        thickness=220.0,
+        bulk=1.20,
+        top=1.45,
+        bottom=0.20,
+        tau_top=16.0,
+        tau_bottom=30.0,
+        name="gamma_b",
+    ),
+    name="b",
+)
+layer = DepthProfile(
+    material=Mix([a, b], rule="linear"),
+    thickness=220.0,
+    roughness=2.0,
+    phi=SecondOrderTransition(
+        thickness=220.0,
+        bulk=0.50,
+        top=0.85,
+        bottom=0.15,
+        tau_top=20.0,
+        tau_bottom=40.0,
+        name="phi",
+    ),
+    name="composed",
+)
+stack = vac | layer | si
+```
+
+![composed second-order depth](../builtin_slabs/second-order-composed.png)
+
+![composed second-order reflectivity](../builtin_slabs/second-order-composed-R.png)
 
 ## Order parameter (`<cos^2 gamma>`)
 
