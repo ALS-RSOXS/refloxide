@@ -1,14 +1,14 @@
-//! Portable GPU backend for the decoupled uniaxial recursion (feature `gpu`).
+//! Portable GPU backend for the decoupled uniaxial recursion.
 //!
-//! Dispatches [`crate::kernel::solve_point_recursive`] as a WGSL compute
+//! Dispatches [`refloxide_tmm::kernel::solve_point_recursive`] as a WGSL compute
 //! shader through `wgpu`, which targets Metal (Apple), Vulkan (NVIDIA, AMD,
 //! Intel, Linux/Windows) and DX12 (Windows) from one source. Arithmetic is
 //! single precision; the recursion's cancellation-free formulation keeps
 //! relative reflectance error near `1e-5` against the double-precision 4x4
-//! reference (see `examples/kernel_precision.rs`).
+//! reference (see the `kernel_precision` example of `refloxide-tmm`).
 //!
 //! [`GpuContext::reflectivity_points_general`] additionally runs the general
-//! dielectric-tensor 4x4 engine ([`crate::kernel::solve_point_general`]).
+//! dielectric-tensor 4x4 engine ([`refloxide_tmm::kernel::solve_point_general`]).
 //! It needs double precision to be accurate for tilted and biaxial layers,
 //! which requires native `f64` shaders (wgpu `SHADER_F64`: Vulkan and DX12
 //! adapters, not Metal); see [`GpuContext::supports_f64`].
@@ -25,12 +25,11 @@ use nalgebra::Matrix3;
 use num_complex::Complex;
 use wgpu::util::DeviceExt;
 
-use crate::error::{RefloxideError, Result};
-use crate::kernel::{GeneralLayer, LayerCoeffs};
-use crate::uniaxial::{
-    jvp_coeffs, layer_coeffs, validate_batch, validate_points, wavenumber, Layer, PointsJvpOutput,
-    PointsTangents, UniaxialBatchOutput, UniaxialOutput,
+use refloxide_core::{
+    jvp_coeffs, layer_coeffs, validate_batch, validate_points, wavenumber, Layer, LayerCoeffs,
+    PointsJvpOutput, PointsTangents, RefloxideError, Result, UniaxialBatchOutput, UniaxialOutput,
 };
+use refloxide_tmm::kernel::GeneralLayer;
 
 const WORKGROUP_SIZE: u32 = 64;
 
@@ -73,7 +72,7 @@ pub enum GeneralPrecision {
     F64,
     /// Single precision with hardware transcendentals. Runs on every
     /// adapter, but loses 4-48% of reflectance on tilted and biaxial stacks
-    /// (see `examples/kernel_precision.rs`); intended for cross-checking the
+    /// (see the `kernel_precision` example of `refloxide-tmm`); intended for cross-checking the
     /// shader logic against the CPU kernel, not for fitting.
     F32,
 }
@@ -282,7 +281,7 @@ impl GpuContext {
     ///
     /// # Returns
     /// Row-major `(n_stacks, n_q)` pairs `[R_pp, R_ss]`, matching the
-    /// `(0, 0)` and `(1, 1)` entries of [`crate::kernel::PointResult`].
+    /// `(0, 0)` and `(1, 1)` entries of [`refloxide_tmm::kernel::PointResult`].
     ///
     /// # Errors
     /// As for [`GpuContext::reflectivity_points`].
@@ -361,7 +360,7 @@ impl GpuContext {
 
     /// Single-precision reflectance and directional derivatives for `(q, stack)` points.
     ///
-    /// Evaluates [`crate::kernel::solve_point_recursive_jvp`] for every
+    /// Evaluates [`refloxide_tmm::kernel::solve_point_recursive_jvp`] for every
     /// `(direction, point)` pair in one dispatch. Direction `k` perturbs the
     /// layer records by `dlayers[k]` and the scattering vectors by `dq[k]`.
     ///
@@ -505,7 +504,7 @@ impl GpuContext {
 
     /// Reflectance of general dielectric-tensor stacks at independent `(q, stack)` points.
     ///
-    /// Runs the shader port of [`crate::kernel::solve_point_general`]:
+    /// Runs the shader port of [`refloxide_tmm::kernel::solve_point_general`]:
     /// Berreman eigenmodes of each layer's full susceptibility tensor and the
     /// 4x4 reflection-matrix recursion with Nevot-Croce roughness. Tilted,
     /// rotated, and biaxial layers produce cross-polarized reflectance.
@@ -797,7 +796,7 @@ pub fn shared_context() -> Result<&'static GpuContext> {
         .map_err(|e| RefloxideError::Gpu(e.clone()))
 }
 
-/// GPU counterpart of [`crate::uniaxial::uniaxial_reflectivity_batch`].
+/// GPU counterpart of [`refloxide_tmm::uniaxial::uniaxial_reflectivity_batch`].
 ///
 /// Inputs are validated with the CPU contract, packed into susceptibility
 /// records in `f64`, then explicitly narrowed to `f32` for the device. The
@@ -837,7 +836,7 @@ pub fn uniaxial_reflectivity_batch(
     })
 }
 
-/// GPU counterpart of [`crate::uniaxial::uniaxial_reflectivity_points`].
+/// GPU counterpart of [`refloxide_tmm::uniaxial::uniaxial_reflectivity_points`].
 ///
 /// Precision, transmission (`NaN`), and cross-polarized (zero) semantics are
 /// those of [`uniaxial_reflectivity_batch`]; every stack must have the same
@@ -897,7 +896,7 @@ pub fn uniaxial_reflectivity_points(
     Ok(UniaxialOutput { refl, tran })
 }
 
-/// GPU counterpart of [`crate::uniaxial::uniaxial_reflectivity_points_jvp`].
+/// GPU counterpart of [`refloxide_tmm::uniaxial::uniaxial_reflectivity_points_jvp`].
 ///
 /// Values and tangents are narrowed to `f32` on the device; derivatives are
 /// forward-mode exact for the single-precision recursion, so their relative

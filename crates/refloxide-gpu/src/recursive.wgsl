@@ -1,6 +1,6 @@
 // Decoupled uniaxial-z Parratt recursion, one invocation per q-point; each
 // point names the stack it is evaluated against.
-// Mirrors refloxide::kernel::solve_point_recursive operation for operation;
+// Mirrors refloxide_tmm::kernel::solve_point_recursive operation for operation;
 // complex numbers are vec2<f32> as (re, im).
 
 struct Layer {

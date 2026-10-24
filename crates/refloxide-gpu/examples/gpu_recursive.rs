@@ -3,13 +3,13 @@
 //! Checks the WGSL recursion against the CPU `f32` recursion and the `f64`
 //! 4x4 reference, then times batched `(n_stacks, n_q)` workloads shaped like
 //! MCMC walker ensembles. Run with
-//! `cargo run --profile perf --no-default-features --features gpu --example gpu_recursive`.
+//! `cargo run -p refloxide-gpu --profile perf --example gpu_recursive`.
 
 use std::time::Instant;
 
 use num_complex::Complex;
-use refloxide::gpu::GpuContext;
-use refloxide::kernel::{solve_flat, solve_flat_recursive, solve_flat_rmatrix, LayerCoeffs};
+use refloxide_gpu::GpuContext;
+use refloxide_tmm::kernel::{solve_flat, solve_flat_recursive, solve_flat_rmatrix, LayerCoeffs};
 
 const HC_EV_ANGSTROM: f64 = 12398.4193;
 

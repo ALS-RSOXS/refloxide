@@ -7,13 +7,13 @@
 //! the f64 CPU kernel (accuracy). The f64 build runs only where the adapter
 //! reports `SHADER_F64` (Vulkan, DX12) and is compared with the f64 CPU
 //! kernel. Run with
-//! `cargo run --profile perf --no-default-features --features gpu --example gpu_general`.
+//! `cargo run -p refloxide-gpu --profile perf --example gpu_general`.
 
 use std::time::Instant;
 
 use num_complex::Complex;
-use refloxide::gpu::{GeneralPrecision, GpuContext};
-use refloxide::kernel::{solve_point_general, GeneralLayer};
+use refloxide_gpu::{GeneralPrecision, GpuContext};
+use refloxide_tmm::kernel::{solve_point_general, GeneralLayer};
 
 type C = Complex<f64>;
 

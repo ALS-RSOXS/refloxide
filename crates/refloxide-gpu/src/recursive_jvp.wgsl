@@ -1,5 +1,5 @@
 // Forward-mode derivative of the decoupled uniaxial-z recursion.
-// Mirrors refloxide::kernel::solve_point_recursive_jvp: one invocation per
+// Mirrors refloxide_tmm::kernel::solve_point_recursive_jvp: one invocation per
 // (point, direction); every complex intermediate is a dual number
 // (value, tangent) with exact derivative rules.
 

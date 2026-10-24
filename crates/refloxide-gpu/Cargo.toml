@@ -1,0 +1,20 @@
+[package]
+name = "refloxide-gpu"
+description = "wgpu compute backend for refloxide uniaxial and general reflectivity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+refloxide-core = { workspace = true }
+refloxide-tmm = { workspace = true }
+nalgebra = { workspace = true }
+num-complex = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+naga = { workspace = true }

@@ -3,9 +3,9 @@
 //! Checks the reassociation canary (the f32 two-sum error term must be
 //! nonzero), then compares every df64 operation against `f64` on the host
 //! over the argument ranges reflectivity kernels use. Run with
-//! `cargo run --profile perf --no-default-features --features gpu --example gpu_df64`.
+//! `cargo run -p refloxide-gpu --profile perf --example gpu_df64`.
 
-use refloxide::gpu::{Df64Op, GpuContext};
+use refloxide_gpu::{Df64Op, GpuContext};
 
 type Df64Case = (
     &'static str,

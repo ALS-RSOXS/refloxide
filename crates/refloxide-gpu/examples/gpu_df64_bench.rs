@@ -1,13 +1,13 @@
 //! Accuracy and cost of the df64 GPU recursion against GPU f32 and CPU f64.
 //!
 //! Run with
-//! `cargo run --profile perf --no-default-features --features gpu --example gpu_df64_bench`.
+//! `cargo run -p refloxide-gpu --profile perf --example gpu_df64_bench`.
 
 use std::time::Instant;
 
 use num_complex::Complex;
-use refloxide::gpu::GpuContext;
-use refloxide::kernel::{solve_flat_recursive, LayerCoeffs};
+use refloxide_gpu::GpuContext;
+use refloxide_tmm::kernel::{solve_flat_recursive, LayerCoeffs};
 
 const HC_EV_ANGSTROM: f64 = 12398.4193;
 

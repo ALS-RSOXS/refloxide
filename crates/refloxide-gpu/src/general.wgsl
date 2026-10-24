@@ -1,5 +1,5 @@
 // General-tensor 4x4 reflection-matrix recursion, one invocation per q-point.
-// Mirrors refloxide::kernel::solve_point_general (kernel/general.rs) and
+// Mirrors refloxide_tmm::kernel::solve_point_general (kernel/general.rs) and
 // kernel::rmatrix::reflect_chain function for function. Requires a prelude
 // defining `real`, `EPS`, `SQRT_EPS`, `rexp` and `rcossin`
 // (general_f32.wgsl or general_f64.wgsl).
