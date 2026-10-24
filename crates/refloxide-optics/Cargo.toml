@@ -7,8 +7,14 @@ license.workspace = true
 repository.workspace = true
 readme = "README.md"
 
+[features]
+# Peak-sum evaluation via the `lineshapes` crate (`peaks` module).
+lineshapes = ["dep:lineshapes"]
+
 [dependencies]
 num-complex = { workspace = true }
+refloxide-core = { workspace = true }
+lineshapes = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }

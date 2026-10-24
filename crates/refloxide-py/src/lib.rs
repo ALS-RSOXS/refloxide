@@ -36,7 +36,8 @@ fn to_pyerr(err: RefloxideError) -> PyErr {
         RefloxideError::InvalidShape(_)
         | RefloxideError::LayerCountMismatch { .. }
         | RefloxideError::InsufficientLayers(_)
-        | RefloxideError::InvalidEnergy(_) => {
+        | RefloxideError::InvalidEnergy(_)
+        | RefloxideError::InvalidParameter(_) => {
             pyo3::exceptions::PyValueError::new_err(err.to_string())
         }
         RefloxideError::SingularDynamicMatrix { .. } | RefloxideError::Gpu(_) => {
