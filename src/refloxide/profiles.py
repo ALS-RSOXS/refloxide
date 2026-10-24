@@ -10,7 +10,7 @@ reflectivity kernel.
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeGuard, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,7 +20,7 @@ from scipy.special import erf
 
 from refloxide import optics
 from refloxide.mixing import pack_lab_diagonal
-from refloxide.model import MultiRowComponent, Scatterer, UniTensorSLD
+from refloxide.model import Mix, MultiRowComponent, Scatterer, UniTensorSLD
 from refloxide.pxr.energy.bookended import adaptive_microslab_thicknesses
 from refloxide.sources import lab_diagonal_from_cos2
 
@@ -453,12 +453,150 @@ def _eval_field(
     return np.asarray(field.evaluate(z, thickness=thickness), dtype=np.float64)
 
 
+def _is_component_sequence(
+    value: object,
+) -> TypeGuard[list[object] | tuple[object, ...]]:
+    return isinstance(value, (list, tuple))
+
+
+def _as_channel(value: object) -> _FieldBase | float | Parameter | None:
+    if value is None or isinstance(value, (Parameter, _FieldBase)):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    msg = (
+        "profile channel must be a field, number, or Parameter, "
+        f"got {type(value).__name__}"
+    )
+    raise TypeError(msg)
+
+
+def _eval_shared_channel(
+    value: object,
+    z: NDArray[np.float64],
+    *,
+    thickness: float,
+) -> NDArray[np.float64] | None:
+    if _is_component_sequence(value):
+        return None
+    return _eval_field(_as_channel(value), z, thickness=thickness)
+
+
+def _per_component(
+    value: object,
+    n: int,
+    label: str,
+) -> list[_FieldBase | float | Parameter | None]:
+    """Broadcast one channel, or align a per-component sequence to `n` materials."""
+    if value is None:
+        return [None] * n
+    if _is_component_sequence(value):
+        items = [_as_channel(item) for item in value]
+        if len(items) != n:
+            msg = f"{label} sequence length {len(items)} does not match {n} materials"
+            raise ValueError(msg)
+        return items
+    return [_as_channel(value)] * n
+
+
+def _iter_profile_parameters(value: object):
+    if value is None:
+        return
+    if isinstance(value, _FieldBase):
+        yield from value.parameters
+        return
+    if isinstance(value, Parameter):
+        yield value
+        return
+    if _is_component_sequence(value):
+        for item in value:
+            yield from _iter_profile_parameters(item)
+
+
+def _carried_field(value: object) -> _FieldBase | float | Parameter | None:
+    """Depth field stored on a scatterer channel, ignoring scalar parameters."""
+    if value is None or isinstance(value, (int, float, Parameter)):
+        return None
+    if isinstance(value, _FieldBase):
+        return value
+    return None
+
+
+def _lab_diagonals(
+    n_xx: complex | NDArray[np.complex128],
+    n_zz: complex | NDArray[np.complex128],
+    cos2: NDArray[np.float64],
+) -> tuple[NDArray[np.complex128], NDArray[np.complex128]]:
+    cos2_arr = np.asarray(cos2, dtype=np.float64)
+    sin2 = 1.0 - cos2_arr
+    n_xx_arr = np.asarray(n_xx, dtype=np.complex128)
+    n_zz_arr = np.asarray(n_zz, dtype=np.complex128)
+    n_o = (n_xx_arr * (1.0 + cos2_arr) + n_zz_arr * sin2) / 2.0
+    n_e = n_xx_arr * sin2 + n_zz_arr * cos2_arr
+    return n_o, n_e
+
+
+def _component_lab_channels(
+    material: Scatterer,
+    energy_ev: float,
+    z: NDArray[np.float64],
+    thickness: float,
+    density_field: _FieldBase | float | Parameter | None,
+    gamma_field: _FieldBase | float | Parameter | None,
+    cos2_field: _FieldBase | float | Parameter | None,
+) -> tuple[NDArray[np.complex128], NDArray[np.complex128]]:
+    """Laboratory diagonals for one mix component at depths `z`.
+
+    A depth field replaces that component's scalar density or rotation.
+    With no field, the scatterer's own `tensor_at` keeps its scalars.
+    """
+    density = _eval_field(density_field, z, thickness=thickness)
+    gamma = _eval_field(gamma_field, z, thickness=thickness)
+    cos2 = _eval_field(cos2_field, z, thickness=thickness)
+    if isinstance(material, UniTensorSLD) and (
+        density is not None or gamma is not None or cos2 is not None
+    ):
+        offset = float(material.energy_offset.value or 0.0)
+        n_xx_unit, n_zz_unit = material.ooc.molecular_index_at(energy_ev + offset, 1.0)
+        if density is None:
+            density = np.full(z.shape, float(material.density.value or 0.0))
+        if cos2 is None:
+            if gamma is None:
+                gamma = np.full(z.shape, float(material.rotation.value or 0.0))
+            cos2 = np.cos(np.asarray(gamma, dtype=np.float64)) ** 2
+        n_xx = np.asarray(n_xx_unit * density, dtype=np.complex128)
+        n_zz = np.asarray(n_zz_unit * density, dtype=np.complex128)
+        return _lab_diagonals(n_xx, n_zz, np.asarray(cos2, dtype=np.float64))
+    base = material.tensor_at(energy_ev)
+    n_o = np.full(z.shape, complex(base[0, 0]), dtype=np.complex128)
+    n_e = np.full(z.shape, complex(base[2, 2]), dtype=np.complex128)
+    if density is not None:
+        n_o = n_o * density
+        n_e = n_e * density
+    if gamma is not None or cos2 is not None:
+        if cos2 is None:
+            cos2 = np.cos(np.asarray(gamma, dtype=np.float64)) ** 2
+        n_o, n_e = _lab_diagonals(n_o, n_e, cos2)
+    return n_o, n_e
+
+
 class DepthProfile(MultiRowComponent):
     """Microslab segment driven by scalar depth fields on a material handle.
 
     Channel kwargs select which observable each field drives: `gamma`,
     `cos2_gamma`, `density`, `phi`, and free optical `delta_o`/`delta_e`/
-    `beta_o`/`beta_e`.
+    `beta_o`/`beta_e`. A channel accepts one field, one number, one
+    `Parameter`, or a sequence aligned with `Mix.materials`.
+
+    On a `Mix`, `phi` is applied together with each component's own
+    `density` and `rotation`. Those channels live on the `UniTensorSLD`:
+    pass a `SecondOrderTransition` (or any other depth field) as
+    `density=` or `rotation=` and this profile evaluates it at every
+    microslab before mixing. A single `phi` field is the volume fraction
+    of `materials[0]` (exactly two components). `phi` as a sequence is one
+    weight profile per component, clipped at 0 and renormalized to sum to 1.
+    Attaching `phi` freezes `Mix.vf`, because those homogeneous fractions
+    are not the evaluated composition.
     """
 
     def __init__(
@@ -470,10 +608,26 @@ class DepthProfile(MultiRowComponent):
         n_slabs: int = 40,
         mesh: MeshKind = "adaptive",
         mesh_constant: float = 1.5,
-        gamma: _FieldBase | float | Parameter | None = None,
-        cos2_gamma: _FieldBase | float | Parameter | None = None,
-        density: _FieldBase | float | Parameter | None = None,
-        phi: _FieldBase | float | Parameter | None = None,
+        gamma: _FieldBase
+        | float
+        | Parameter
+        | Sequence[_FieldBase | float | Parameter]
+        | None = None,
+        cos2_gamma: _FieldBase
+        | float
+        | Parameter
+        | Sequence[_FieldBase | float | Parameter]
+        | None = None,
+        density: _FieldBase
+        | float
+        | Parameter
+        | Sequence[_FieldBase | float | Parameter]
+        | None = None,
+        phi: _FieldBase
+        | float
+        | Parameter
+        | Sequence[_FieldBase | float | Parameter]
+        | None = None,
         delta_o: _FieldBase | float | Parameter | None = None,
         delta_e: _FieldBase | float | Parameter | None = None,
         beta_o: _FieldBase | float | Parameter | None = None,
@@ -502,6 +656,9 @@ class DepthProfile(MultiRowComponent):
         if gamma is not None and cos2_gamma is not None:
             msg = "DepthProfile accepts at most one of gamma and cos2_gamma"
             raise ValueError(msg)
+        if self.phi is not None and isinstance(self.material, Mix):
+            for fraction in self.material.vf:
+                fraction.vary = False
 
     def geometric_thickness(self) -> float:
         return float(self.thick.value or 0.0)
@@ -534,14 +691,116 @@ class DepthProfile(MultiRowComponent):
             ("beta_e", self.beta_e),
         )
         for key, field in mapping:
-            values = _eval_field(field, z, thickness=thickness)
+            if _is_component_sequence(field):
+                for index, item in enumerate(field):
+                    values = _eval_field(_as_channel(item), z, thickness=thickness)
+                    if values is not None:
+                        out[f"{key}_{index}"] = values
+                continue
+            values = _eval_shared_channel(field, z, thickness=thickness)
             if values is not None:
                 out[key] = values
+        materials = getattr(self.material, "materials", ())
+        for index, material in enumerate(materials):
+            for key, attr in (("density", "density"), ("orientation", "rotation")):
+                label = f"{key}_{index}"
+                if label in out:
+                    continue
+                carried = _carried_field(getattr(material, attr, None))
+                if carried is None:
+                    continue
+                values = _eval_field(carried, z, thickness=thickness)
+                if values is not None:
+                    out[label] = values
         return out
 
     def _thicknesses(self) -> NDArray[np.float64]:
         return _mesh_thicknesses(
             self.geometric_thickness(), self.n_slabs, self.mesh, self.mesh_constant
+        )
+
+    def _components_carry_depth_fields(self) -> bool:
+        materials = getattr(self.material, "materials", ())
+        return any(
+            _carried_field(getattr(material, attr, None)) is not None
+            for material in materials
+            for attr in ("density", "rotation")
+        )
+
+    def _mixes_component_channels(self) -> bool:
+        channels = (self.phi, self.density, self.gamma, self.cos2_gamma)
+        if any(_is_component_sequence(channel) for channel in channels):
+            return True
+        if self._components_carry_depth_fields():
+            return True
+        return any(
+            channel is not None
+            for channel in (self.density, self.gamma, self.cos2_gamma)
+        )
+
+    def _mixed_component_tensors(
+        self,
+        energy_ev: float,
+        z: NDArray[np.float64],
+        thickness: float,
+    ) -> NDArray[np.complex128]:
+        from refloxide.mixing import mix_channels, pack_lab_diagonal
+
+        mix = cast("Mix", self.material)
+        materials = mix.materials
+        n_materials = len(materials)
+        densities = _per_component(self.density, n_materials, "density")
+        gammas = _per_component(self.gamma, n_materials, "gamma")
+        cos2s = _per_component(self.cos2_gamma, n_materials, "cos2_gamma")
+        if _is_component_sequence(self.phi):
+            raw: list[NDArray[np.float64]] = []
+            for field in self.phi:
+                values = _eval_field(
+                    cast("_FieldBase | float | Parameter | None", field),
+                    z,
+                    thickness=thickness,
+                )
+                if values is None:
+                    msg = "each phi entry must be a field, number, or Parameter"
+                    raise ValueError(msg)
+                raw.append(np.clip(values, 0.0, None))
+            stacked = np.stack(raw, axis=0)
+            total = stacked.sum(axis=0)
+            total = np.where(total == 0.0, 1.0, total)
+            fractions = [stacked[i] / total for i in range(n_materials)]
+        else:
+            phi = _eval_shared_channel(self.phi, z, thickness=thickness)
+            if phi is not None:
+                if n_materials != 2:
+                    msg = "a single phi field requires exactly two Mix materials"
+                    raise ValueError(msg)
+                fractions = [phi, 1.0 - phi]
+            else:
+                fractions = [
+                    np.full(z.shape, float(fraction.value or 0.0))
+                    for fraction in mix.vf
+                ]
+        n_o_parts: list[NDArray[np.complex128]] = []
+        n_e_parts: list[NDArray[np.complex128]] = []
+        for material, density, gamma, cos2 in zip(
+            materials, densities, gammas, cos2s, strict=True
+        ):
+            if density is None:
+                density = _carried_field(getattr(material, "density", None))
+            if gamma is None:
+                gamma = _carried_field(getattr(material, "rotation", None))
+            n_o, n_e = _component_lab_channels(
+                material, energy_ev, z, thickness, density, gamma, cos2
+            )
+            n_o_parts.append(n_o)
+            n_e_parts.append(n_e)
+        return pack_lab_diagonal(
+            mix_channels(
+                n_o_parts, fractions, rule=mix.rule, host_index=mix.host_index
+            ),
+            mix_channels(
+                n_e_parts, fractions, rule=mix.rule, host_index=mix.host_index
+            ),
         )
 
     def rows_and_tensors_at(
@@ -566,17 +825,26 @@ class DepthProfile(MultiRowComponent):
         z: NDArray[np.float64],
         thickness: float,
     ) -> NDArray[np.complex128]:
-        gamma = _eval_field(self.gamma, z, thickness=thickness)
-        cos2 = _eval_field(self.cos2_gamma, z, thickness=thickness)
-        density = _eval_field(self.density, z, thickness=thickness)
-        phi = _eval_field(self.phi, z, thickness=thickness)
+        gamma = _eval_shared_channel(self.gamma, z, thickness=thickness)
+        cos2 = _eval_shared_channel(self.cos2_gamma, z, thickness=thickness)
+        density = _eval_shared_channel(self.density, z, thickness=thickness)
+        phi = _eval_shared_channel(self.phi, z, thickness=thickness)
         delta_o = _eval_field(self.delta_o, z, thickness=thickness)
         delta_e = _eval_field(self.delta_e, z, thickness=thickness)
         beta_o = _eval_field(self.beta_o, z, thickness=thickness)
         beta_e = _eval_field(self.beta_e, z, thickness=thickness)
+        free_optical = delta_o is not None or delta_e is not None
+        if isinstance(self.material, Mix) and self._mixes_component_channels():
+            if free_optical:
+                msg = (
+                    "DepthProfile cannot combine free optical diagonals "
+                    "with a Mix profile"
+                )
+                raise ValueError(msg)
+            return self._mixed_component_tensors(energy_ev, z, thickness)
 
         # Free optical polynomial/spline path
-        if delta_o is not None or delta_e is not None:
+        if free_optical:
             base = self.material.tensor_at(energy_ev)
             n_o0 = complex(base[0, 0])
             n_e0 = complex(base[2, 2])
@@ -595,6 +863,10 @@ class DepthProfile(MultiRowComponent):
             if density is not None:
                 n_o = n_o * density
                 n_e = n_e * density
+            if gamma is not None or cos2 is not None:
+                if cos2 is None:
+                    cos2 = np.cos(np.asarray(gamma, dtype=np.float64)) ** 2
+                n_o, n_e = _lab_diagonals(n_o, n_e, cos2)
             return pack_lab_diagonal(n_o, n_e)
 
         mix_fn = getattr(self.material, "mix_tensors_at", None)
@@ -603,9 +875,18 @@ class DepthProfile(MultiRowComponent):
 
         if isinstance(self.material, UniTensorSLD):
             uni = self.material
-            dens0 = float(uni.density.value or 1.0)
-            dens = density if density is not None else np.full(z.shape, dens0)
-            rot0 = float(uni.rotation.value or 0.0)
+            if density is None:
+                carried_density = _carried_field(uni.density)
+                if carried_density is not None:
+                    density = _eval_field(carried_density, z, thickness=thickness)
+            if gamma is None and cos2 is None:
+                carried_rotation = _carried_field(uni.rotation)
+                if carried_rotation is not None:
+                    gamma = _eval_field(carried_rotation, z, thickness=thickness)
+            if density is None:
+                dens = np.full(z.shape, uni._channel_scalar(uni.density))
+            else:
+                dens = density
             eo = float(uni.energy_offset.value or 0.0)
             eff = energy_ev + eo
             tensors = np.empty((z.size, 3, 3), dtype=np.complex128)
@@ -616,7 +897,11 @@ class DepthProfile(MultiRowComponent):
                         n_xx, n_zz, float(cos2[i]), kind="cos2_gamma"
                     )
                 else:
-                    g = float(gamma[i]) if gamma is not None else rot0
+                    g = (
+                        float(gamma[i])
+                        if gamma is not None
+                        else uni._channel_scalar(uni.rotation)
+                    )
                     tensors[i] = np.asarray(
                         optics.uniaxial_lab_tensor(n_xx, n_zz, g),
                         dtype=np.complex128,
@@ -633,12 +918,8 @@ class DepthProfile(MultiRowComponent):
             n_o_arr = np.full(z.shape, n_o, dtype=np.complex128)
             n_e_arr = np.full(z.shape, n_e, dtype=np.complex128)
         if cos2 is not None:
-            return lab_tensor_from_order_parameter(
-                complex(np.mean(n_o_arr)),
-                complex(np.mean(n_e_arr)),
-                cos2,
-                kind="cos2_gamma",
-            )
+            n_o_lab, n_e_lab = _lab_diagonals(n_o_arr, n_e_arr, cos2)
+            return pack_lab_diagonal(n_o_lab, n_e_lab)
         if gamma is not None:
             tensors = np.empty((z.size, 3, 3), dtype=np.complex128)
             for i in range(z.size):
@@ -670,8 +951,7 @@ class DepthProfile(MultiRowComponent):
             self.beta_o,
             self.beta_e,
         ):
-            if isinstance(field, _FieldBase):
-                params.extend(list(field.parameters))
+            params.extend(list(_iter_profile_parameters(field)))
         return params
 
     def __repr__(self) -> str:

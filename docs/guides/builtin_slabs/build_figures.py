@@ -17,15 +17,19 @@ from typing import get_args
 
 import matplotlib.pyplot as plt
 import numpy as np
+import polars as pl
 from matplotlib.lines import Line2D
 from numpy.typing import NDArray
 from scipy.interpolate import make_interp_spline
 from scipy.ndimage import gaussian_filter1d
 from scipy.special import erf
 
+from refloxide.data import OpticalConstants
 from refloxide.mixing import MixRule, mix_channels
+from refloxide.model import Mix, UniTensorSLD
 from refloxide.optics import uniaxial_lab_tensor
 from refloxide.profiles import (
+    DepthProfile,
     Diffusion,
     Polynomial,
     SecondOrderTransition,
@@ -2150,6 +2154,341 @@ def case_second_order_phi() -> None:
     )
 
 
+def _unit_density_ooc(
+    n_xx: float, n_ixx: float, n_zz: float, n_izz: float
+) -> OpticalConstants:
+    """Flat unit-density molecular table covering `ENERGY_EV`."""
+    energy = np.linspace(250.0, 320.0, 16)
+    return OpticalConstants.from_source(
+        pl.DataFrame(
+            {
+                "energy": energy,
+                "n_xx": np.full(energy.shape, n_xx),
+                "n_ixx": np.full(energy.shape, n_ixx),
+                "n_zz": np.full(energy.shape, n_zz),
+                "n_izz": np.full(energy.shape, n_izz),
+            }
+        )
+    )
+
+
+def _bookended_profile_reflectivity(
+    layer: DepthProfile,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Vacuum | profile rows | substrate, using the guide's N_VAC and N_SI."""
+    rows, tensors = layer.rows_and_tensors_at(ENERGY_EV)
+    layers = np.vstack(
+        [
+            [0.0, N_VAC, B_VAC, 0.0],
+            rows,
+            [0.0, N_SI, B_SI, 3.0],
+        ]
+    )
+    vac = diag_tensor(N_VAC + 1j * B_VAC, N_VAC + 1j * B_VAC)
+    substrate = diag_tensor(N_SI + 1j * B_SI, N_SI + 1j * B_SI)
+    tensor = np.concatenate([vac[None], tensors, substrate[None]], axis=0)
+    return reflectivity(layers, tensor)
+
+
+def case_second_order_composed() -> None:
+    """Second-order phi with a density and tilt law on each Mix component."""
+    thickness = 220.0
+    ooc_a = _unit_density_ooc(1.0e-3, 3.0e-4, 2.0e-3, 6.0e-4)
+    ooc_b = _unit_density_ooc(0.55e-3, 1.5e-4, 0.85e-3, 2.5e-4)
+    phi = SecondOrderTransition(
+        thickness=thickness,
+        bulk=0.50,
+        top=0.85,
+        bottom=0.15,
+        tau_top=20.0,
+        tau_bottom=40.0,
+        name="phi",
+    )
+    a = UniTensorSLD(
+        ooc_a,
+        density=SecondOrderTransition(
+            thickness=thickness,
+            bulk=1.40,
+            top=1.10,
+            bottom=1.60,
+            tau_top=18.0,
+            tau_bottom=36.0,
+            name="rho_a",
+        ),
+        rotation=SecondOrderTransition(
+            thickness=thickness,
+            bulk=0.40,
+            top=0.12,
+            bottom=1.15,
+            tau_top=24.0,
+            tau_bottom=48.0,
+            name="gamma_a",
+        ),
+        name="a",
+    )
+    b = UniTensorSLD(
+        ooc_b,
+        density=SecondOrderTransition(
+            thickness=thickness,
+            bulk=1.05,
+            top=0.85,
+            bottom=1.40,
+            tau_top=22.0,
+            tau_bottom=42.0,
+            name="rho_b",
+        ),
+        rotation=SecondOrderTransition(
+            thickness=thickness,
+            bulk=1.20,
+            top=1.45,
+            bottom=0.20,
+            tau_top=16.0,
+            tau_bottom=30.0,
+            name="gamma_b",
+        ),
+        name="b",
+    )
+    mix = Mix([a, b], rule="linear", name="mix")
+    composed = DepthProfile(
+        material=mix,
+        thickness=thickness,
+        roughness=2.0,
+        phi=phi,
+        n_slabs=480,
+        mesh="uniform",
+        name="composed",
+    )
+    a_bulk = UniTensorSLD(ooc_a, density=1.40, rotation=0.40, name="a_bulk")
+    b_bulk = UniTensorSLD(ooc_b, density=1.05, rotation=1.20, name="b_bulk")
+    for scatterer in (a_bulk, b_bulk):
+        scatterer.density.setp(vary=False)
+        scatterer.rotation.setp(vary=False)
+    mix_bulk = Mix([a_bulk, b_bulk], rule="linear", name="mix_bulk")
+    for fraction in mix_bulk.vf:
+        fraction.setp(vary=False)
+    phi_only = DepthProfile(
+        material=mix_bulk,
+        thickness=thickness,
+        roughness=2.0,
+        phi=phi,
+        n_slabs=N_MICRO,
+        mesh="uniform",
+        name="phi_only",
+    )
+    composed_kernel = DepthProfile(
+        material=mix,
+        thickness=thickness,
+        roughness=2.0,
+        phi=phi,
+        n_slabs=N_MICRO,
+        mesh="uniform",
+        name="composed_kernel",
+    )
+
+    z = depth_axis(thickness)
+    z_film = np.clip(z, 0.0, thickness)
+    rows, tensors = composed.rows_and_tensors_at(ENERGY_EV)
+    z_mid = np.cumsum(rows[:, 0]) - 0.5 * rows[:, 0]
+    named = composed.named_values_at(z_film)
+
+    def sample(values: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.interp(z_film, z_mid, np.asarray(values, dtype=np.float64))
+
+    _save_composed_depth(
+        thickness=thickness,
+        z=z,
+        n_o=sample(tensors[:, 0, 0].real),
+        n_e=sample(tensors[:, 2, 2].real),
+        phi=named["phi"],
+        rho_a=named["density_0"],
+        rho_b=named["density_1"],
+        gamma_a=named["orientation_0"],
+        gamma_b=named["orientation_1"],
+    )
+    curves = {
+        r"$\phi$ only": _bookended_profile_reflectivity(phi_only),
+        "composed": _bookended_profile_reflectivity(composed_kernel),
+    }
+    _save_composed_reflectivity(curves, baseline_key=r"$\phi$ only")
+
+
+def _save_composed_depth(
+    *,
+    thickness: float,
+    z: NDArray[np.float64],
+    n_o: NDArray[np.float64],
+    n_e: NDArray[np.float64],
+    phi: NDArray[np.float64],
+    rho_a: NDArray[np.float64],
+    rho_b: NDArray[np.float64],
+    gamma_a: NDArray[np.float64],
+    gamma_b: NDArray[np.float64],
+) -> None:
+    """Sharp | broadened depth figure for the composed second-order Mix."""
+    fig, axes = plt.subplots(
+        5, 2, figsize=(8.8, 2.35 * 5), sharex=True, constrained_layout=True
+    )
+    fig.suptitle(
+        r"Second-order $\phi$, density, and $\gamma$ — depth profile",
+        fontsize=12,
+        fontweight="bold",
+    )
+    films = {
+        "n_o": (n_o, N_VAC, N_SI),
+        "n_e": (n_e, N_VAC, N_SI),
+        "phi": (phi, 0.0, 0.0),
+        "rho_a": (rho_a, 0.0, 0.0),
+        "rho_b": (rho_b, 0.0, 0.0),
+        "gamma_a": (gamma_a, 0.0, 0.0),
+        "gamma_b": (gamma_b, 0.0, 0.0),
+    }
+
+    def drawn(key: str, broaden: bool) -> NDArray[np.float64]:
+        film, vac, sub = films[key]
+        return sandwich_continuous(
+            z,
+            film,
+            thickness=thickness,
+            vac=vac,
+            sub=sub,
+            rough_top=ROUGH,
+            rough_bot=ROUGH,
+            broaden=broaden,
+        )
+
+    for col, (tag, broaden) in enumerate(
+        (("sharp", False), ("broadened (erf interfacial roughness)", True))
+    ):
+        ax_n, ax_bi, ax_phi, ax_rho, ax_g = axes[:, col]
+        ax_n.plot(z, drawn("n_o", broaden) * 1e3, color=MIX_NO_COLOR, lw=1.7)
+        ax_n.plot(z, drawn("n_e", broaden) * 1e3, color=MIX_NE_COLOR, lw=1.7)
+        ax_bi.plot(
+            z,
+            (drawn("n_e", broaden) - drawn("n_o", broaden)) * 1e3,
+            color="C3",
+            lw=1.5,
+        )
+        ax_phi.plot(z, drawn("phi", broaden), color=MIX_PHI_COLOR, lw=1.7)
+        ax_rho.plot(z, drawn("rho_a", broaden), color="C0", lw=1.7, label=r"$\rho_A$")
+        ax_rho.plot(z, drawn("rho_b", broaden), color="C1", lw=1.7, label=r"$\rho_B$")
+        ax_g.plot(z, drawn("gamma_a", broaden), color="C0", lw=1.7, label=r"$\gamma_A$")
+        ax_g.plot(z, drawn("gamma_b", broaden), color="C1", lw=1.7, label=r"$\gamma_B$")
+        style_ax(
+            ax_n,
+            title=f"({chr(97 + col)}) optical constants — {tag}",
+            ylabel=r"$\delta$ ($\times 10^{-3}$)",
+        )
+        style_ax(
+            ax_bi,
+            title=f"({chr(99 + col)}) birefringence $n_e-n_o$ — {tag}",
+            ylabel=r"$\Delta$ ($\times 10^{-3}$)",
+        )
+        style_ax(
+            ax_phi,
+            title=rf"({chr(101 + col)}) $\phi(z)$ — {tag}",
+            ylabel=r"$\phi$",
+        )
+        style_ax(
+            ax_rho,
+            title=rf"({chr(103 + col)}) density — {tag}",
+            ylabel=r"$\rho$ (g/cm$^3$)",
+        )
+        style_ax(
+            ax_g,
+            title=rf"({chr(105 + col)}) orientation — {tag}",
+            ylabel=r"$\gamma$ (rad)",
+        )
+        ax_phi.set_ylim(-0.05, 1.05)
+        ax_n.axvline(thickness, color="0.7", lw=0.8, ls=":")
+        ax_bi.axvline(thickness, color="0.7", lw=0.8, ls=":")
+        for ax in (ax_phi, ax_rho, ax_g):
+            ax.axvline(0.0, color="0.7", lw=0.8, ls=":")
+            ax.axvline(thickness, color="0.7", lw=0.8, ls=":")
+        if col == 0:
+            ax_n.legend(
+                handles=[
+                    Line2D([0], [0], color=MIX_NO_COLOR, lw=1.7, label=r"$n_o$"),
+                    Line2D([0], [0], color=MIX_NE_COLOR, lw=1.7, label=r"$n_e$"),
+                ],
+                frameon=False,
+                fontsize=8,
+            )
+            _annotate_second_order(
+                ax_phi,
+                thickness,
+                bulk=0.50,
+                top=0.85,
+                bottom=0.15,
+                tau_top=20.0,
+                tau_bottom=40.0,
+            )
+            ax_rho.legend(frameon=False, fontsize=8)
+            ax_g.legend(frameon=False, fontsize=8)
+    fig.savefig(OUT / "second-order-composed.png", dpi=200)
+    plt.close(fig)
+
+
+def _save_composed_reflectivity(
+    curves: dict[str, tuple[NDArray[np.float64], NDArray[np.float64]]],
+    *,
+    baseline_key: str,
+) -> None:
+    """R_ss / R_pp for phi-only vs composed, with a log10 residual."""
+    styles = _variant_linestyles(list(curves))
+    r_ss_ref, r_pp_ref = curves[baseline_key]
+    log_ss_ref = np.log10(np.clip(r_ss_ref, 1e-30, None))
+    log_pp_ref = np.log10(np.clip(r_pp_ref, 1e-30, None))
+    fig, (ax_r, ax_res) = plt.subplots(
+        2,
+        1,
+        figsize=(7.2, 5.2),
+        sharex=True,
+        constrained_layout=True,
+        gridspec_kw={"height_ratios": [2.2, 1.0]},
+    )
+    for key, (r_ss, r_pp) in curves.items():
+        ls = styles[key]
+        ax_r.semilogy(Q, r_ss, color=MIX_RSS_COLOR, lw=1.8, ls=ls)
+        ax_r.semilogy(Q, r_pp, color=MIX_RPP_COLOR, lw=1.8, ls=ls)
+        if key == baseline_key:
+            continue
+        ax_res.plot(
+            Q,
+            np.log10(np.clip(r_ss, 1e-30, None)) - log_ss_ref,
+            color=MIX_RSS_COLOR,
+            lw=1.4,
+            ls=ls,
+        )
+        ax_res.plot(
+            Q,
+            np.log10(np.clip(r_pp, 1e-30, None)) - log_pp_ref,
+            color=MIX_RPP_COLOR,
+            lw=1.4,
+            ls=ls,
+        )
+    ax_r.set_ylabel("reflectivity")
+    ax_r.set_title(
+        r"Second-order $\phi$, density, and $\gamma$ — reflectivity @ "
+        f"{ENERGY_EV:.1f} eV"
+    )
+    ax_r.grid(True, which="both", alpha=0.25)
+    ax_r.legend(
+        handles=[
+            Line2D([0], [0], color=MIX_RSS_COLOR, lw=1.8, label=r"$R_{ss}$"),
+            Line2D([0], [0], color=MIX_RPP_COLOR, lw=1.8, label=r"$R_{pp}$"),
+        ],
+        frameon=False,
+    )
+    _place_variant_legend(fig, labels=list(curves), linestyles=styles)
+    ax_res.axhline(0.0, color="0.5", lw=0.8)
+    ax_res.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")
+    ax_res.set_ylabel(r"$\Delta\log_{10} R$")
+    ax_res.set_title(rf"residual vs {baseline_key}")
+    ax_res.grid(True, alpha=0.25)
+    fig.savefig(OUT / "second-order-composed-R.png", dpi=200)
+    plt.close(fig)
+
+
 def case_second_order_cos2() -> None:
     """Functional form — SecondOrderTransition on cos2_gamma."""
     t = 320.0
@@ -3411,6 +3750,7 @@ def main() -> None:
         case_diffusion_short_stack,
         case_second_order_gamma,
         case_second_order_phi,
+        case_second_order_composed,
         case_second_order_cos2,
         case_second_order_short_stack,
         case_volfrac_spline,
