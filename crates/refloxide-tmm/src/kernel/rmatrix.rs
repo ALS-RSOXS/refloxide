@@ -23,9 +23,9 @@
 use num_complex::Complex;
 
 use super::{mode_kz, LayerCoeffs, Real};
-use crate::c4x4::{zero, Mat4};
-use crate::error::{RefloxideError, Result};
-use crate::math::exact_inv_4x4_generic;
+use refloxide_core::c4x4::{zero, Mat4};
+use refloxide_core::error::{RefloxideError, Result};
+use refloxide_core::math::exact_inv_4x4_generic;
 
 type C<T> = Complex<T>;
 type Mat2<T> = [[C<T>; 2]; 2];

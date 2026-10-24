@@ -1,12 +1,12 @@
 //! Single- vs double-precision error study for the uniaxial kernel.
 //!
 //! Evaluates representative soft X-ray stacks through
-//! `refloxide::kernel::solve_flat` in `f64` and `f32` and reports relative
+//! `refloxide_tmm::kernel::solve_flat` in `f64` and `f32` and reports relative
 //! error of `R_ss` and `R_pp` against the `f64` result. Run with
 //! `cargo run --release --no-default-features --example kernel_precision`.
 
 use num_complex::Complex;
-use refloxide::kernel::{solve_flat, solve_point_recursive, solve_point_rmatrix, LayerCoeffs};
+use refloxide_tmm::kernel::{solve_flat, solve_point_recursive, solve_point_rmatrix, LayerCoeffs};
 
 const HC_EV_ANGSTROM: f64 = 12398.4193;
 

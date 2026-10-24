@@ -8,8 +8,8 @@
 use nalgebra::Matrix3;
 use num_complex::Complex;
 
-use crate::optics::{interpolate_ooc_linear, lab_diagonal_uniaxial};
 use crate::uniaxial::{uniaxial_reflectance, uniaxial_reflectivity, Layer, UniaxialOutput};
+use refloxide_optics::optics::{interpolate_ooc_linear, lab_diagonal_uniaxial};
 
 type C = Complex<f64>;
 
@@ -236,7 +236,7 @@ pub fn bookended_uniaxial_reflectivity(
     fronting: [f64; 4],
     backing: &[[f64; 4]],
     parallel: bool,
-) -> crate::error::Result<UniaxialOutput> {
+) -> refloxide_core::error::Result<UniaxialOutput> {
     let (layers, tensors) = assemble_bookended_stack(
         energy_ev, n_xx, n_ixx, n_zz, n_izz, query_ev, params, fronting, backing,
     );
@@ -266,7 +266,7 @@ pub fn bookended_uniaxial_reflectance(
     fronting: [f64; 4],
     backing: &[[f64; 4]],
     parallel: bool,
-) -> crate::error::Result<Vec<[[f64; 2]; 2]>> {
+) -> refloxide_core::error::Result<Vec<[[f64; 2]; 2]>> {
     let (layers, tensors) = assemble_bookended_stack(
         energy_ev, n_xx, n_ixx, n_zz, n_izz, query_ev, params, fronting, backing,
     );

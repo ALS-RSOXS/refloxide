@@ -13,7 +13,7 @@
 //! ```
 
 use num_complex::Complex;
-use refloxide::kernel::{solve_point_general, GeneralLayer};
+use refloxide_tmm::kernel::{solve_point_general, GeneralLayer};
 type C = Complex<f64>;
 fn rot(theta: f64, phi: f64, psi: f64) -> [[f64; 3]; 3] {
     let (ct, st, cp, sp, cs, ss) = (

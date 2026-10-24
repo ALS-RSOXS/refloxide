@@ -38,8 +38,8 @@ use num_complex::Complex;
 
 use super::rmatrix::{reflect_chain, Eigenmodes};
 use super::Real;
-use crate::c4x4::{zero, Mat4};
-use crate::error::Result;
+use refloxide_core::c4x4::{zero, Mat4};
+use refloxide_core::error::Result;
 
 type C<T> = Complex<T>;
 
@@ -129,7 +129,7 @@ fn berreman<T: Real>(chi: &[[C<T>; 3]; 3], zeta: T) -> (Mat4<T>, [C<T>; 3]) {
 
 fn matmul<T: Real>(a: &Mat4<T>, b: &Mat4<T>) -> Mat4<T> {
     let mut out = [[zero::<T>(); 4]; 4];
-    crate::c4x4::mul(a, b, &mut out);
+    refloxide_core::c4x4::mul(a, b, &mut out);
     out
 }
 
@@ -567,7 +567,7 @@ impl<T: Real> Modes<T> {
 /// packing, where `R_sp` is s reflected from p incident.
 ///
 /// # Errors
-/// [`crate::RefloxideError::SingularDynamicMatrix`] when a layer's mode
+/// [`refloxide_core::RefloxideError::SingularDynamicMatrix`] when a layer's mode
 /// matrix or the recursion denominator is singular.
 pub fn solve_point_general<T: Real>(
     q: T,

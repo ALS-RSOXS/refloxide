@@ -11,75 +11,19 @@ use nalgebra::Matrix3;
 use num_complex::Complex;
 use rayon::prelude::*;
 
-use crate::error::{RefloxideError, Result};
 use crate::kernel::{self, LayerCoeffs};
+use refloxide_core::error::{RefloxideError, Result};
+use refloxide_core::HC_EV_ANGSTROM;
+pub use refloxide_core::{
+    jvp_coeffs, layer_coeffs, validate_batch, validate_points, wavenumber, Layer, PointsJvpOutput,
+    PointsTangents, UniaxialBatchOutput, UniaxialOutput,
+};
 
 /// Complex alias used throughout the kernel.
 type C = Complex<f64>;
 
 /// Polarized 2x2 reflectance and transmission blocks for one q-point.
 type PolBlock = ([[f64; 2]; 2], [[C; 2]; 2]);
-
-/// Photon energy to wavelength conversion constant in `eV * Angstrom`.
-const HC_EV_ANGSTROM: f64 = 12398.4193;
-
-/// One slab in a stratified medium.
-///
-/// `thickness` and `sigma` are in Angstroms. `sld_re` and `sld_im` carry the
-/// Henke-style `delta` and `beta` for the isotropic legacy path; the per-axis
-/// dispersion comes in through the [`uniaxial_reflectivity`] `tensor`
-/// argument.
-#[derive(Debug, Clone, Copy)]
-pub struct Layer {
-    /// Slab thickness in Angstroms. Ignored for the fronting and backing rows.
-    pub thickness: f64,
-    /// Real part of the isotropic SLD in `1e-6 * Angstrom^-2`.
-    pub sld_re: f64,
-    /// Imaginary part of the isotropic SLD in `1e-6 * Angstrom^-2`.
-    pub sld_im: f64,
-    /// Nevot-Croce roughness sigma in Angstroms.
-    pub sigma: f64,
-}
-
-impl Layer {
-    /// Builds a layer from its four scalar parameters.
-    pub fn new(thickness: f64, sld_re: f64, sld_im: f64, sigma: f64) -> Self {
-        Self {
-            thickness,
-            sld_re,
-            sld_im,
-            sigma,
-        }
-    }
-}
-
-impl From<[f64; 4]> for Layer {
-    fn from(row: [f64; 4]) -> Self {
-        Self::new(row[0], row[1], row[2], row[3])
-    }
-}
-
-/// Polarized reflectance and amplitude transmission for a single energy.
-///
-/// Index layout mirrors the Python reference: `refl[i][k][l]` and
-/// `tran[i][k][l]` with `(0, 0) = ss`, `(1, 1) = pp`, `(0, 1) = sp`,
-/// `(1, 0) = ps`.
-#[derive(Debug, Clone)]
-pub struct UniaxialOutput {
-    /// Power reflectance with shape `(numpnts, 2, 2)`.
-    pub refl: Vec<[[f64; 2]; 2]>,
-    /// Complex amplitude transmission with shape `(numpnts, 2, 2)`.
-    pub tran: Vec<[[C; 2]; 2]>,
-}
-
-/// Batched polarized reflectance and transmission over energies and q-points.
-#[derive(Debug, Clone)]
-pub struct UniaxialBatchOutput {
-    /// Power reflectance with shape `(n_energies, n_q, 2, 2)`.
-    pub refl: Vec<Vec<[[f64; 2]; 2]>>,
-    /// Complex amplitude transmission with the same layout.
-    pub tran: Vec<Vec<[[C; 2]; 2]>>,
-}
 
 /// Computes polarized reflectance and transmission for a uniaxial multilayer.
 ///
@@ -311,26 +255,6 @@ pub fn uniaxial_reflectivity_points(
     Ok(UniaxialOutput { refl, tran })
 }
 
-/// Reflectance and Jacobian-vector products for `(q, stack)` points.
-#[derive(Debug, Clone)]
-pub struct PointsJvpOutput {
-    /// `[R_pp, R_ss]` per point, length `n_points`.
-    pub refl: Vec<[f64; 2]>,
-    /// Row-major `(n_dirs, n_points)` derivatives `[dR_pp, dR_ss]`.
-    pub jac: Vec<[f64; 2]>,
-}
-
-/// Direction-major tangent inputs for [`uniaxial_reflectivity_points_jvp`].
-#[derive(Debug, Clone)]
-pub struct PointsTangents {
-    /// `(n_dirs, n_points)` tangent of `q`.
-    pub dq: Vec<Vec<f64>>,
-    /// `(n_dirs, n_stacks, n_layers)` tangent of the slab rows.
-    pub dlayers: Vec<Vec<Vec<Layer>>>,
-    /// `(n_dirs, n_stacks, n_layers)` tangent of the dispersion tensors.
-    pub dtensor: Vec<Vec<Vec<Matrix3<C>>>>,
-}
-
 /// Reflectance and directional derivatives for independent `(q, stack)` points.
 ///
 /// Evaluates the decoupled uniaxial-z recursion (equal to the 4x4 kernel in
@@ -401,76 +325,6 @@ pub fn uniaxial_reflectivity_points_jvp(
     })
 }
 
-/// Validated value and tangent layer records for the JVP entry points.
-#[allow(clippy::type_complexity)]
-pub(crate) fn jvp_coeffs(
-    q: &[f64],
-    stack_of: &[usize],
-    layers: &[Vec<Layer>],
-    tensor: &[Vec<Matrix3<C>>],
-    energies_ev: &[f64],
-    tangents: &PointsTangents,
-) -> Result<(Vec<Vec<LayerCoeffs<f64>>>, Vec<Vec<Vec<LayerCoeffs<f64>>>>)> {
-    validate_points(q, stack_of, layers, tensor, energies_ev)?;
-    let n_dirs = tangents.dq.len();
-    let shape_err =
-        |what: &str| RefloxideError::InvalidShape(format!("tangent {what} shape mismatch"));
-    if tangents.dlayers.len() != n_dirs || tangents.dtensor.len() != n_dirs {
-        return Err(shape_err("direction count"));
-    }
-    for dir in 0..n_dirs {
-        if tangents.dq[dir].len() != q.len() {
-            return Err(shape_err("dq"));
-        }
-        let (dl, dt) = (&tangents.dlayers[dir], &tangents.dtensor[dir]);
-        if dl.len() != layers.len() || dt.len() != layers.len() {
-            return Err(shape_err("stack count"));
-        }
-        for si in 0..layers.len() {
-            if dl[si].len() != layers[si].len() || dt[si].len() != layers[si].len() {
-                return Err(shape_err("layer count"));
-            }
-        }
-    }
-    let coeffs = layers
-        .iter()
-        .zip(tensor)
-        .map(|(l, t)| layer_coeffs(l, t))
-        .collect();
-    let dcoeffs = tangents
-        .dlayers
-        .iter()
-        .zip(&tangents.dtensor)
-        .map(|(dl, dt)| dl.iter().zip(dt).map(|(l, t)| layer_coeffs(l, t)).collect())
-        .collect();
-    Ok((coeffs, dcoeffs))
-}
-
-/// Checks shared by the CPU and GPU point entry points.
-pub(crate) fn validate_points(
-    q: &[f64],
-    stack_of: &[usize],
-    layers: &[Vec<Layer>],
-    tensor: &[Vec<Matrix3<C>>],
-    energies_ev: &[f64],
-) -> Result<()> {
-    validate_batch(layers, tensor, energies_ev)?;
-    if stack_of.len() != q.len() {
-        return Err(RefloxideError::InvalidShape(format!(
-            "stack_of length {} must match q length {}",
-            stack_of.len(),
-            q.len()
-        )));
-    }
-    if let Some(&bad) = stack_of.iter().find(|&&s| s >= energies_ev.len()) {
-        return Err(RefloxideError::InvalidShape(format!(
-            "stack index {bad} out of range for {} stacks",
-            energies_ev.len()
-        )));
-    }
-    Ok(())
-}
-
 fn annotate(err: RefloxideError, q_index: usize) -> RefloxideError {
     match err {
         RefloxideError::SingularDynamicMatrix { layer, .. } => {
@@ -499,65 +353,6 @@ fn annotate_batch(err: RefloxideError, energy_index: usize, q_index: usize) -> R
 
 fn solve_q(qi: f64, coeffs: &[LayerCoeffs<f64>], k0: f64) -> Result<PolBlock> {
     kernel::solve_point(qi, k0, coeffs)
-}
-
-/// Shape and energy checks shared by the batched CPU and GPU entry points.
-pub(crate) fn validate_batch(
-    layers: &[Vec<Layer>],
-    tensor: &[Vec<Matrix3<C>>],
-    energies_ev: &[f64],
-) -> Result<()> {
-    let n_e = energies_ev.len();
-    if layers.len() != n_e || tensor.len() != n_e {
-        return Err(RefloxideError::InvalidShape(format!(
-            "layers and tensor batch length must match energies_ev ({n_e}), got layers={}, tensor={}",
-            layers.len(),
-            tensor.len()
-        )));
-    }
-    if n_e == 0 {
-        return Err(RefloxideError::InvalidShape(
-            "uniaxial_reflectivity_batch requires at least one energy".into(),
-        ));
-    }
-    for (ei, energy_ev) in energies_ev.iter().enumerate() {
-        if !energy_ev.is_finite() || *energy_ev <= 0.0 {
-            return Err(RefloxideError::InvalidEnergy(*energy_ev));
-        }
-        if layers[ei].len() != tensor[ei].len() {
-            return Err(RefloxideError::LayerCountMismatch {
-                layers: layers[ei].len(),
-                tensor: tensor[ei].len(),
-            });
-        }
-        if layers[ei].len() < 2 {
-            return Err(RefloxideError::InsufficientLayers(layers[ei].len()));
-        }
-    }
-    Ok(())
-}
-
-/// Vacuum wavenumber `2 pi / lambda` in `1/Angstrom` for a photon energy in eV.
-pub(crate) fn wavenumber(energy_ev: f64) -> f64 {
-    2.0 * std::f64::consts::PI / (HC_EV_ANGSTROM / energy_ev)
-}
-
-pub(crate) fn layer_coeffs(layers: &[Layer], tensor: &[Matrix3<C>]) -> Vec<LayerCoeffs<f64>> {
-    layers
-        .iter()
-        .zip(tensor)
-        .map(|(layer, t)| LayerCoeffs {
-            chi_o: berreman_susceptibility(t[(0, 0)]),
-            chi_e: berreman_susceptibility(t[(2, 2)]),
-            thickness: layer.thickness,
-            sigma: layer.sigma,
-        })
-        .collect()
-}
-
-/// Diagonal susceptibility `eps - 1 = conj(-2 t)` of `eps = conj(I - 2 t)`.
-fn berreman_susceptibility(t: C) -> C {
-    (t * C::new(-2.0, 0.0)).conj()
 }
 
 #[cfg(test)]

@@ -7,18 +7,19 @@
 //! over [`Real`] so the identical code path can be evaluated in `f32` to
 //! quantify single-precision error before committing to GPU precision modes.
 //!
-//! It does not validate shapes or energies, build dielectric tensors, or
-//! choose a threading strategy; those live in [`crate::uniaxial`]. Callers
+//! The per-point solvers do no threading; only the `solve_flat*` drivers
+//! distribute q-points over rayon. It does not validate shapes or energies
+//! or build dielectric tensors; those live in [`crate::uniaxial`]. Callers
 //! must pass at least two layers (fronting and backing) and a strictly
 //! positive `k0`.
 
 use num_complex::Complex;
-use num_traits::{Float, FloatConst, NumAssign};
 use rayon::prelude::*;
 
-use crate::c4x4::{self, zero, Mat4};
-use crate::error::{RefloxideError, Result};
-use crate::math::exact_inv_4x4_generic;
+use refloxide_core::c4x4::{self, zero, Mat4};
+use refloxide_core::error::{RefloxideError, Result};
+use refloxide_core::math::exact_inv_4x4_generic;
+pub use refloxide_core::{LayerCoeffs, Real};
 
 mod general;
 mod rmatrix;
@@ -27,57 +28,6 @@ mod tangent;
 pub use general::{solve_point_general, GeneralLayer};
 pub use rmatrix::solve_point_rmatrix;
 pub use tangent::solve_point_recursive_jvp;
-
-/// Floating-point scalar accepted by the kernel (`f32` or `f64`).
-pub trait Real: Float + FloatConst + NumAssign + Send + Sync + std::fmt::Debug + 'static {
-    /// Rounds an `f64` literal to this precision.
-    fn lit(x: f64) -> Self;
-    /// Widens this value to `f64`.
-    fn to_f64_lossless(self) -> f64;
-}
-
-impl Real for f32 {
-    #[inline]
-    fn lit(x: f64) -> Self {
-        x as f32
-    }
-    #[inline]
-    fn to_f64_lossless(self) -> f64 {
-        f64::from(self)
-    }
-}
-
-impl Real for f64 {
-    #[inline]
-    fn lit(x: f64) -> Self {
-        x
-    }
-    #[inline]
-    fn to_f64_lossless(self) -> f64 {
-        self
-    }
-}
-
-/// Per-slab coefficients consumed by the uniaxial kernel.
-///
-/// This is the device-uploadable layer record: only the ordinary and
-/// extraordinary Berreman components of a uniaxial-z slab enter the
-/// closed-form eigenstructure, so the full 3x3 tensor is not carried.
-/// Components are stored as susceptibilities `chi = eps - 1` rather than
-/// `eps` because soft X-ray `|chi|` is `O(1e-3)`: packing `1 + chi` into a
-/// single-precision word would discard roughly three significant digits of
-/// the optical constants before any arithmetic happens.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LayerCoeffs<T: Real> {
-    /// Ordinary susceptibility `eps_xx - 1 = eps_yy - 1` (dimensionless).
-    pub chi_o: Complex<T>,
-    /// Extraordinary susceptibility `eps_zz - 1` (dimensionless).
-    pub chi_e: Complex<T>,
-    /// Slab thickness in Angstroms. Ignored for the fronting and backing rows.
-    pub thickness: T,
-    /// Nevot-Croce roughness of the interface above this slab, in Angstroms.
-    pub sigma: T,
-}
 
 /// Polarized power reflectance and amplitude transmission at one q-point.
 ///

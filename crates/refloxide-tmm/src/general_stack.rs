@@ -9,9 +9,9 @@ use nalgebra::Matrix3;
 use num_complex::Complex;
 use rayon::prelude::*;
 
-use crate::error::{RefloxideError, Result};
 use crate::kernel::{solve_point_general, GeneralLayer};
 use crate::uniaxial::{wavenumber, Layer};
+use refloxide_core::error::{RefloxideError, Result};
 
 type C = Complex<f64>;
 
