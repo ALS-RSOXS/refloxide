@@ -1,4 +1,4 @@
-.PHONY: verify fix lint format format-check type-check install develop test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
+.PHONY: bench-compare verify fix lint format format-check type-check install develop test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
 
 # Verify - check everything without making changes
 verify: lint format-check type-check
@@ -28,6 +28,10 @@ install:
 # Editable install of the Rust extension (run after clone or Rust/Python changes)
 develop:
 	bash scripts/develop.sh
+
+# Before/after benchmark against the merge-base with main (run when opening a PR)
+bench-compare:
+	uv run python scripts/bench_compare.py
 
 # Run tests
 test:
