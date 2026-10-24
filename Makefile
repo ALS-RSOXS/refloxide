@@ -1,4 +1,4 @@
-.PHONY: bench-compare verify fix lint format format-check type-check install develop test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
+.PHONY: release-prep bench-compare verify fix lint format format-check type-check install develop test test-cov test-matrix test-matrix-cov pysentry docs docs-serve release-smoke
 
 # Verify - check everything without making changes
 verify: lint format-check type-check
@@ -32,6 +32,10 @@ develop:
 # Before/after benchmark against the merge-base with main (run when opening a PR)
 bench-compare:
 	uv run python scripts/bench_compare.py
+
+# Bump versions and the changelog from conventional commits (then open a normal PR)
+release-prep:
+	uv run python scripts/prepare_release.py
 
 # Run tests
 test:

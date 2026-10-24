@@ -1,44 +1,82 @@
+# Release: when a push to main touches the package and the version in Cargo.toml has no
+# git tag yet, run CI, build wheels and the sdist, publish to PyPI, then create the tag
+# `vX.Y.Z` and a GitHub release. To release, bump the version (pyproject.toml,
+# Cargo.toml [workspace.package], python/refloxide/__init__.py; `make release-prep`
+# computes it) in a normal PR and merge it. Rust crates are not published.
 name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - pyproject.toml
+      - crates/**
+      - python/**
+      - .github/workflows/release.yml
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build everything but do not publish or tag
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  linux:
-    name: Build Linux (${{ matrix.platform.target }})
-    runs-on: ${{ matrix.platform.runner }}
+  check:
+    name: decide whether to release
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.v.outputs.release }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: python3 scripts/release_check.py --github-output "$GITHUB_OUTPUT"
+
+  ci:
+    name: tests
+    needs: check
+    if: needs.check.outputs.release == 'true' || inputs.dry_run
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  wheels:
+    name: wheel (${{ matrix.name }})
+    needs: [check, ci]
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - runner: ubuntu-22.04
-            target: x86_64
-          - runner: ubuntu-22.04
-            target: aarch64
+        include:
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64, python: "3.13", interpreter: "--find-interpreter", manylinux: "2_28", smoke: true }
+          - { name: linux-aarch64, os: ubuntu-22.04, target: aarch64, python: "3.13", interpreter: "--find-interpreter", manylinux: "2_28", smoke: false }
+          - { name: macos-x86_64-py3.12, os: macos-15-intel, target: x86_64, python: "3.12", interpreter: "-i python3.12", smoke: true }
+          - { name: macos-x86_64-py3.13, os: macos-15-intel, target: x86_64, python: "3.13", interpreter: "-i python3.13", smoke: true }
+          - { name: macos-arm64-py3.12, os: macos-latest, target: aarch64, python: "3.12", interpreter: "-i python3.12", smoke: true }
+          - { name: macos-arm64-py3.13, os: macos-latest, target: aarch64, python: "3.13", interpreter: "-i python3.13", smoke: true }
+          - { name: windows-x64-py3.12, os: windows-latest, target: x64, python: "3.12", interpreter: "-i python3.12", smoke: true }
+          - { name: windows-x64-py3.13, os: windows-latest, target: x64, python: "3.13", interpreter: "-i python3.13", smoke: true }
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-
-      - name: Build wheels
+          python-version: ${{ matrix.python }}
+      - name: build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --compatibility pypi --find-interpreter
-          manylinux: "2_28"
-
-      - name: Assert manylinux wheel tags
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --locked --out dist --compatibility pypi ${{ matrix.interpreter }}
+      - name: assert manylinux tags
+        if: runner.os == 'Linux'
         run: |
           python - <<'PY'
           import glob
@@ -49,178 +87,96 @@ jobs:
               sys.exit("no wheel in dist/")
           for path in wheels:
               name = path.rsplit("/", 1)[-1]
-              if name.endswith("linux_x86_64.whl") or name.endswith("linux_aarch64.whl"):
-                  sys.exit(f"unsupported platform tag in {name}")
               if "manylinux" not in name and "musllinux" not in name:
                   sys.exit(f"expected manylinux/musllinux tag in {name}")
               print(f"OK: {name}")
           PY
-
-      - name: Smoke import (x86_64 host only)
-        if: matrix.platform.target == 'x86_64'
-        run: |
-          python -m venv .smoke-venv
-          whl="$(ls -1 dist/*cp313*-manylinux*_x86_64.whl | head -1)"
-          .smoke-venv/bin/pip install --no-deps "$whl"
-          .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-${{ matrix.platform.target }}
-          path: dist/*
-
-  macos:
-    name: Build macOS (${{ matrix.platform.target }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-        platform:
-          - runner: macos-15-intel
-            target: x86_64
-          - runner: macos-latest
-            target: aarch64
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: >-
-            --release --out dist --compatibility pypi
-            -i python${{ matrix.python-version }}
-
-      - name: Smoke import
-        run: |
-          python -m venv .smoke-venv
-          .smoke-venv/bin/pip install --no-deps dist/*.whl
-          .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-macos-${{ matrix.platform.target }}-py${{ matrix.python-version }}
-          path: dist/*
-
-  windows:
-    name: Build Windows (x64, py${{ matrix.python-version }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: x64
-          args: >-
-            --release --out dist --compatibility pypi
-            -i python${{ matrix.python-version }}
-
-      - name: Smoke import
+      - name: smoke import
+        if: matrix.smoke
         shell: bash
         run: |
-          python -m venv .smoke-venv
-          .smoke-venv/Scripts/pip install --no-deps dist/*.whl
-          .smoke-venv/Scripts/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
+          python - <<'PY'
+          import glob
+          import subprocess
+          import sys
 
+          tag = "cp" + "".join(sys.version.split(".")[:2])
+          wheel = [w for w in glob.glob("dist/*.whl") if f"-{tag}-" in w][0]
+          subprocess.check_call([sys.executable, "-m", "pip", "install", wheel])
+          subprocess.check_call(
+              [sys.executable, "-c", "import refloxide, refloxide.rust; print(refloxide.__version__)"]
+          )
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-x64-py${{ matrix.python-version }}
+          name: wheels-${{ matrix.name }}
           path: dist/*
 
   sdist:
-    name: Build sdist
+    needs: [check, ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
         with:
-          fetch-depth: 0
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Build source distribution
-        run: uv build --sdist -o dist --clear
-
+          command: sdist
+          args: --out dist
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
           path: dist/*
 
   publish-pypi:
-    name: Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, macos, windows, sdist]
+    name: publish to PyPI
+    needs: [check, wheels, sdist]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/refloxide
+    permissions:
+      id-token: write # PyPI trusted publishing (OIDC)
     steps:
-      - name: Download distributions
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-
-      - name: List distributions
-        run: ls -la dist
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           attestations: false
+          skip-existing: true
 
   github-release:
-    name: Create GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [publish-pypi]
+    name: tag and GitHub release
+    needs: [check, publish-pypi]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Download distributions
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-
-      - name: Generate a changelog
+      - name: release notes
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: --verbose
+          args: --unreleased --tag v${{ needs.check.outputs.version }} --strip header
         env:
           OUTPUT: RELEASE_NOTES.md
           GITHUB_REPO: ${{ github.repository }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: RELEASE_NOTES.md
-          files: dist/*
-          generate_release_notes: false
+      - name: create tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file RELEASE_NOTES.md

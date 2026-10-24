@@ -1,0 +1,46 @@
+# Dependency and static-analysis scans. They run weekly, on demand, and on pull requests
+# that change a lockfile or dependency manifest, not on every push.
+name: Security
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - uv.lock
+      - Cargo.lock
+      - pyproject.toml
+      - Cargo.toml
+      - crates/*/Cargo.toml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-scan:
+    name: dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: make install
+      - run: make pysentry
+
+  semgrep:
+    name: semgrep
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan
