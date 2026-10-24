@@ -76,7 +76,7 @@ Releases are a two-step, manual Actions flow (no auto-publish from a version bum
    - Computes the next semver from conventional commits since the latest `v*`
      tag (git-cliff / Commitizen rules), or an explicit `patch` / `minor` /
      `major` override.
-   - Updates `pyproject.toml`, `Cargo.toml`, `src/refloxide/__init__.py`,
+   - Updates `pyproject.toml`, `Cargo.toml`, `python/refloxide/__init__.py`,
      lockfiles, and `CHANGELOG.md`.
    - Opens a `release/vX.Y.Z` pull request for review and optional Pre-merge
      checks.

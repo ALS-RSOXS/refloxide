@@ -1,53 +1,34 @@
-[package]
-name = "refloxide"
+[workspace]
+members = [
+    "crates/refloxide-core",
+    "crates/refloxide-optics",
+    "crates/refloxide-tmm",
+    "crates/refloxide-gpu",
+    "crates/refloxide-py",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.2.1"
 edition = "2021"
-description = "4x4 transfer matrix reflectivity for stratified media"
 license = "GPL-3.0"
 repository = "https://github.com/ALS-RSOXS/refloxide"
 
-[lib]
-name = "refloxide"
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["python"]
-python = ["dep:pyo3", "dep:numpy"]
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
-
-[dependencies]
-pyo3 = { version = "0.28.3", optional = true, features = ["extension-module", "num-complex"] }
-numpy = { version = "0.28", optional = true }
+[workspace.dependencies]
+pyo3 = { version = "0.28.3", features = ["extension-module", "num-complex"] }
+numpy = "0.28"
 nalgebra = "0.33"
 num-complex = "0.4"
-thiserror = "1.0"
-physical_constants = "0.5"
-rayon = "1.10"
 num-traits = "0.2"
-wgpu = { version = "30.0.1", optional = true }
-pollster = { version = "1", optional = true }
-bytemuck = { version = "1.25.2", features = ["derive"], optional = true }
-
-[[example]]
-name = "gpu_recursive"
-required-features = ["gpu"]
-
-[[example]]
-name = "gpu_df64"
-required-features = ["gpu"]
-
-[[example]]
-name = "gpu_df64_bench"
-required-features = ["gpu"]
-
-[[example]]
-name = "gpu_general"
-required-features = ["gpu"]
-
-[[example]]
-name = "gpu_general_check"
-
-[dev-dependencies]
+thiserror = "1.0"
+rayon = "1.10"
+refloxide-core = { path = "crates/refloxide-core" }
+refloxide-optics = { path = "crates/refloxide-optics" }
+refloxide-tmm = { path = "crates/refloxide-tmm" }
+refloxide-gpu = { path = "crates/refloxide-gpu" }
+wgpu = "30.0.1"
+pollster = "1"
+bytemuck = { version = "1.25.2", features = ["derive"] }
 approx = "0.5"
 naga = { version = "30", features = ["wgsl-in", "spv-out", "glsl-out", "hlsl-out"] }
 
@@ -60,4 +41,6 @@ codegen-units = 1
 [profile.release]
 # Keep macOS cdylibs loadable (strip can break LINKEDIT).
 strip = "none"
+lto = "fat"
+codegen-units = 1
 

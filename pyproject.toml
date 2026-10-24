@@ -8,6 +8,7 @@ version = "0.2.1"
 description = "A blazingly fast 4x4 transfer matrix method for simulating reflection though stratified media"
 readme = "README.md"
 license = "GPL-3.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [
     { name = "Harlan D Heilman", email = "73567020+HarlanHeilman@users.noreply.github.com" },
@@ -82,9 +83,9 @@ Issues = "https://github.com/ALS-RSOXS/refloxide/issues"
 Changelog = "https://github.com/ALS-RSOXS/refloxide/blob/main/CHANGELOG.md"
 
 [tool.maturin]
-python-source = "src"
+manifest-path = "crates/refloxide-py/Cargo.toml"
+python-source = "python"
 module-name = "refloxide.rust"
-features = ["python", "gpu"]
 compatibility = "pypi"
 
 [tool.uv]
@@ -106,7 +107,7 @@ override-dependencies = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-src = ["src", "tests"]
+src = ["python", "tests"]
 extend-exclude = ["examples"]
 
 [tool.ruff.lint]
@@ -131,15 +132,15 @@ known-first-party = ["refloxide"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ARG001"]
-"src/refloxide/pxr/**/*.py" = ["ERA001"]
-"src/refloxide/python/tmm.py" = ["ERA001"]
+"python/refloxide/pxr/**/*.py" = ["ERA001"]
+"python/refloxide/python/tmm.py" = ["ERA001"]
 
 # =============================================================================
 # ty (Astral type checker)
 # =============================================================================
 
 [tool.ty.src]
-include = ["src"]
+include = ["python"]
 exclude = [
     "**/pxr/plugin/**",
     "**/python/tmm.py",
@@ -151,7 +152,7 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["python"]
 addopts = [
     "-ra",
     "-q",
@@ -170,7 +171,7 @@ markers = [
 # =============================================================================
 
 [tool.coverage.run]
-source = ["src/refloxide"]
+source = ["python/refloxide"]
 branch = true
 parallel = true
 

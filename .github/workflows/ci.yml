@@ -110,23 +110,17 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Compile crate
-        run: cargo check --all-targets
-
-      - name: Compile crate (gpu feature)
-        run: cargo check --all-targets --features gpu
+      - name: Compile workspace
+        run: cargo check --workspace --all-targets
 
       - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Run clippy (gpu feature)
-        run: cargo clippy --all-targets --features gpu -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run Rust tests
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets
 
       - name: Validate general WGSL shaders (naga)
-        run: cargo run --example gpu_general_check --no-default-features
+        run: cargo run -p refloxide-gpu --example gpu_general_check
 
   wheels:
     name: Wheel (${{ matrix.os }})

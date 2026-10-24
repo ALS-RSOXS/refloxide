@@ -1,6 +1,6 @@
 """Type stubs for the Rust-backed ``refloxide.rust`` extension module.
 
-The native implementation is produced from ``src/lib.rs`` via PyO3 and
+The native implementation is produced from ``crates/refloxide-py`` via PyO3 and
 ``maturin``. Function shapes and conventions mirror
 ``refloxide.python.tmm.uniaxial_reflectivity`` so the two implementations
 can be exchanged without changing call sites.

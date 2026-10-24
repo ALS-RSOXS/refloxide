@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 CARGO = ROOT / "Cargo.toml"
-INIT = ROOT / "src" / "refloxide" / "__init__.py"
+INIT = ROOT / "python" / "refloxide" / "__init__.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
 
 VERSION_RE = re.compile(
@@ -143,10 +143,10 @@ def update_changelog(cliff: list[str], new_version: str) -> str:
 
 
 def refresh_locks() -> None:
-    cargo = _run(["cargo", "update", "-p", "refloxide"], check=False)
+    cargo = _run(["cargo", "update", "--workspace"], check=False)
     if cargo.returncode != 0:
         raise SystemExit(
-            "cargo update -p refloxide failed:\n"
+            "cargo update --workspace failed:\n"
             f"{(cargo.stderr or cargo.stdout or '').strip()}"
         )
     lock = _run(["uv", "lock"], check=False)
