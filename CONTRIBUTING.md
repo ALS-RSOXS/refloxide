@@ -80,37 +80,38 @@ tag or another commit, and `--repeats N` for tighter medians.
 Reviewers expect no unexplained slowdown. A regression is acceptable only with
 a stated reason in the PR. Docs-only changes may state "not applicable".
 
-### CI and the merge queue
+### CI
 
-`main` is protected by a ruleset that **requires the merge queue**.
+| Workflow | When | What |
+| --- | --- | --- |
+| **CI** | every PR push, push to `main` | `rust` (fmt, clippy, tests, shader check), `python` (lint, format, types, pytest; extension built once), `package` (wheel and sdist build plus import; Linux on PRs, Linux/macOS/Windows on `main`) |
+| **Security** | weekly, manual, PRs that change a lockfile or manifest | dependency scan; semgrep on the schedule only |
+| **Documentation** | push to `main` | build and deploy the site |
+| **Release** | push to `main` that changes the package, manual dry run | see Releasing |
 
-| When | What runs |
-| --- | --- |
-| Every PR push | **CI** — lint, types, tests, Rust check, wheels |
-| PR enters the merge queue | **CI again** on the prospective merge commit, plus **Pre-merge** — benchmarks (`github-action-benchmark`), pysentry, semgrep |
-
-Land with **Merge when ready** / add to the merge queue (do not push straight to `main`). Optional early Pre-merge: apply the `pre-merge` label, mark Ready for review, or `gh workflow run pre-merge.yml --ref <branch>`.
+Performance is not checked in CI; see "Benchmarks are a PR requirement".
+Reproduce the CI checks locally with `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace --all-targets`, and `make verify test`.
 
 ## Releasing
 
-Releases are a two-step, manual Actions flow (no auto-publish from a version bump alone).
+A release is a version bump merged to `main`. Nothing is published from a
+branch or a manual step.
 
-1. **Prepare Release** (`workflow_dispatch`)
-   - Computes the next semver from conventional commits since the latest `v*`
-     tag (git-cliff / Commitizen rules), or an explicit `patch` / `minor` /
-     `major` override.
-   - Updates `pyproject.toml`, `Cargo.toml`, `python/refloxide/__init__.py`,
-     lockfiles, and `CHANGELOG.md`.
-   - Opens a `release/vX.Y.Z` pull request for review and optional Pre-merge
-     checks.
-2. Merge the release PR into `main` after review.
-3. **Finalize Release** (`workflow_dispatch`)
-   - Set `confirm` to `publish`.
-   - Cuts annotated tag `vX.Y.Z` on `main`, which triggers the existing
-     **Release** workflow (wheels, PyPI, GitHub Release notes).
+1. Run `make release-prep`. It derives the next semver from conventional
+   commits since the latest `v*` tag (or take `--bump patch|minor|major`) and
+   updates `pyproject.toml`, `Cargo.toml` (`[workspace.package]`),
+   `python/refloxide/__init__.py`, lockfiles, and `CHANGELOG.md`.
+2. Commit the result and open a normal pull request.
+3. Merge it. The **Release** workflow checks that the three versions agree and
+   that tag `vX.Y.Z` does not exist yet. If so, it runs CI, builds wheels for
+   Linux (x86_64, aarch64), macOS (x86_64, arm64) and Windows (x64) plus the
+   sdist, publishes to PyPI by trusted publishing, then creates the tag and a
+   GitHub release with git-cliff notes. If the tag exists, it does nothing.
 
-Dry-run Prepare with `dry_run=true` to print the next version without opening
-a PR.
+Run **Release** manually with `dry_run` to build everything without
+publishing or tagging. The Rust crates are not published to crates.io.
 
 ## Dependency Updates
 

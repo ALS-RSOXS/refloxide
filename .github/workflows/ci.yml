@@ -1,185 +1,103 @@
+# Checks that gate a pull request and run again on main. The Release workflow reuses
+# this file (workflow_call) so nothing ships on a red tree. Performance is not measured
+# here: shared runners are too noisy. Authors paste `make bench-compare` output into
+# the PR instead (see CONTRIBUTING.md).
 name: CI
 
-# Continuous on every PR push; re-run inside the merge queue (merge_group)
-# together with Pre-merge performance / security jobs. No push-to-main.
 on:
   pull_request:
+  push:
     branches: [main]
-  merge_group:
+  workflow_call:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
+  CARGO_TERM_COLOR: always
   FORCE_COLOR: "1"
 
 jobs:
-  lint:
-    name: Lint
+  rust:
+    name: rust
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          enable-cache: true
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: test
+        run: cargo test --workspace --all-targets --locked
+      - name: validate WGSL shaders (naga, no GPU needed)
+        run: cargo run -p refloxide-gpu --example gpu_general_check --locked
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies
-        run: make install
-
-      - name: Lint and format check
-        run: make lint format-check
-
-  type-check:
-    name: Type Check
+  python:
+    name: python (lint, types, tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies
+      - run: uv python install 3.13
+      - name: install (builds the extension once)
         run: make install
-
-      - name: Run ty type checker
-        run: make type-check
-
-  test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.13"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: make install
-
-      - name: Run tests with coverage
-        run: uv run --python ${{ matrix.python-version }} pytest --cov --cov-report=xml --cov-report=term-missing
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: lint, format, types
+        run: make lint format-check type-check
+      - name: pytest
+        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing
+      - uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           fail_ci_if_error: false
 
-  rust-check:
-    name: Rust Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Compile workspace
-        run: cargo check --workspace --all-targets
-
-      - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Run Rust tests
-        run: cargo test --workspace --all-targets
-
-      - name: Validate general WGSL shaders (naga)
-        run: cargo run -p refloxide-gpu --example gpu_general_check
-
-  wheels:
-    name: Wheel (${{ matrix.os }})
+  package:
+    name: package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-22.04
-            target: x86_64
-            manylinux: "2_28"
-          - os: macos-latest
-            target: aarch64
-            manylinux: auto
-          - os: windows-latest
-            target: x64
-            manylinux: auto
+        # Pull requests build on Linux only; main also covers macOS and Windows.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-
-      - name: Build wheel
+      - name: build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
+          manylinux: ${{ runner.os == 'Linux' && '2_28' || 'auto' }}
           args: --release --out dist --compatibility pypi -i python3.13
-          manylinux: ${{ matrix.manylinux }}
-
-      - name: Assert Linux manylinux tag
-        if: runner.os == 'Linux'
+      - name: smoke import
         shell: bash
         run: |
           python - <<'PY'
           import glob
+          import subprocess
           import sys
 
-          wheels = sorted(glob.glob("dist/*.whl"))
-          if not wheels:
-              sys.exit("no wheel in dist/")
-          for path in wheels:
-              name = path.rsplit("/", 1)[-1]
-              if name.endswith("linux_x86_64.whl"):
-                  sys.exit(f"unsupported platform tag in {name}")
-              if "manylinux" not in name and "musllinux" not in name:
-                  sys.exit(f"expected manylinux/musllinux tag in {name}")
-              print(f"OK: {name}")
+          wheel = glob.glob("dist/*.whl")[0]
+          subprocess.check_call([sys.executable, "-m", "pip", "install", wheel])
+          subprocess.check_call(
+              [sys.executable, "-c", "import refloxide, refloxide.rust; print(refloxide.__version__)"]
+          )
           PY
-
-      - name: Smoke import
-        shell: bash
-        run: |
-          python -m venv .smoke-venv
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            .smoke-venv/Scripts/pip install --no-deps dist/*.whl
-            .smoke-venv/Scripts/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
-          else
-            .smoke-venv/bin/pip install --no-deps dist/*.whl
-            .smoke-venv/bin/python -c "import refloxide; import refloxide.rust; print(refloxide.__version__)"
-          fi
+      - name: sdist builds
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
