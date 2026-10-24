@@ -14,7 +14,7 @@ from refloxide.mixing import (
     mix_linear,
     mix_maxwell_garnett,
 )
-from refloxide.model import FreeUniTensor, MaterialSLD, Mix, ReflectModel
+from refloxide.model import FreeUniTensor, MaterialSLD, Mix, ReflectModel, UniTensorSLD
 from refloxide.profiles import (
     CallableDepthProfile,
     CallableField,
@@ -168,6 +168,186 @@ def test_mix_homogeneous_and_depth_phi():
     assert rows.shape == (20, 4)
     assert tensors.shape == (20, 3, 3)
     assert complex(tensors[0, 0, 0]).real > complex(tensors[-1, 0, 0]).real
+
+
+def _flat_ooc(n_xx: float, n_ixx: float, n_zz: float, n_izz: float):
+    import polars as pl
+
+    energy = np.linspace(250.0, 320.0, 12)
+    return OpticalConstants.from_source(
+        pl.DataFrame(
+            {
+                "energy": energy,
+                "n_xx": np.full(energy.shape, n_xx),
+                "n_ixx": np.full(energy.shape, n_ixx),
+                "n_zz": np.full(energy.shape, n_zz),
+                "n_izz": np.full(energy.shape, n_izz),
+            }
+        )
+    )
+
+
+def test_phi_profile_keeps_component_density_and_rotation():
+    """A volume-fraction profile still evaluates each component's density and tilt."""
+    energy = 284.4
+    a = UniTensorSLD(
+        _flat_ooc(1.2e-3, 2e-4, 1.8e-3, 3e-4),
+        density=1.25,
+        rotation=0.3,
+        name="a",
+    )
+    b = UniTensorSLD(
+        _flat_ooc(0.7e-3, 1e-4, 0.9e-3, 1.5e-4),
+        density=1.55,
+        rotation=1.1,
+        name="b",
+    )
+    phi = SecondOrderTransition(
+        thickness=40.0,
+        bulk=0.5,
+        top=0.8,
+        bottom=0.2,
+        tau_top=8.0,
+        tau_bottom=12.0,
+        name="phi",
+    )
+    layer = DepthProfile(
+        material=Mix([a, b], rule="linear", name="mix"),
+        thickness=40.0,
+        phi=phi,
+        n_slabs=6,
+        mesh="uniform",
+    )
+    _, baseline = layer.rows_and_tensors_at(energy)
+    a.density.value = 1.8
+    _, scaled = layer.rows_and_tensors_at(energy)
+    assert complex(scaled[0, 0, 0]).real != pytest.approx(
+        complex(baseline[0, 0, 0]).real
+    )
+    a.density.value = 1.25
+    a.rotation.value = 1.2
+    _, tilted = layer.rows_and_tensors_at(energy)
+    biref = tilted[:, 2, 2] - tilted[:, 0, 0]
+    base_biref = baseline[:, 2, 2] - baseline[:, 0, 0]
+    assert not np.allclose(biref, base_biref)
+
+
+def test_mix_profile_composes_per_component_density_and_orientation():
+    """Any depth law on phi, density, and gamma is applied per mix component."""
+    from refloxide.optics import uniaxial_lab_tensor
+
+    energy = 284.4
+    thickness = 80.0
+    rho_a = Spline(
+        knots=[0.0, 40.0, 80.0],
+        values=[1.1, 1.4, 1.7],
+        name="rho_a",
+    )
+    rho_b = SecondOrderTransition(
+        thickness=thickness,
+        bulk=1.2,
+        top=0.9,
+        bottom=1.5,
+        tau_top=10.0,
+        tau_bottom=16.0,
+        name="rho_b",
+    )
+    gamma_a = SecondOrderTransition(
+        thickness=thickness,
+        bulk=0.4,
+        top=0.15,
+        bottom=1.1,
+        tau_top=14.0,
+        tau_bottom=20.0,
+        name="gamma_a",
+    )
+    gamma_b = Constant(0.8, name="gamma_b")
+    a = UniTensorSLD(
+        _flat_ooc(1.2e-3, 2.0e-4, 1.8e-3, 3.0e-4),
+        density=rho_a,
+        rotation=gamma_a,
+        name="a",
+    )
+    b = UniTensorSLD(
+        _flat_ooc(0.7e-3, 1.0e-4, 0.9e-3, 1.5e-4),
+        density=rho_b,
+        rotation=gamma_b,
+        name="b",
+    )
+    phi = SecondOrderTransition(
+        thickness=thickness,
+        bulk=0.45,
+        top=0.8,
+        bottom=0.2,
+        tau_top=12.0,
+        tau_bottom=18.0,
+        name="phi",
+    )
+    layer = DepthProfile(
+        material=Mix([a, b], rule="linear", name="mix"),
+        thickness=thickness,
+        phi=phi,
+        n_slabs=8,
+        mesh="uniform",
+        name="film",
+    )
+    names = {p.name for p in layer.parameters.flattened()}
+    assert {
+        "phi_top",
+        "rho_a_v0",
+        "rho_b_bulk",
+        "gamma_a_bottom",
+        "gamma_b_value",
+    } <= names
+    assert "a_density" not in names
+    assert "b_rotation" not in names
+    assert all(not vf.vary for vf in layer.material.vf)
+
+    rows, tensors = layer.rows_and_tensors_at(energy)
+    z = np.cumsum(rows[:, 0]) - 0.5 * rows[:, 0]
+    for zi, tensor in zip(z, tensors, strict=True):
+        fraction = float(phi.evaluate(zi, thickness=thickness))
+        rho_ai = float(rho_a.evaluate(zi, thickness=thickness))
+        rho_bi = float(rho_b.evaluate(zi, thickness=thickness))
+        gamma_ai = float(gamma_a.evaluate(zi, thickness=thickness))
+        gamma_bi = float(gamma_b.evaluate(zi, thickness=thickness))
+        n_xx_a, n_zz_a = a.ooc.molecular_index_at(energy, rho_ai)
+        n_xx_b, n_zz_b = b.ooc.molecular_index_at(energy, rho_bi)
+        ta = np.asarray(uniaxial_lab_tensor(n_xx_a, n_zz_a, gamma_ai))
+        tb = np.asarray(uniaxial_lab_tensor(n_xx_b, n_zz_b, gamma_bi))
+        expected_o = fraction * ta[0, 0] + (1.0 - fraction) * tb[0, 0]
+        expected_e = fraction * ta[2, 2] + (1.0 - fraction) * tb[2, 2]
+        assert complex(tensor[0, 0]) == pytest.approx(complex(expected_o))
+        assert complex(tensor[2, 2]) == pytest.approx(complex(expected_e))
+
+
+def test_mix_profile_normalizes_a_phi_field_per_component():
+    """Three or more components take one weight profile each, renormalized."""
+    energy = 284.4
+    thickness = 30.0
+    materials = [
+        UniTensorSLD(_flat_ooc(1.0e-3, 1e-4, 2.0e-3, 2e-4), density=1.0, name="a"),
+        UniTensorSLD(_flat_ooc(3.0e-3, 1e-4, 3.5e-3, 2e-4), density=1.2, name="b"),
+        UniTensorSLD(_flat_ooc(0.4e-3, 1e-4, 0.6e-3, 2e-4), density=0.8, name="c"),
+    ]
+    weights = [
+        Constant(0.2, name="w0"),
+        Constant(0.2, name="w1"),
+        Constant(0.6, name="w2"),
+    ]
+    layer = DepthProfile(
+        material=Mix(materials, rule="linear", name="mix"),
+        thickness=thickness,
+        phi=tuple(weights),
+        n_slabs=2,
+        mesh="uniform",
+    )
+    _, tensors = layer.rows_and_tensors_at(energy)
+    channels = []
+    for mat, weight in zip(materials, (0.2, 0.2, 0.6), strict=True):
+        tensor = mat.tensor_at(energy)
+        channels.append(weight * complex(tensor[0, 0]))
+    assert complex(tensors[0, 0, 0]) == pytest.approx(sum(channels))
 
 
 def test_depth_profile_second_order_gamma_stacks():

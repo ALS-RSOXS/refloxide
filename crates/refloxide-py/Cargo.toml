@@ -1,0 +1,25 @@
+[package]
+name = "refloxide-py"
+description = "PyO3 bindings exposing refloxide as the refloxide.rust extension module"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+publish = false
+
+[lib]
+name = "rust"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+refloxide-core = { workspace = true }
+refloxide-optics = { workspace = true }
+refloxide-tmm = { workspace = true }
+refloxide-gpu = { workspace = true }
+nalgebra = { workspace = true }
+num-complex = { workspace = true }
+pyo3 = { workspace = true }
+numpy = { workspace = true }

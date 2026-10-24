@@ -2,17 +2,13 @@
 
 Portable GPU evaluation of the uniaxial-z recursion through [wgpu](https://wgpu.rs/)
 (Metal, Vulkan, DX12). The public Python path is single-precision recursion;
-double-single (`df64`) and general-tensor shaders exist behind the Rust
-`gpu` feature for experiments and examples.
+double-single (`df64`) and general-tensor shaders live in the
+`refloxide-gpu` crate for experiments and examples.
 
 ## Enablement
 
-Wheels and local Maturin builds already request the feature:
-
-```toml
-# pyproject.toml [tool.maturin]
-features = ["python", "gpu"]
-```
+Wheels and local Maturin builds always link the `refloxide-gpu` crate; there
+is no feature to enable.
 
 Rebuild the extension after pulling GPU changes:
 
@@ -23,13 +19,12 @@ make develop
 For Rust-only work:
 
 ```bash
-cargo check --features gpu
-cargo run --profile perf --no-default-features --features gpu --example gpu_recursive
+cargo check -p refloxide-gpu
+cargo run -p refloxide-gpu --profile perf --example gpu_recursive
 ```
 
-If the crate was built without `gpu`, `device="gpu"` raises a clear
-`RuntimeError`. If the feature is present but no adapter is available,
-the same path fails at device acquisition.
+If no adapter is available, `device="gpu"` raises a `RuntimeError` at
+device acquisition.
 
 ## Usage
 
@@ -99,10 +94,10 @@ stacks).
 
 | Artifact | Role |
 | --- | --- |
-| `examples/gpu_recursive.rs` | CPU `f32` / CPU `f64` / GPU reflectance and throughput |
-| `examples/gpu_df64.rs`, `examples/gpu_df64_bench.rs` | Double-single recursion experiments |
-| `examples/gpu_general.rs`, `examples/gpu_general_check.rs` | General-tensor shaders (runtime and naga validate) |
-| `examples/kernel_precision.rs` | Precision study across kernel formulations |
+| `crates/refloxide-gpu/examples/gpu_recursive.rs` | CPU `f32` / CPU `f64` / GPU reflectance and throughput |
+| `crates/refloxide-gpu/examples/gpu_df64.rs`, `.../gpu_df64_bench.rs` | Double-single recursion experiments |
+| `crates/refloxide-gpu/examples/gpu_general.rs`, `.../gpu_general_check.rs` | General-tensor shaders (runtime and naga validate) |
+| `crates/refloxide-tmm/examples/kernel_precision.rs` | Precision study across kernel formulations |
 | `examples/gpu_backend_bench.py` | Cross-backend wall time and peak Python heap |
 
 Regenerate the uniaxial backend benchmark (1 slab and **10,000** film

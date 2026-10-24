@@ -95,7 +95,7 @@ jobs:
             Cargo.toml \
             Cargo.lock \
             uv.lock \
-            src/refloxide/__init__.py \
+            python/refloxide/__init__.py \
             CHANGELOG.md
           if git diff --cached --quiet; then
             echo "No release file changes staged"

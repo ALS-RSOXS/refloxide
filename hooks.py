@@ -18,7 +18,7 @@ def _write_rustdoc_stub(dest: Path) -> None:
         "<title>Rustdoc not generated</title></head><body>"
         "<p>Rust documentation was not copied. Install a Rust toolchain and run "
         "<code>mkdocs build</code> again, or run <code>cargo doc --no-deps</code> "
-        "and open <code>target/doc/refloxide/index.html</code>.</p>"
+        "and open <code>target/doc/refloxide_tmm/index.html</code>.</p>"
         "</body></html>\n",
         encoding="utf-8",
     )

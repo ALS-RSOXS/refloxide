@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 CARGO = ROOT / "Cargo.toml"
-INIT = ROOT / "src" / "refloxide" / "__init__.py"
+INIT = ROOT / "python" / "refloxide" / "__init__.py"
 
 TOML_RE = re.compile(r'^version\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
 INIT_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
