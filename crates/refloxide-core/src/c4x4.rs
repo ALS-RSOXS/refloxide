@@ -5,25 +5,25 @@
 
 use num_complex::Complex;
 
-use crate::kernel::Real;
+use crate::real::Real;
 
 /// Stack-allocated 4x4 complex matrix in row-major `[row][col]` layout.
-pub(crate) type Mat4<T> = [[Complex<T>; 4]; 4];
+pub type Mat4<T> = [[Complex<T>; 4]; 4];
 
 #[inline]
-pub(crate) fn zero<T: Real>() -> Complex<T> {
+pub fn zero<T: Real>() -> Complex<T> {
     Complex::new(T::zero(), T::zero())
 }
 
 #[inline]
-pub(crate) fn identity<T: Real>() -> Mat4<T> {
+pub fn identity<T: Real>() -> Mat4<T> {
     let z = zero();
     let o = Complex::new(T::one(), T::zero());
     [[o, z, z, z], [z, o, z, z], [z, z, o, z], [z, z, z, o]]
 }
 
 #[inline]
-pub(crate) fn mul<T: Real>(a: &Mat4<T>, b: &Mat4<T>, out: &mut Mat4<T>) {
+pub fn mul<T: Real>(a: &Mat4<T>, b: &Mat4<T>, out: &mut Mat4<T>) {
     for i in 0..4 {
         for j in 0..4 {
             let mut s = zero();
@@ -36,13 +36,13 @@ pub(crate) fn mul<T: Real>(a: &Mat4<T>, b: &Mat4<T>, out: &mut Mat4<T>) {
 }
 
 #[inline]
-pub(crate) fn mul_assign<T: Real>(acc: &mut Mat4<T>, b: &Mat4<T>) {
+pub fn mul_assign<T: Real>(acc: &mut Mat4<T>, b: &Mat4<T>) {
     let left = *acc;
     mul(&left, b, acc);
 }
 
 #[inline]
-pub(crate) fn hadamard<T: Real>(a: &Mat4<T>, b: &Mat4<T>, out: &mut Mat4<T>) {
+pub fn hadamard<T: Real>(a: &Mat4<T>, b: &Mat4<T>, out: &mut Mat4<T>) {
     for i in 0..4 {
         for j in 0..4 {
             out[i][j] = a[i][j] * b[i][j];
@@ -52,11 +52,7 @@ pub(crate) fn hadamard<T: Real>(a: &Mat4<T>, b: &Mat4<T>, out: &mut Mat4<T>) {
 
 /// Writes `diag(exp(-i kz d))` as column scaling factors.
 #[inline]
-pub(crate) fn propagation_diag<T: Real>(
-    kz: &[Complex<T>; 4],
-    thickness: T,
-    out: &mut [Complex<T>; 4],
-) {
+pub fn propagation_diag<T: Real>(kz: &[Complex<T>; 4], thickness: T, out: &mut [Complex<T>; 4]) {
     let d = Complex::new(thickness, T::zero());
     let minus_i = Complex::new(T::zero(), -T::one());
     for s in 0..4 {
@@ -66,7 +62,7 @@ pub(crate) fn propagation_diag<T: Real>(
 
 /// Fills the Nevot-Croce roughness matrix at an interface.
 #[inline]
-pub(crate) fn fill_w<T: Real>(
+pub fn fill_w<T: Real>(
     kz_prev: &[Complex<T>; 4],
     kz_curr: &[Complex<T>; 4],
     sigma: T,
@@ -94,7 +90,7 @@ pub(crate) fn fill_w<T: Real>(
 
 /// Fused `(prev_di * d).hadamard(w)` optionally followed by column scaling `* diag(p)`.
 #[inline]
-pub(crate) fn fused_interface_kernel<T: Real>(
+pub fn fused_interface_kernel<T: Real>(
     prev_di: &Mat4<T>,
     d: &Mat4<T>,
     w: &Mat4<T>,

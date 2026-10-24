@@ -2,7 +2,7 @@
 //!
 //! All fallible operations in the public Rust API return [`Result<T>`].
 //! [`RefloxideError`] carries enough context for callers to recover or to
-//! surface a typed Python exception when the PyO3 boundary is crossed.
+//! surface a typed Python exception in the bindings crate.
 
 use thiserror::Error;
 
@@ -55,20 +55,3 @@ pub enum RefloxideError {
 
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, RefloxideError>;
-
-#[cfg(feature = "python")]
-impl From<RefloxideError> for pyo3::PyErr {
-    fn from(err: RefloxideError) -> pyo3::PyErr {
-        match err {
-            RefloxideError::InvalidShape(_)
-            | RefloxideError::LayerCountMismatch { .. }
-            | RefloxideError::InsufficientLayers(_)
-            | RefloxideError::InvalidEnergy(_) => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
-            RefloxideError::SingularDynamicMatrix { .. } | RefloxideError::Gpu(_) => {
-                pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
-            }
-        }
-    }
-}

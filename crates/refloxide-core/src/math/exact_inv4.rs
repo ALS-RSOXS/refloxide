@@ -7,7 +7,7 @@ use nalgebra::Matrix4;
 use num_complex::Complex;
 
 use crate::c4x4::{zero, Mat4};
-use crate::kernel::Real;
+use crate::real::Real;
 
 type C = Complex<f64>;
 
@@ -32,7 +32,7 @@ pub fn exact_inv_4x4(m: &Matrix4<C>) -> Option<Matrix4<C>> {
 /// Closed-form inverse on row-major arrays, generic over precision.
 ///
 /// Returns `None` when the analytic determinant is exactly zero (upstream uses `pinv` then).
-pub(crate) fn exact_inv_4x4_generic<T: Real>(m: &Mat4<T>) -> Option<Mat4<T>> {
+pub fn exact_inv_4x4_generic<T: Real>(m: &Mat4<T>) -> Option<Mat4<T>> {
     let a = |r: usize, c: usize| m[c][r];
 
     let mut det_a = a(0, 0) * a(1, 1) * a(2, 2) * a(3, 3)
