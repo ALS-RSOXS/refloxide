@@ -119,13 +119,9 @@ fn check_slice_array(name: &str, values: &[f64], n_slices: usize) -> Result<()> 
 
 /// Validate one shape row with the `lineshapes` domain rules and build its unit model.
 fn unit_model(kind: LineKind, shape: &[f64]) -> Result<Model> {
-    let component = kind.component(shape);
-    component
-        .validate()
-        .map_err(RefloxideError::InvalidParameter)?;
     let mut model = Model::new();
     model
-        .try_add(component)
+        .try_add(kind.component(shape))
         .map_err(RefloxideError::InvalidParameter)?;
     Ok(model)
 }
@@ -140,7 +136,7 @@ fn unit_model(kind: LineKind, shape: &[f64]) -> Result<Model> {
 /// # Errors
 ///
 /// Returns [`RefloxideError::InvalidParameter`] naming the lineshape when a shape
-/// parameter is non-finite, has width or gamma `<= 0`, or has eta outside `[0, 1]`,
+/// parameter is non-finite, has width, gamma, sigma or fwhm `<= 0`, or has eta outside `[0, 1]`,
 /// and when a height or projection is non-finite. Returns
 /// [`RefloxideError::InvalidShape`] on length mismatches.
 pub fn peak_sum_molecular(
@@ -208,7 +204,6 @@ pub fn peak_sum_molecular(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lineshapes::Model;
 
     type C = Complex<f64>;
 
@@ -270,5 +265,161 @@ mod tests {
         peak_sum_molecular(&[per_slice], n_slices, &energies, &mut b_xx, &mut b_zz).unwrap();
         assert_eq!(a_xx, b_xx);
         assert_eq!(a_zz, b_zz);
+    }
+
+    /// Unit-amplitude-times-`amp` reference line from an independent `lineshapes` builder.
+    fn model_eval(kind: LineKind, shape: &[f64], amp: f64, energies: &[f64]) -> Vec<C> {
+        let model = match kind {
+            LineKind::Gaussian => Model::new().gaussian(shape[0], shape[1], amp),
+            LineKind::Lorentzian => Model::new().lorentzian(shape[0], shape[1], amp),
+            LineKind::Voigt => Model::new().voigt(shape[0], shape[1], shape[2], amp),
+            LineKind::PseudoVoigt => Model::new().pseudo_voigt(shape[0], shape[1], shape[2], amp),
+        };
+        model.eval(energies)
+    }
+
+    fn assert_close(got: &[C], want: &[C]) {
+        assert_eq!(got.len(), want.len());
+        for (g, w) in got.iter().zip(want) {
+            let err = (*g - *w).norm();
+            assert!(err <= 1e-12 * w.norm() + 1e-300, "got {g}, want {w}");
+        }
+    }
+
+    fn run(peaks: &[PeakSpec], n_slices: usize, energies: &[f64]) -> (Vec<C>, Vec<C>) {
+        let n = n_slices * energies.len();
+        let mut xx = vec![C::new(0.0, 0.0); n];
+        let mut zz = vec![C::new(0.0, 0.0); n];
+        peak_sum_molecular(peaks, n_slices, energies, &mut xx, &mut zz).unwrap();
+        (xx, zz)
+    }
+
+    #[test]
+    fn distinct_per_slice_rows_match_single_slice_calls_and_model() {
+        let energies = linspace(283.0, 286.0, 40);
+        let n_e = energies.len();
+        let e0 = [284.0, 284.5, 285.0, 285.5];
+        let width = [0.3, 0.4, 0.5, 0.6];
+        let height = [1.0, 2.0, 0.5, 3.0];
+        let f_xx = [1.5, 0.2, 1.0, 0.7];
+        let f_zz = [0.0, 0.3, 0.9, 0.4];
+        let shape: Vec<f64> = (0..4).flat_map(|s| [e0[s], width[s]]).collect();
+        let peak = PeakSpec {
+            kind: LineKind::Gaussian,
+            shape: &shape,
+            height: &height,
+            f_xx: &f_xx,
+            f_zz: &f_zz,
+        };
+        let (xx, zz) = run(&[peak], 4, &energies);
+
+        for s in 0..4 {
+            let row = [e0[s], width[s]];
+            let single = PeakSpec {
+                kind: LineKind::Gaussian,
+                shape: &row,
+                height: &height[s..=s],
+                f_xx: &f_xx[s..=s],
+                f_zz: &f_zz[s..=s],
+            };
+            let (sx, sz) = run(&[single], 1, &energies);
+            assert_eq!(&xx[s * n_e..(s + 1) * n_e], &sx[..]);
+            assert_eq!(&zz[s * n_e..(s + 1) * n_e], &sz[..]);
+
+            let want_xx = model_eval(LineKind::Gaussian, &row, height[s] * f_xx[s], &energies);
+            let want_zz = model_eval(LineKind::Gaussian, &row, height[s] * f_zz[s], &energies);
+            assert_close(&xx[s * n_e..(s + 1) * n_e], &want_xx);
+            assert_close(&zz[s * n_e..(s + 1) * n_e], &want_zz);
+        }
+    }
+
+    #[test]
+    fn mixed_broadcast_and_per_slice_peaks_match_single_slice_calls_and_model() {
+        let energies = linspace(283.0, 286.0, 40);
+        let n_e = energies.len();
+        let n_slices = 3;
+
+        // Peak A: one Lorentzian row shared by every slice (broadcast).
+        let a_row = [284.8, 0.2];
+        let a_height = [0.7];
+        let a_xx = [1.0];
+        let a_zz = [0.5];
+
+        // Peak B: one pseudo-Voigt row per slice with distinct scalars.
+        let b_rows = [[284.2, 0.5, 0.1], [284.6, 0.4, 0.6], [285.1, 0.6, 0.9]];
+        let b_shape: Vec<f64> = b_rows.iter().flatten().copied().collect();
+        let b_height = [1.2, 0.4, 2.5];
+        let b_xx = [0.3, 1.1, 0.8];
+        let b_zz = [0.9, 0.0, 0.2];
+
+        let peaks = [
+            PeakSpec {
+                kind: LineKind::Lorentzian,
+                shape: &a_row,
+                height: &a_height,
+                f_xx: &a_xx,
+                f_zz: &a_zz,
+            },
+            PeakSpec {
+                kind: LineKind::PseudoVoigt,
+                shape: &b_shape,
+                height: &b_height,
+                f_xx: &b_xx,
+                f_zz: &b_zz,
+            },
+        ];
+        let (xx, zz) = run(&peaks, n_slices, &energies);
+
+        for s in 0..n_slices {
+            let single = [
+                PeakSpec {
+                    kind: LineKind::Lorentzian,
+                    shape: &a_row,
+                    height: &a_height,
+                    f_xx: &a_xx,
+                    f_zz: &a_zz,
+                },
+                PeakSpec {
+                    kind: LineKind::PseudoVoigt,
+                    shape: &b_rows[s],
+                    height: &b_height[s..=s],
+                    f_xx: &b_xx[s..=s],
+                    f_zz: &b_zz[s..=s],
+                },
+            ];
+            let (sx, sz) = run(&single, 1, &energies);
+            assert_eq!(&xx[s * n_e..(s + 1) * n_e], &sx[..]);
+            assert_eq!(&zz[s * n_e..(s + 1) * n_e], &sz[..]);
+
+            let ref_a = model_eval(
+                LineKind::Lorentzian,
+                &a_row,
+                a_height[0] * a_xx[0],
+                &energies,
+            );
+            let ref_b = model_eval(
+                LineKind::PseudoVoigt,
+                &b_rows[s],
+                b_height[s] * b_xx[s],
+                &energies,
+            );
+            let want_xx: Vec<C> = ref_a.iter().zip(&ref_b).map(|(p, q)| p + q).collect();
+            assert_close(&xx[s * n_e..(s + 1) * n_e], &want_xx);
+
+            let ref_a = model_eval(
+                LineKind::Lorentzian,
+                &a_row,
+                a_height[0] * a_zz[0],
+                &energies,
+            );
+            let ref_b = model_eval(
+                LineKind::PseudoVoigt,
+                &b_rows[s],
+                b_height[s] * b_zz[s],
+                &energies,
+            );
+            let want_zz: Vec<C> = ref_a.iter().zip(&ref_b).map(|(p, q)| p + q).collect();
+            assert_close(&zz[s * n_e..(s + 1) * n_e], &want_zz);
+        }
     }
 }
