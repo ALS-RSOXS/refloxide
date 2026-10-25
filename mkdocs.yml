@@ -96,6 +96,7 @@ nav:
   - Lineshapes integration:
       - Overview: guides/lineshapes_integration/index.md
       - Peak gradients: guides/lineshapes_integration/peak_gradients.md
+      - Surface diffusion: guides/lineshapes_integration/surface_diffusion.md
   - Theory:
       - Overview: theory/overview.md
       - Narrative context:
