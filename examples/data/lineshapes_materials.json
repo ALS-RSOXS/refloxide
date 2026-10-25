@@ -1,6 +1,6 @@
 {
   "provenance": {
-    "lineshapes_repo": "/Users/hduva/projects/lineshapes",
+    "lineshapes_repo": "lineshapes (local checkout)",
     "lineshapes_commit": "8bddb29d9509f6343c0c8f109356912c0ccdc12d",
     "lineshapes_version": "0.1.0",
     "freeze_date": "2026-10-24",

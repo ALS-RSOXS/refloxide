@@ -246,7 +246,8 @@ def freeze() -> dict:
     znpc, znpc_info = fit_znpc()
     all_energies = [p["energy"] for p in alq3["peaks"] + znpc["peaks"]]
     provenance = {
-        "lineshapes_repo": str(REPO),
+        # A label, not the local path: the absolute path is machine-specific.
+        "lineshapes_repo": "lineshapes (local checkout)",
         "lineshapes_commit": lineshapes_commit(),
         "lineshapes_version": lineshapes_version(),
         "freeze_date": datetime.date.today().isoformat(),

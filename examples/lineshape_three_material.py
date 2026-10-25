@@ -142,24 +142,56 @@ def _film_ratio(u: float, gamma: float) -> float:
     return float(n_e / n_o)
 
 
+PI_STAR_MAX_EV = 286.0  # pi* peaks lie below this energy (eV)
+PI_STAR_FRACTION = 0.1  # ... and have F_iso above this fraction of the largest
+
+
+def znpc_iso(rec: dict[str, Any]) -> float:
+    """Isotropic strength `(2 F_xx + F_zz) / 3` of one ZnPc peak record.
+
+    This is the peak height. It is the tensor solve's isotropic strength, which
+    the film tensor at `gamma_ref` reproduces (see `znpc_reproduction`).
+    """
+    return (2.0 * float(rec["F_xx"]) + float(rec["F_zz"])) / 3.0
+
+
+def _gaussian(
+    label: str, rec: dict[str, Any], height: Any, tilt: Any = MAGIC_ANGLE
+) -> Peak:
+    """Gaussian `Peak` at a frozen record's energy and width."""
+    return Peak(
+        "gaussian",
+        label=label,
+        energy=float(rec["energy"]),
+        width=float(rec["width"]),
+        height=height,
+        tdm_tilt=tilt,
+    )
+
+
+def _sorted_alq3(material: dict[str, Any]) -> list[dict[str, Any]]:
+    """Alq3 peak records in energy order (p1 is the lowest-energy peak)."""
+    return sorted(material["peaks"], key=lambda p: p["energy"])
+
+
 def znpc_tilts(
     peaks: Sequence[dict[str, Any]] | None = None,
-) -> tuple[float, NDArray[np.float64], list[str]]:
+) -> tuple[float, NDArray[np.float64], list[int]]:
     """Molecular ZnPc orientation and per-peak TDM tilts from the five-angle series.
 
     Parameters
     ----------
     peaks : sequence of dict, optional
-        ZnPc peak records from the frozen file (``energy``, ``height_iso``,
+        ZnPc peak records from the frozen file (``energy``, ``width``,
         ``F_xx``, ``F_zz``). Defaults to the frozen ZnPc set.
 
     Returns
     -------
     gamma_ref : float
         Measured molecular tilt (radians) from the strong pi* peaks (energy below
-        286 eV, `height_iso` above 10 % of the largest), assuming their TDM lies
-        along the molecular normal. `tan(gamma_ref) = sqrt(2 / r)` with
-        `r = sum(F_zz) / sum(F_xx)` over those peaks.
+        `PI_STAR_MAX_EV`, F_iso above `PI_STAR_FRACTION` of the largest), assuming
+        their TDM lies along the molecular normal. `tan(gamma_ref) = sqrt(2 / r)`
+        with `r = sum(F_zz) / sum(F_xx)` over those peaks.
     thetas : NDArray[np.float64]
         TDM polar angle (radians, in [0, pi/2]) per peak, solved so that the film
         ratio `F_zz / F_xx` at `gamma_ref` equals the measured ratio. A measured
@@ -167,89 +199,104 @@ def znpc_tilts(
         pi/2; a ratio below the minimum reachable ratio (at theta = 0), including
         `F_zz = 0`, clips to 0. Clipped peaks are the closest reachable response
         at `gamma_ref`, so they are skipped by the reproduction check.
-    clipped : list of str
-        Energies (eV, as ``"284.03"``-style strings) of the clipped peaks.
+    clipped : list of int
+        Indices into ``peaks`` of the clipped peaks.
     """
     if peaks is None:
         peaks = load_materials()["znpc"]["peaks"]
     energy = np.array([p["energy"] for p in peaks])
-    f_iso = np.array([p["height_iso"] for p in peaks])
+    f_iso = np.array([znpc_iso(p) for p in peaks])
     f_xx = np.array([p["F_xx"] for p in peaks])
     f_zz = np.array([p["F_zz"] for p in peaks])
 
-    pi_star = (energy < 286.0) & (f_iso > 0.1 * f_iso.max())
+    pi_star = (energy < PI_STAR_MAX_EV) & (f_iso > PI_STAR_FRACTION * f_iso.max())
     ratio_pi = f_zz[pi_star].sum() / f_xx[pi_star].sum()
     gamma_ref = float(np.arctan(np.sqrt(2.0 / ratio_pi)))
 
     lo = _film_ratio(1.0, gamma_ref)  # theta = 0
     hi = _film_ratio(0.0, gamma_ref)  # theta = pi/2
     thetas = np.empty(len(peaks))
-    clipped: list[str] = []
+    clipped: list[int] = []
     for k in range(len(peaks)):
         measured = f_zz[k] / f_xx[k]
         if measured <= lo:
             thetas[k] = 0.0
+            clipped.append(k)
         elif measured >= hi:
             thetas[k] = np.pi / 2
+            clipped.append(k)
         else:
             # ratio(u) is monotone in u = cos^2(theta); solve on [0, 1].
             root = brentq(lambda u, m=measured: _film_ratio(u, gamma_ref) - m, 0.0, 1.0)
             thetas[k] = float(np.arccos(np.sqrt(root)))
-            continue
-        clipped.append(f"{energy[k]:.2f}")
     return gamma_ref, thetas, clipped
 
 
-def znpc_reproduction() -> tuple[float, float]:
-    """Worst relative error of the film ratio, and of the magic-angle strength.
+def clip_table(
+    peaks: Sequence[dict[str, Any]] | None = None,
+) -> list[tuple[float, float, float, str]]:
+    """Clipped ZnPc peaks as `(energy, measured, modelled, bound)` rows.
 
-    Each ZnPc peak is built alone with its solved TDM tilt and rotated to
-    `gamma_ref`. The film ratio `n_e / n_o` is compared with the measured
-    `F_zz / F_xx`, skipping clipped peaks; the isotropic average is compared with
-    `height_iso`.
+    ``measured`` is `F_zz / F_xx` from the frozen file, ``modelled`` is the film
+    ratio at the bound the peak was clipped to, and ``bound`` names that bound.
+    """
+    if peaks is None:
+        peaks = load_materials()["znpc"]["peaks"]
+    gamma_ref, thetas, clipped = znpc_tilts(peaks)
+    rows = []
+    for k in clipped:
+        rec = peaks[k]
+        measured = rec["F_zz"] / rec["F_xx"]
+        bound = "theta = 0" if thetas[k] == 0.0 else "theta = pi/2"
+        modelled = _film_ratio(1.0 if thetas[k] == 0.0 else 0.0, gamma_ref)
+        rows.append((float(rec["energy"]), float(measured), modelled, bound))
+    return rows
+
+
+def znpc_reproduction() -> dict[str, float]:
+    """Worst relative errors of the solved ZnPc peaks at `gamma_ref`.
+
+    Each ZnPc peak is built alone with height `F_iso`, its solved TDM tilt, and
+    rotation `gamma_ref`. For the unclipped peaks the film strengths `n_o` and
+    `n_e` are compared with `F_xx` and `F_zz`, and their ratio with the measured
+    `F_zz / F_xx`. For every peak the isotropic average is compared with `F_iso`.
+    Returns the worst relative deviation of each, keyed ``"F_xx"``, ``"F_zz"``,
+    ``"ratio"`` and ``"iso"``.
     """
     records = load_materials()["znpc"]["peaks"]
     gamma_ref, thetas, clipped = znpc_tilts(records)
-    worst_ratio = 0.0
-    worst_iso = 0.0
-    for rec, theta in zip(records, thetas, strict=True):
-        peak = Peak(
-            "gaussian",
-            label="check",
-            energy=float(rec["energy"]),
-            width=float(rec["width"]),
-            height=float(rec["height_iso"]),
-            tdm_tilt=float(theta),
-        )
-        tensor = PeakSumSLD([peak], density=1.0, rotation=gamma_ref).tensor_at(
-            float(rec["energy"])
-        )
+    worst = {"F_xx": 0.0, "F_zz": 0.0, "ratio": 0.0, "iso": 0.0}
+    for k, rec in enumerate(records):
+        e0 = float(rec["energy"])
+        f_iso = znpc_iso(rec)
+        peak = _gaussian("check", rec, f_iso, float(thetas[k]))
+        tensor = PeakSumSLD([peak], density=1.0, rotation=gamma_ref).tensor_at(e0)
+        n_o, n_e = tensor[0, 0].imag, tensor[2, 2].imag
+        worst["iso"] = max(worst["iso"], abs(np.trace(tensor.imag) / 3.0 / f_iso - 1.0))
+        if k in clipped:
+            continue
+        worst["F_xx"] = max(worst["F_xx"], abs(n_o / rec["F_xx"] - 1.0))
+        worst["F_zz"] = max(worst["F_zz"], abs(n_e / rec["F_zz"] - 1.0))
         measured = rec["F_zz"] / rec["F_xx"]
-        if f"{rec['energy']:.2f}" not in clipped:
-            worst_ratio = max(
-                worst_ratio, abs(tensor[2, 2].imag / tensor[0, 0].imag / measured - 1.0)
-            )
-        iso_peak = Peak(
-            "gaussian",
-            label="check",
-            energy=float(rec["energy"]),
-            width=float(rec["width"]),
-            height=float(rec["height_iso"]),
-            tdm_tilt=float(theta),
-        )
-        iso = PeakSumSLD([iso_peak], density=1.0, rotation=0.0).tensor_at(
-            float(rec["energy"])
-        )
-        mean = float(np.trace(iso.imag)) / 3.0
-        worst_iso = max(worst_iso, abs(mean / rec["height_iso"] - 1.0))
-    return worst_ratio, worst_iso
+        worst["ratio"] = max(worst["ratio"], abs((n_e / n_o) / measured - 1.0))
+    return worst
+
+
+def height_iso_deviation() -> tuple[float, float]:
+    """Median and worst relative difference `F_iso / height_iso - 1` over ZnPc peaks.
+
+    `height_iso` is the separate magic-angle fit; the tensor solve's `F_iso` is
+    used as the height instead.
+    """
+    records = load_materials()["znpc"]["peaks"]
+    rel = np.array([znpc_iso(r) / r["height_iso"] - 1.0 for r in records])
+    return float(np.median(np.abs(rel))), float(np.max(np.abs(rel)))
 
 
 def alq3_peaks(shape: Shape, material: dict[str, Any]) -> list[Peak]:
     """Alq3 peaks p1..p14 sorted by energy; the first five carry the outline."""
-    ordered = sorted(material["peaks"], key=lambda p: p["energy"])
     peaks = []
-    for i, rec in enumerate(ordered):
+    for i, rec in enumerate(_sorted_alq3(material)):
         label = f"p{i + 1}"
         height: Any = float(rec["height"])
         tilt: Any = MAGIC_ANGLE
@@ -263,16 +310,7 @@ def alq3_peaks(shape: Shape, material: dict[str, Any]) -> list[Peak]:
                 f"alq3_{label}_tilt",
                 np.deg2rad(ALQ3_TILTS_DEG[label]).tolist(),
             )
-        peaks.append(
-            Peak(
-                "gaussian",
-                label=label,
-                energy=float(rec["energy"]),
-                width=float(rec["width"]),
-                height=height,
-                tdm_tilt=tilt,
-            )
-        )
+        peaks.append(_gaussian(label, rec, height, tilt))
     return peaks
 
 
@@ -288,13 +326,11 @@ def znpc_peaks(
     if factors is None:
         factors = np.ones(len(records))
     return [
-        Peak(
-            "gaussian",
-            label=f"p{i + 1}",
-            energy=float(rec["energy"]),
-            width=float(rec["width"]),
-            height=float(rec["height_iso"] * factors[i]),
-            tdm_tilt=float(thetas[i]),
+        _gaussian(
+            f"p{i + 1}",
+            rec,
+            znpc_iso(rec) * float(factors[i]),
+            float(thetas[i]),
         )
         for i, rec in enumerate(records)
     ]
@@ -409,13 +445,6 @@ def channel_profiles(
     z = np.linspace(0.0, THICKNESS, n)
     values = build_profile(shape).named_values_at(z)
     return {key: (z, value) for key, value in values.items()}
-
-
-def _energy_colors(n: int) -> NDArray[np.float64]:
-    """Sequential viridis colors, one per energy in ascending order."""
-    import matplotlib.pyplot as plt
-
-    return plt.get_cmap("viridis")(np.linspace(0.05, 0.9, n))
 
 
 def _depth_axis(ax: plt.Axes, title: str) -> None:
@@ -665,7 +694,8 @@ def save_nexafs(path: Path) -> None:
     from matplotlib.colors import Normalize
 
     z, tensors = local_tensors(FINE)
-    colors = plt.get_cmap("viridis")(np.linspace(0.0, 0.95, z.size))
+    norm = Normalize(z.min(), z.max())
+    colors = plt.get_cmap("viridis")(norm(z))  # colour = depth, as the colorbar
     fig, axes = plt.subplots(
         1, 2, figsize=(8.8, 3.9), sharey=True, constrained_layout=True
     )
@@ -679,7 +709,7 @@ def save_nexafs(path: Path) -> None:
         ax.set_xlabel("photon energy (eV)")
         ax.grid(True, alpha=0.25)
     axes[0].set_ylabel(r"local $\beta$")
-    mappable = ScalarMappable(norm=Normalize(z.min(), z.max()), cmap="viridis")
+    mappable = ScalarMappable(norm=norm, cmap="viridis")
     cbar = fig.colorbar(mappable, ax=axes, shrink=0.9, pad=0.02)
     cbar.set_label(r"depth $z$ ($\mathrm{\AA}$), microslab midpoint")
     cbar.set_ticks(z)
@@ -737,13 +767,12 @@ def _ridge_panel(
     ax.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")
 
 
-def save_ridge(path: Path) -> None:
+def save_ridge(path: Path, flat: NDArray[np.float64]) -> None:
     """Joyplot of R_ss (left) and R_pp (right), both as log10(R q^4)."""
     import matplotlib.pyplot as plt
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
 
-    flat = fresnel_flattened(reflectivity())
     norm = Normalize(ENERGIES[0], ENERGIES[-1])
     colors = plt.get_cmap("viridis")(norm(ENERGIES))
     fig, axes = plt.subplots(
@@ -932,30 +961,27 @@ def save_migration(
         channel_branches = branches[channel]
         heights = np.concatenate([b["h"] for b in channel_branches])
         scale = 60.0 / float(heights.max())
+        # One text line per branch, in a block of empty space in the panel.
+        x0, y0 = (0.03, 0.80) if channel == "o" else (0.45, 0.62)
         for k, b in enumerate(channel_branches):
             color = colors[k % 10]
             mean_e = float(np.mean(b["E"]))
-            label = f"B{k + 1} {mean_e:.2f} eV: {nearby_peaks(mean_e)}"
             ax.plot(b["z"], b["E"], "-", color=color, lw=1.0, alpha=0.6)
-            mid = len(b["z"]) // 2
-            ha = "right" if b["z"][mid] > 150.0 else "left"
-            above = k % 2 == 0  # alternate sides so neighbours do not collide
-            ax.annotate(
-                label,
-                (b["z"][mid], b["E"][mid]),
-                xytext=(0, 6 if above else -9),
-                textcoords="offset points",
-                ha=ha,
-                fontsize=6,
-                color=color,
-            )
             ax.scatter(
                 b["z"],
                 b["E"],
                 s=np.asarray(b["h"]) * scale,
                 color=color,
                 edgecolor="none",
-                label=label,
+            )
+            ax.text(
+                x0,
+                y0 - 0.07 * k,
+                f"B{k + 1}  {mean_e:.2f} eV: {nearby_peaks(mean_e)}",
+                transform=ax.transAxes,
+                fontsize=6,
+                color=color,
+                va="top",
             )
         energies = np.concatenate([b["E"] for b in channel_branches])
         ax.set_ylim(float(energies.min()) - 0.2, float(energies.max()) + 0.25)
@@ -1043,36 +1069,49 @@ def save_migration(
 
 def _const_alq3(material: dict[str, Any]) -> list[Peak]:
     """Alq3 peaks at their fitted heights and magic-angle TDMs (no depth fields)."""
-    ordered = sorted(material["peaks"], key=lambda p: p["energy"])
     return [
-        Peak(
-            "gaussian",
-            label=f"p{i + 1}",
-            energy=float(rec["energy"]),
-            width=float(rec["width"]),
-            height=float(rec["height"]),
-        )
-        for i, rec in enumerate(ordered)
+        _gaussian(f"p{i + 1}", rec, float(rec["height"]))
+        for i, rec in enumerate(_sorted_alq3(material))
     ]
 
 
 def main() -> None:
-    gamma_ref, _, clipped = znpc_tilts()
+    import time
+
+    start = time.perf_counter()
+    records = load_materials()["znpc"]["peaks"]
+    gamma_ref, _, clipped = znpc_tilts(records)
     print(f"gamma_ref = {np.rad2deg(gamma_ref):.2f} deg")
-    print(f"clipped ZnPc peaks ({len(clipped)}): {', '.join(clipped)}")
-    worst_ratio, worst_iso = znpc_reproduction()
-    print(f"worst film-ratio error (unclipped): {worst_ratio:.2e}")
-    print(f"worst isotropic-strength error: {worst_iso:.2e}")
+    clipped_energies = ", ".join(f"{records[k]['energy']:.2f}" for k in clipped)
+    print(f"clipped ZnPc peaks ({len(clipped)}): {clipped_energies}")
+    for energy, measured, modelled, bound in clip_table():
+        print(
+            f"  {energy:.2f} measured {measured:.3f} modelled {modelled:.3f} ({bound})"
+        )
+    worst = znpc_reproduction()
+    print(
+        "worst relative error at gamma_ref (unclipped): "
+        f"F_xx {worst['F_xx']:.2e}, F_zz {worst['F_zz']:.2e}, "
+        f"ratio {worst['ratio']:.2e}; isotropic vs F_iso {worst['iso']:.2e}"
+    )
+    median, worst_dev = height_iso_deviation()
+    print(
+        f"F_iso vs height_iso: median {100 * median:.1f} %, "
+        f"worst {100 * worst_dev:.1f} %"
+    )
+
     ASSETS.mkdir(parents=True, exist_ok=True)
+    refl = reflectivity()
+    flat = fresnel_flattened(refl)
     save_channels(ASSETS / "lineshape-gradient-channels.png")
     save_shapes(ASSETS / "lineshape-gradient-shapes.png")
     save_materials(ASSETS / "lineshape-gradient-materials.png")
     save_nexafs(ASSETS / "lineshape-gradient-nexafs.png")
-    save_ridge(ASSETS / "lineshape-gradient-ridge.png")
+    save_ridge(ASSETS / "lineshape-gradient-ridge.png", flat)
     branches = {"o": nexafs_branches("o"), "e": nexafs_branches("e")}
-    tracks = reflectivity_tracks(fresnel_flattened(reflectivity()))
+    tracks = reflectivity_tracks(flat)
     save_migration(ASSETS / "lineshape-gradient-migration.png", branches, tracks)
-    print(f"wrote figures to {ASSETS}")
+    print(f"wrote figures to {ASSETS} in {time.perf_counter() - start:.1f} s")
     for channel, items in branches.items():
         for k, b in enumerate(items):
             e = np.asarray(b["E"])

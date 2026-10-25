@@ -27,10 +27,10 @@ regenerating it on the same day gives byte-identical output.
   are constants.
 - **`znpc`** is the full uniaxial ZnPc tensor. Its 19 peaks are fit from five
   incidence angles as film-frame strengths $F_{xx}$ and $F_{zz}$. Each peak's
-  height is the isotropic strength $F_{\rm iso}=(2F_{xx}+F_{zz})/3$, and its
-  TDM tilt is solved from the measured anisotropy (below).
-- **`znpc_shifted`** is the same ZnPc peak set, with each height multiplied by
-  a fixed factor between 0.85 and 1.15.
+  height is the isotropic strength $F_{\rm iso}=(2F_{xx}+F_{zz})/3$ from the
+  tensor solve, and its TDM tilt is solved from the measured anisotropy (below).
+- **`znpc_shifted`** is the same ZnPc peak set, with each $F_{\rm iso}$ height
+  multiplied by a fixed factor between 0.85 and 1.15.
 
 The density values are illustrative, not measured: Alq3 is 1.31 g/cm$^3$ and
 ZnPc is 1.60 g/cm$^3$. Each `PeakSumSLD` takes its density as an argument,
@@ -110,17 +110,40 @@ At $\vartheta=0$ this is $\rho = 2\cos^2\gamma/\sin^2\gamma$. The helper
    minimum clips to $\vartheta=0$, which is the closest reachable response.
    This includes $F_{zz}=0$, which has a ratio of zero.
 
-Seven of the 19 peaks clip. Five have a measured ratio below the minimum
-(284.03, 285.28, 286.71, 286.99 and 288.79 eV) and clip to $\vartheta=0$.
-Two have a ratio above the maximum (298.68 and 303.11 eV) and clip to
-$\vartheta=\pi/2$. Two of the low-ratio peaks have $F_{zz}=0$ exactly
-(286.71 and 288.79 eV). Their ratio is zero, so they clip to $\vartheta=0$
-like the other low-ratio peaks.
+Seven of the 19 peaks clip. The table gives the measured and modelled
+ratio $F_{zz}/F_{xx}$ for each clipped peak. The modelled value is the reachable
+bound the peak was clipped to at $\gamma_{\rm ref}$: 0.176 at $\vartheta=0$
+or 1.70 at $\vartheta=\pi/2$.
 
-Check: at $\gamma_{\rm ref}$, the pure ZnPc tensor reproduces the measured
-film ratio for each of the 12 unclipped peaks. The worst relative deviation is
-$7\times10^{-13}$. The isotropic average of each peak's tensor equals
-`height_iso` to $2\times10^{-16}$. The example prints both numbers when it runs.
+| Energy (eV) | Measured ratio | Modelled ratio | Bound |
+|---|---|---|---|
+| 284.03 | 0.137 | 0.176 | lower, $\vartheta=0$ |
+| 285.28 | 0.084 | 0.176 | lower, $\vartheta=0$ |
+| 286.71 | 0 | 0.176 | lower, $\vartheta=0$ |
+| 286.99 | 0.077 | 0.176 | lower, $\vartheta=0$ |
+| 288.79 | 0 | 0.176 | lower, $\vartheta=0$ |
+| 298.68 | 1.811 | 1.701 | upper, $\vartheta=\pi/2$ |
+| 303.11 | 2.311 | 1.701 | upper, $\vartheta=\pi/2$ |
+
+The two zero ratios are not measured zeros. In the joint tensor solve, $F_{zz}$
+at 286.71 and 288.79 eV is pinned to zero by the non-negativity constraint of
+the non-negative least-squares fit (the frozen file records them under
+`fit_details.znpc.nnls_pinned_zero_at_ev`). They clip to $\vartheta=0$ like
+the other low-ratio peaks. A clipped peak is the closest reachable response, so
+its modelled ratio does not match the data.
+
+Check: at $\gamma_{\rm ref}$ and height $F_{\rm iso}$, the pure ZnPc tensor
+reproduces the measured $F_{xx}$ and $F_{zz}$ of each of the 12 unclipped
+peaks. The worst relative deviations are $3\times10^{-13}$ for $F_{xx}$,
+$5\times10^{-13}$ for $F_{zz}$ and $7\times10^{-13}$ for the ratio. The
+isotropic average of each peak's tensor equals $F_{\rm iso}$ to
+$3\times10^{-16}$. The example prints these numbers when it runs.
+
+Heights: the magic-angle fit `height_iso` is a separate fit, and the peak
+height is $F_{\rm iso}$ instead. Relative to `height_iso`, $F_{\rm iso}$
+differs by a median of 1.4 % and by up to 13.5 % at 315.00 eV. The broad
+286.71 eV peak differs by 12.6 %. The tensor solve is the authority for the
+film anisotropy, so the example uses $F_{\rm iso}$.
 
 The ZnPc orientation channel goes from `MAGIC_ANGLE` at the surface to
 $\gamma_{\rm ref}$ at $z=T$. Its interior levels are 59.4° at 60 Å and 68.2°
@@ -132,7 +155,8 @@ ZnPc layers are distinguishable in the channel figure.
 
 `znpc_shifted` has the same peak energies, widths, tilts and baseline as
 `znpc`. Each height is multiplied by a fixed factor from
-`np.random.default_rng(12345).uniform(0.85, 1.15, 19)`. The factors are
+`np.random.default_rng(12345).uniform(0.85, 1.15, 19)`, applied to the
+$F_{\rm iso}$ heights. The factors are
 illustrative, and they are written out as absolute heights:
 
 | Peak | Energy (eV) | Factor | Peak | Energy (eV) | Factor |
@@ -194,9 +218,10 @@ interface.
 The ZnPc result is printed with one call:
 
 ```python
-gamma_ref, thetas, clipped = znpc_tilts()
+records = load_materials()["znpc"]["peaks"]
+gamma_ref, thetas, clipped = znpc_tilts(records)
 print(f"gamma_ref = {np.rad2deg(gamma_ref):.2f} deg")
-print("clipped:", ", ".join(clipped))
+print("clipped:", ", ".join(f"{records[k]['energy']:.2f}" for k in clipped))
 ```
 
 Each channel follows this profile:
@@ -243,11 +268,13 @@ curves are at unit density.
 The local response of the film, from the slab tensors of
 `DepthProfile.tensor_rows_at` (the density scale is included). They are
 taken at the microslab midpoint nearest each depth. The depths used are
-2.5, 37.5, 77.5, 117.5, 157.5 and 192.5 Å, which are the midpoints nearest to
-the requested 5, 40, 80, 120, 160 and 195 Å on the 5 Å slab grid. The
-energy grid is 283.5 to 289.0 eV at 0.02 eV, 276 points. Each line is one
-depth, colored by depth. The left panel is $\beta_o$ and the right panel is
-$\beta_e$.
+2.5, 37.5, 77.5, 117.5, 157.5 and 192.5 Å. The requested depths 5, 40, 80,
+120, 160 and 195 Å each fall exactly between two slab midpoints, 5 Å apart, so
+the two candidates are equally close. The rule takes the shallower one, the
+lower slab index, which is what `numpy.argmin` returns. The energy grid is
+283.5 to 289.0 eV at 0.02 eV, 276 points. Each line is one depth. Its colour
+is set by the depth value and matches the colorbar. The left panel is
+$\beta_o$ and the right panel is $\beta_e$.
 
 ![Depth-resolved NEXAFS](../../assets/lineshape-gradient-nexafs.png)
 
@@ -272,11 +299,11 @@ to 0.27 Å$^{-1}$. Color is the photon energy.
 
 ![Reflectivity ridge plot](../../assets/lineshape-gradient-ridge.png)
 
-The $R_{pp}$ panel has the sharpest minima. Between about 284 and 285 eV they
-sit at low q, near 0.03 to 0.05 Å$^{-1}$. As the energy rises through 285.5 eV
-they move to higher q, to about 0.1 to 0.2 Å$^{-1}$. The $R_{ss}$ panel shows
-a set of minima that stays at nearly fixed q across the energy range. The
-migration analysis below quantifies both.
+The $R_{pp}$ panel has the sharpest minima. Between about 284 and 285 eV, a
+minimum sits at low q, near 0.03 to 0.05 Å$^{-1}$. The tracking below follows
+this minimum as a single track. Higher up, the $R_{pp}$ minima sit at higher
+q, about 0.1 to 0.2 Å$^{-1}$. The $R_{ss}$ minima move much less with energy.
+The migration analysis below quantifies both.
 
 ### Peak migration
 
@@ -296,62 +323,62 @@ whose last peak is closest in energy, within 0.25 eV. A branch with no peak
 within that tolerance at the next slab ends. Branches with at least three
 slabs are kept. Branches can start or end with depth, and the figure shows
 them as they are. Marker size is proportional to the local beta height, within
-each panel. Each branch is labeled with its mean energy and the frozen alq3
-and ZnPc peaks within 0.3 eV of that mean. The labels give the peak index in
-the energy order of each frozen list.
+each panel. Each branch is listed in its panel with its mean energy and the
+frozen alq3 and ZnPc peaks within 0.3 eV of that mean. The labels give the
+peak index in the energy order of each frozen list.
 
-Branches found by the procedure above:
+The branches are:
 
 | Channel | Branch | Depth (Å) | Mean energy (eV) | Shift over depth (eV) | Nearby peaks |
 |---|---|---|---|---|---|
-| $\beta_o$ | B1 | 2.5 to 197.5 | 285.17 | -0.54 (285.62 to 285.08) | ZnPc p3 to p5 |
+| $\beta_o$ | B1 | 2.5 to 197.5 | 285.16 | -0.54 (285.62 to 285.08) | ZnPc p3 to p5 |
 | $\beta_o$ | B2 | 2.5 to 197.5 | 288.75 | +0.14 (288.65 to 288.79) | alq3 p7 to p9, ZnPc p10 to p11 |
 | $\beta_o$ | B3 | 32.5 to 197.5 | 286.97 | -0.01 (286.98 to 286.97) | alq3 p5, ZnPc p6 to p9 |
 | $\beta_e$ | B1 | 2.5 to 62.5 | 288.74 | +0.05 (288.71 to 288.76) | alq3 p7 to p9, ZnPc p10 to p11 |
-| $\beta_e$ | B2 | 57.5 to 87.5 | 286.99 | 0.00 | alq3 p5, ZnPc p6 to p9 |
+| $\beta_e$ | B2 | 57.5 to 82.5 | 286.99 | 0.00 | alq3 p5, ZnPc p6 to p9 |
 | $\beta_e$ | B3 | 2.5 to 182.5 | 284.93 | +0.36 (284.72 to 285.08) | alq3 p2, ZnPc p3 |
-| $\beta_e$ | B4 | 182.5 to 197.5 | 288.73 | 0.00 | alq3 p7 to p8, ZnPc p10 to p11 |
-| $\beta_e$ | B5 | 187.5 to 197.5 | 285.38 | +0.01 (285.37 to 285.38) | alq3 p3, ZnPc p4 to p5 |
+| $\beta_e$ | B4 | 187.5 to 197.5 | 285.38 | +0.01 (285.37 to 285.38) | alq3 p3, ZnPc p4 to p5 |
+| $\beta_e$ | B5 | 187.5 to 197.5 | 288.73 | 0.00 | alq3 p7 to p8, ZnPc p10 to p11 |
 
 The shift is the energy at the deepest slab minus the energy at the
-shallowest slab of the branch. The nearby peaks are the frozen peaks within
-0.3 eV of the branch mean. Two branches, $\beta_o$ B1 and $\beta_e$ B3, carry
-most of the depth dependence. $\beta_o$ B1 is at 285.6 eV at the surface,
-drops quickly over the top 40 Å, and then holds near 285.1 eV. $\beta_e$ B3
-rises from 284.7 eV to 285.1 eV. It has a step near 50 Å and then a steady
-rise to 180 Å. The other
-branches are short or nearly fixed in energy.
+shallowest slab of the branch. Two branches carry most of the depth
+dependence: $\beta_o$ B1 moves down by 0.54 eV, from 285.6 eV at the surface
+to 285.1 eV, with most of the change in the top 40 Å. $\beta_e$ B3 moves up
+by 0.36 eV, from 284.7 eV to 285.1 eV, with a step near 50 Å and a steady rise
+to 180 Å. The other branches are short or fixed in energy. A branch near
+288.7 eV appears in both channels. In $\beta_o$ it is B2, which spans the
+whole film. In $\beta_e$ it is B1 at the surface, which ends by about 60 Å,
+and B5 at the back surface only.
 
 **Bottom: reflectivity dip tracks.** At each energy of the ridge grid, local
 minima of $\log_{10}(R\,q^4)$ versus $q$ are found with `find_peaks`, using a
 prominence of at least 0.1 decades. The dips are linked across energy by
 nearest q. A dip joins the open track whose last dip is within
 0.012 Å$^{-1}$, and a track with no dip within that tolerance ends. Tracks with
-at least four energies are kept. The solid lines are $R_{pp}$ and the dashed
-lines are $R_{ss}$. The $R_{ss}$ tracks are drawn as thin light-grey dashed
-lines with open markers, as background. Each $R_{pp}$ track is solid, with
-filled markers, and it has one colour from the viridis colormap, chosen by its
-mean q, so each track has its own colour. The slope $dq/dE$, in Å$^{-1}$ per
-eV, is a least-squares fit over the track's points between 284.5 and 286 eV.
-Each $R_{pp}$ track that spans 284.5 to 286 eV has its slope printed in the
-right margin, in its colour, at the height of its right end. Tracks that do
-not span that window have no slope and no label.
+at least four energies are kept. The $R_{ss}$ tracks are drawn as thin
+light-grey dashed lines with open markers, as background. Each $R_{pp}$ track
+is solid, with filled markers, and has one colour from the viridis colormap,
+chosen by its mean q. The slope $dq/dE$, in Å$^{-1}$ per eV, is a
+least-squares fit over the track's points between 284.5 and 286 eV. Each
+$R_{pp}$ track that spans 284.5 to 286 eV has its slope printed in the right
+margin, in its colour, at the height of its right end. Tracks that do not
+span that window have no slope and no label.
 
 Tracks that span at least 3 eV are listed below: seven $R_{pp}$ tracks and
-eight $R_{ss}$ tracks. Shorter tracks are not listed. Seven of the listed
-$R_{ss}$ tracks span from about 284 eV to 289 eV, so the s-polarized
-dips also form stable tracks.
+eight $R_{ss}$ tracks. Shorter tracks are not listed. Two short $R_{ss}$
+tracks, at 285.4 to 286.8 eV and 287.0 to 287.8 eV, are drawn in the figure
+but not listed.
 
 | Pol. | Energy (eV) | q range (Å$^{-1}$) | Slope dq/dE, 284.5 to 286 eV (Å$^{-1}$/eV) |
 |---|---|---|---|
 | $R_{pp}$ | 283.5 to 287.0 | 0.127 to 0.142 | +0.0079 |
 | $R_{pp}$ | 283.5 to 287.1 | 0.158 to 0.178 | +0.0081 |
-| $R_{pp}$ | 283.5 to 289.0 | 0.064 to 0.079 | +0.0086 |
+| $R_{pp}$ | 283.5 to 289.0 | 0.064 to 0.079 | +0.0087 |
 | $R_{pp}$ | 283.5 to 289.0 | 0.096 to 0.110 | +0.0080 |
 | $R_{pp}$ | 283.5 to 289.0 | 0.200 to 0.225 | +0.0016 |
-| $R_{pp}$ | 283.5 to 289.0 | 0.231 to 0.258 | +0.0106 |
+| $R_{pp}$ | 283.5 to 289.0 | 0.231 to 0.258 | +0.0108 |
 | $R_{pp}$ | 283.8 to 289.0 | 0.034 to 0.049 | +0.0101 |
-| $R_{ss}$ | 283.9 to 289.0 | 0.065 to 0.073 | +0.0048 |
+| $R_{ss}$ | 283.9 to 289.0 | 0.065 to 0.073 | +0.0047 |
 | $R_{ss}$ | 283.9 to 289.0 | 0.252 to 0.259 | +0.0013 |
 | $R_{ss}$ | 284.0 to 289.0 | 0.096 to 0.104 | +0.0039 |
 | $R_{ss}$ | 284.0 to 289.0 | 0.220 to 0.227 | +0.0014 |
@@ -360,24 +387,32 @@ dips also form stable tracks.
 | $R_{ss}$ | 284.1 to 289.0 | 0.189 to 0.196 | +0.0020 |
 | $R_{ss}$ | 284.8 to 289.0 | 0.035 to 0.044 | not defined (does not span 284.5 to 286 eV) |
 
-Slopes of the $R_{ss}$ tracks are shown in the table only; they are not labeled
-in the figure.
+Slopes of the $R_{ss}$ tracks are shown in the table only. They are not
+labeled in the figure.
 
-The listed $R_{pp}$ tracks move to higher q with energy. Their slopes are
-about +0.008 to +0.011 Å$^{-1}$/eV, except the track near 0.20 to 0.23
-Å$^{-1}$, which is about +0.002. The listed $R_{ss}$ tracks also move to
-higher q, but more slowly: their slopes are +0.001 to +0.005 Å$^{-1}$/eV.
+**What the tracks show.** These are observations from the table, and no
+mechanism is tested here.
 
-**What moves, and why.** The depth dependence of the absorption branches is
-mostly in the $\beta_o$ B1 and $\beta_e$ B3 branches, by up to 0.54 eV. This
-follows from the depth profile. The alq3 fraction falls from 0.85 to 0.40
-while the two ZnPc layers rise, and the orientation of each material changes
-with depth. So the local response near 285 eV is a mix of nearby material
-peaks, and the weight of each one changes with depth. I did not separate
-these effects in the model. The reflectivity dips move with energy because
-the film's energy-dependent index sets the q at which each interference
-minimum falls. The $R_{pp}$ dips move more than the $R_{ss}$ dips, which
-matches the stronger energy dependence of $R_{pp}$ in the ridge plot.
+- The listed $R_{pp}$ tracks move to higher q with energy. Their slopes of
+  +0.008 to +0.011 Å$^{-1}$/eV correspond to shifts of about 0.04 to 0.05
+  Å$^{-1}$ over 5 eV. The exception is the track at 0.20 to 0.23 Å$^{-1}$, with
+  slope +0.0016, or about 0.008 Å$^{-1}$ over 5 eV.
+- The listed $R_{ss}$ tracks also move to higher q, more slowly. Their slopes
+  of +0.001 to +0.005 Å$^{-1}$/eV correspond to about 0.007 to 0.024 Å$^{-1}$
+  over 5 eV, roughly a tenth to a half of the $R_{pp}$ rate.
+- The sharpest $R_{pp}$ minima between 284 and 285 eV, near 0.03 to 0.05
+  Å$^{-1}$, are followed by one track, pp9, which runs from 283.8 to 289.0 eV.
+  The other tracks at that energy are short or absent. So that low-q
+  description rests on one track.
+
+The tracks were not shown to be tied to individual absorption peaks. They
+follow the reflectivity fringe pattern. The q position of a fringe depends on
+the film's total optical thickness, which changes with energy near the
+absorption. That may explain the q motion of the tracks, but this is a
+plausible explanation that I did not test. Likewise, the branch shifts in the
+top panels are descriptive. The composition and orientation change with depth,
+so the local response mixes nearby material peaks with changing weights. I did
+not test that mixing separately.
 
 ### Spline and polynomial shapes
 
