@@ -237,9 +237,9 @@ print(knots)
 print([p.name for p in layer.parameters.varying_parameters() if "depth_knot" in p.name])
 ```
 
-The shape is shared by `gamma`, `density_scale`, and the peak height, so
-`layer.parameters.flattened()` repeats each knot once per channel that uses
-the shape. Pass `unique=True`, as above, to list each knot once. The
+The shape is shared by `gamma`, `density_scale`, and the peak height, so in
+the plain `layer.parameters.flattened()` listing the knots of a shared shape
+repeat. Pass `unique=True`, as above, to list each knot once. The
 `varying_parameters()` list is already unique and shows the two opened knots,
 `depth_knot1` and `depth_knot2`. Running the snippet prints:
 
