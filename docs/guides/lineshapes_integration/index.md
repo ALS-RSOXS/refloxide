@@ -88,7 +88,7 @@ with more detail.
 ## Next
 
 - [Peak gradients](peak_gradients.md): a three-material film (frozen Alq3 and
-  ZnPc fits, a full ZnPc tensor and a scrambled ZnPc) with depth-varying
+  ZnPc fits, a full ZnPc tensor and a hydrocarbon contaminant) with depth-varying
   composition, orientation and peaks, a dense energy set with NEXAFS and ridge
   figures, and the knot fit.
 - [Building structures](../building_structures/index.md): the other depth-law
