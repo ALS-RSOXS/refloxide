@@ -253,10 +253,6 @@ class PeakSumSLD(Scatterer):
                     f"{peak._owner.name!r}; create a separate Peak per source"
                 )
                 raise ValueError(msg)
-        for peak in self.peaks:
-            peak._owner = self
-            for pname in peak._owned:
-                peak._items[pname].name = f"{name}_{peak.label}_{pname}"
         self.baseline = (
             None if baseline is None else OpticalConstants.from_source(baseline)
         )
@@ -274,6 +270,12 @@ class PeakSumSLD(Scatterer):
         )
         self._parameters = Parameters(name=name)
         self._parameters.extend(self._collect_parameters())
+        # Commit peak ownership and renames only after every fallible step above
+        # has succeeded, so a failed constructor leaves the Peaks untouched.
+        for peak in self.peaks:
+            peak._owner = self
+            for pname in peak._owned:
+                peak._items[pname].name = f"{name}_{peak.label}_{pname}"
 
     def _collect_parameters(self) -> list[Parameter]:
         """Unique parameters: peak values, density/rotation channels, energy offset."""
