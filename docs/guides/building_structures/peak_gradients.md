@@ -15,9 +15,9 @@ The peak energies (about 284.5 to 290.4 eV) sit near the carbon K edge.
 
 One `SplineShape` with four knots spans the film, at 0, 60, 120 and 200 Å
 (fractions 0, 0.3, 0.6 and 1 of the thickness $T$). The surface is at $z=0$
-and the substrate at $z=T$. Every gradient is a `LevelField` with four levels
-on that one shared shape. The surface and substrate levels are fixed by the
-film. The two interior levels are chosen so each profile curves, rather than
+and $z=T$ is the film/oxide interface, where the native oxide begins. Every
+gradient is a `LevelField` with four levels on that one shared shape. The
+surface and $z=T$ levels are fixed by the film. The two interior levels are chosen so each profile curves, rather than
 following the straight line between the endpoints. The gradients are the
 volume fractions, the total density, the per-material $\gamma$, the mat1 peak
 1, 2 and 3 heights, and the mat1 TDM tilts of peaks 1, 2, 4 and 5. Everything
@@ -41,7 +41,16 @@ from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
 from refloxide.profiles import DepthProfile
 ```
 
-The film is `vacuum | build_profile() | substrate`:
+The stack is vacuum | film | native SiO2 | Si, built as
+`vacuum | build_profile() | oxide | substrate`. The oxide is a 15 Å SiO2 slab
+on the silicon substrate. The oxide thickness and both roughness values are
+illustrative.
+
+Roughness follows the library convention: a slab's `rough` is the roughness
+of the interface directly above it. So the film's own `roughness` (left at 0,
+sharp) is the vacuum/film interface, the oxide's `rough` (3 Å) is the
+film/oxide interface, and the substrate's `rough` (3 Å) is the oxide/Si
+interface.
 
 ```python
 --8<-- "examples/lineshape_three_material.py:construction"
@@ -51,28 +60,28 @@ The example sets each channel's four levels explicitly. In words, each
 channel follows this profile:
 
 - **Volume fractions.** mat1 starts at 0.85 and falls fast over the top 60 Å
-  to 0.55. It then levels off near 0.40 at the substrate. mat2 is taken up
+  to 0.55. It then levels off near 0.40 at $z=T$. mat2 is taken up
   near the surface, rising from 0.10 to about 0.35 by 120 Å. It peaks at
   0.358 near 92 Å, a slight overshoot, and then settles at 0.35. mat3 rises
   steadily from 0.05 to 0.25, steepest between 60 and 120 Å. The three
   fractions sum to 1 at every knot.
 - **Total density.** `density_scale` multiplies the mixed tensor after mixing.
-  It runs from 0.85 at the surface to 1.15 at the substrate, and most of the
+  It runs from 0.85 at the surface to 1.15 at $z=T$, and most of the
   rise is in the lower half.
 - **Orientation.** Mat1 stays near face-on at the surface ($\gamma\approx
   6^\circ$ at 60 Å). It tilts through the lower half and reaches the magic
-  angle only at the substrate. Mat2 tilts quickly near the top and saturates
+  angle only at $z=T$. Mat2 tilts quickly near the top and saturates
   close to edge-on. Mat3 starts at the magic angle and tilts steadily toward
-  edge-on: about 58° at 60 Å, 75° at 120 Å, and edge-on at the substrate.
+  edge-on: about 58° at 60 Å, 75° at 120 Å, and edge-on at $z=T$.
 - **Electronic effects in mat1.** Peak 1 and peak 2 heights are 1.5 and 2.0
-  times their substrate values at the surface, and both fall fast near the
-  surface. Peak 3 rises from 0.8 times its substrate value to the substrate
-  value, mostly in the top 100 Å. The heights are written out as absolute
+  times their $z=T$ values at the surface, and both fall fast near the
+  surface. Peak 3 rises from 0.8 times its $z=T$ value to the value at
+  $z=T$, mostly in the top 100 Å. The heights are written out as absolute
   values, not multipliers. The TDM tilt of peaks 1 and 2 goes from $0$ at the
-  surface to $20^\circ$ at the substrate, changing fastest near the surface.
+  surface to $20^\circ$ at $z=T$, changing fastest near the surface.
   The tilt of peak 4 goes from $90^\circ$ to $80^\circ$, changing fastest near
   the surface. The tilt of peak 5 stays near $90^\circ$ until the lower half,
-  then drops to $80^\circ$ at the substrate.
+  then drops to $80^\circ$ at $z=T$.
 
 ### Channels versus depth
 
@@ -93,7 +102,12 @@ and 287.2 eV sit on mat1 peaks 1 to 3, and 289.6 eV sits on mat1 peak 5.
 ### Reflectivity
 
 $R_{ss}$ (solid) and $R_{pp}$ (dashed) over $q$ at the same five energies.
-Each color is one energy.
+Each color is one energy. The stack includes the native oxide. Its effect is
+small over this $q$ range: the largest change, relative to the peak reflectivity
+at each energy, is about 6% at 283.5 eV and under 1% at the others. The oxide's
+own thickness fringe, with period $2\pi/15\,\text{Å}\approx0.42$ Å$^{-1}$, lies
+beyond the plotted $q$ range, so the oxide shows up only as a small change in
+the curves, not as a resolved fringe.
 
 ![Reflectivity](../../assets/lineshape-gradient-reflectivity.png)
 
@@ -111,7 +125,7 @@ shape = PolynomialShape(degree=3, positions=[0.0, 0.3, 0.6, 1.0], name="depth")
 
 The positions are fractions of the thickness, the same as the spline knots
 above. The four levels of every channel stay the same, so both shapes agree
-at the surface and substrate, and the rest of the film is unchanged. In the
+at the surface and at $z=T$, and the rest of the film is unchanged. In the
 polynomial version, each channel is a single cubic through the four anchors.
 
 The two shapes spread a level's effect differently. The spline is a natural
@@ -170,8 +184,9 @@ layer = DepthProfile(
     density_scale=LevelField(shape, [0.9, 0.95, 1.0, 1.05, 1.1], name="density_scale"),
 )
 vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
-substrate = MaterialSLD("Si", density=2.33, name="si")(0, 3)
-structure = vacuum | layer | substrate
+oxide = MaterialSLD("SiO2", density=2.2, name="native_oxide")(15.0, 3.0)
+substrate = MaterialSLD("Si", density=2.33, name="substrate")(0, 3.0)
+structure = vacuum | layer | oxide | substrate
 ```
 
 ## Other field families

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Three-material film with depth-varying composition, orientation and peaks.
 
-Three synthetic five-peak materials (mat1, mat2, mat3) fill one 200 A film.
+Three synthetic five-peak materials (mat1, mat2, mat3) fill one 200 A film
+on a native SiO2 layer and a silicon substrate: vacuum | film | oxide | Si.
 One shared depth shape drives every gradient: the volume fractions, the total
 density, the orientation gamma, and the heights and TDM tilts of some mat1
 peaks. By default the shape is a natural cubic `SplineShape` through four
-knots (surface at z = 0, substrate at z = THICKNESS). `build_structure` takes
-``shape="polynomial"`` to use a cubic `PolynomialShape` through the same four
-anchor positions and the same level values instead. Each gradient is a
+knots (surface at z = 0, film/oxide interface at z = THICKNESS).
+`build_structure` takes ``shape="polynomial"`` to use a cubic `PolynomialShape`
+through the same four anchor positions and the same level values instead.
+Each gradient is a
 `LevelField` on that shape, so every effect follows the same depth profile.
 
 Regenerate the docs figures::
@@ -37,9 +39,15 @@ if TYPE_CHECKING:
 THICKNESS = 200.0  # film thickness, Angstrom
 N_SLABS = 40
 # Knot and anchor positions as fractions of THICKNESS: surface, two interior
-# points, substrate. Both shapes use these positions, so they compare fairly.
+# points, film/oxide interface. Both shapes use these positions, so they
+# compare fairly.
 FRACTIONS = np.array([0.0, 0.3, 0.6, 1.0])
 KNOTS = THICKNESS * FRACTIONS  # spline knots, Angstrom
+OXIDE_THICKNESS = 15.0  # native SiO2, Angstrom (illustrative)
+# Illustrative values. Roughness of film/oxide is the oxide's `rough`;
+# roughness of oxide/Si is the substrate's `rough`.
+OXIDE_ROUGHNESS = 3.0  # film/oxide interface, Angstrom
+SUBSTRATE_ROUGHNESS = 3.0  # oxide/Si interface, Angstrom
 Q = np.linspace(0.01, 0.27, 520)  # 1/Angstrom
 # Carbon K edge: below the first resonance, on mat1 peaks 1 to 3, and on peak 5.
 ENERGIES = np.array([283.5, 284.8, 285.9, 287.2, 289.6])  # eV
@@ -56,7 +64,7 @@ def make_shape(kind: Literal["spline", "polynomial"] = "spline") -> Shape:
 
 
 def field(shape: Shape, name: str, levels: Sequence[float]) -> LevelField:
-    """Level field with explicit values at the four anchors, surface to substrate."""
+    """Level field with explicit values at the four anchors, z = 0 to z = THICKNESS."""
     return LevelField(shape, list(levels), name=name)
 
 
@@ -86,7 +94,7 @@ def mat1_peaks(shape: Shape) -> list[Peak]:
             label="p3",
             energy=287.2,
             width=0.5,
-            # Rises near the surface, then flat through the substrate.
+            # Rises near the surface, then flat through z = THICKNESS.
             height=field(shape, "mat1_p3_height", (0.0128, 0.0155, 0.0160, 0.0160)),
             tdm_tilt=MAGIC_ANGLE,
         ),
@@ -168,28 +176,39 @@ def build_profile(kind: Literal["spline", "polynomial"] = "spline") -> DepthProf
         ],
         # Orientation: gamma in radians, one field per material. mat1 stays
         # near face-on at the surface and reaches the magic angle at the
-        # substrate. mat2 tilts fast near the top and saturates edge-on. mat3
+        # z = THICKNESS. mat2 tilts fast near the top and saturates edge-on. mat3
         # starts at the magic angle and tilts steadily toward edge-on.
         gamma=[
             field(shape, "gamma_mat1", (0.0, 0.10, 0.50, MAGIC_ANGLE)),
             field(shape, "gamma_mat2", (MAGIC_ANGLE, 1.10, 1.40, np.pi / 2)),
             field(shape, "gamma_mat3", (MAGIC_ANGLE, 1.02, 1.30, np.pi / 2)),
         ],
-        # Total density, after mixing: changes mostly toward the substrate.
+        # Total density, after mixing: changes mostly toward z = THICKNESS.
         density_scale=field(shape, "density_scale", (0.85, 0.87, 0.97, 1.15)),
         name="film",
     )
 
 
 def build_structure(shape: Literal["spline", "polynomial"] = "spline") -> Structure:
-    """Vacuum | three-material film | silicon substrate.
+    """Vacuum | three-material film | native SiO2 | Si substrate.
 
     ``shape="polynomial"`` swaps the shared spline for a cubic `PolynomialShape`
     on the same anchors and levels. Only the shape object changes.
+
+    Roughness follows the library convention: a slab's `rough` is the roughness
+    of the interface directly above it. So the film's own `roughness` (left at
+    0, sharp) is the vacuum/film interface, the oxide's `rough` is the
+    film/oxide interface, and the substrate's `rough` is the oxide/Si
+    interface. The oxide thickness and both roughness values are illustrative.
     """
     vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
-    substrate = MaterialSLD("Si", density=2.33, name="si")(0, 3)
-    return vacuum | build_profile(shape) | substrate
+    oxide = MaterialSLD("SiO2", density=2.2, name="native_oxide")(
+        OXIDE_THICKNESS, OXIDE_ROUGHNESS
+    )
+    substrate = MaterialSLD("Si", density=2.33, name="substrate")(
+        0, SUBSTRATE_ROUGHNESS
+    )
+    return vacuum | build_profile(shape) | oxide | substrate
 
 
 # --8<-- [end:construction]

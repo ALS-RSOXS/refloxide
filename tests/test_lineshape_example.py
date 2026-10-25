@@ -26,7 +26,9 @@ def test_three_material_example_runs_and_gradients_hold():
     example = _load_example()
 
     structure = example.build_structure()
-    assert len(structure) == 3  # vacuum | film | substrate
+    assert len(structure) == 4  # vacuum | film | native oxide | Si substrate
+    assert structure[2].name == "native_oxide"
+    assert structure[3].name == "substrate"
     refl = example.reflectivity()
     assert np.all(np.isfinite(refl))
     assert np.all(refl >= 0.0)
