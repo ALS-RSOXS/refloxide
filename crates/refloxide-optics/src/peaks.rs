@@ -141,8 +141,10 @@ fn unit_model(kind: LineKind, shape: &[f64]) -> Result<Model> {
 /// # Errors
 ///
 /// Returns [`RefloxideError::InvalidParameter`] naming the lineshape when a shape
-/// parameter is non-finite, has width, gamma, sigma or fwhm `<= 0`, or has eta outside `[0, 1]`,
-/// and when a height, projection or energy is non-finite. Returns
+/// parameter is non-finite, or outside its per-kind domain: Gaussian `width <= 0`,
+/// Lorentzian `gamma <= 0`, Voigt `sigma <= 0` or `gamma < 0`, pseudo-Voigt
+/// `fwhm <= 0` or `eta` outside `[0, 1]`. It also fails when a height, projection or
+/// energy is non-finite. Returns
 /// [`RefloxideError::InvalidShape`] on length mismatches.
 pub fn peak_sum_molecular(
     peaks: &[PeakSpec],

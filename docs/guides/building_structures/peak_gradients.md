@@ -145,23 +145,6 @@ layer = DepthProfile(
 )
 ```
 
-A `SinusoidShape` gives a periodic modulation. Its levels are the offset and
-the amplitude, and its `wavelength` is in Å. Here the peak height ripples
-about a mean of 0.012 with amplitude 0.002 and a period of 80 Å.
-
-```python
-from refloxide.fields import LevelField, SinusoidShape
-from refloxide.lineshapes import Peak, PeakSumSLD
-from refloxide.profiles import DepthProfile
-
-ripple = SinusoidShape(wavelength=80.0, name="ripple")
-ripple_height = LevelField(ripple, [0.012, 0.002], name="ripple_height")
-film = PeakSumSLD(
-    [Peak(label="p1", energy=285.9, width=0.5, height=ripple_height)], name="film"
-)
-layer = DepthProfile(film, thickness=200.0, n_slabs=40, gamma=0.0, density=1.0)
-```
-
 A plain Python function can be a channel too. `CallableField` calls
 `fn(z, thickness=..., **params)` at each microslab. Here it is a ripple on the
 total density of the film from the previous snippet (the one with the
@@ -180,6 +163,23 @@ density_scale = CallableField(
     ripple, params={"amp": 0.05, "period": 80.0}, name="ripple"
 )
 layer = DepthProfile(film, thickness=200.0, n_slabs=40, density_scale=density_scale)
+```
+
+A `SinusoidShape` gives a periodic modulation. Its levels are the offset and
+the amplitude, and its `wavelength` is in Å. Here the peak height ripples
+about a mean of 0.012 with amplitude 0.002 and a period of 80 Å.
+
+```python
+from refloxide.fields import LevelField, SinusoidShape
+from refloxide.lineshapes import Peak, PeakSumSLD
+from refloxide.profiles import DepthProfile
+
+modulation = SinusoidShape(wavelength=80.0, name="ripple")
+ripple_height = LevelField(modulation, [0.012, 0.002], name="ripple_height")
+film = PeakSumSLD(
+    [Peak(label="p1", energy=285.9, width=0.5, height=ripple_height)], name="film"
+)
+layer = DepthProfile(film, thickness=200.0, n_slabs=40, gamma=0.0, density=1.0)
 ```
 
 ## Conventions
