@@ -635,8 +635,19 @@ fn peak_sum_molecular<'py>(
             "n_slices * n_energies overflows (n_slices={n_slices}, n_energies={n_e})"
         ))
     })?;
-    let mut out_xx = vec![C::new(0.0, 0.0); total];
-    let mut out_zz = vec![C::new(0.0, 0.0); total];
+    // Reserve fallibly so an absurd `n_slices` raises ValueError instead of
+    // panicking (capacity overflow) or aborting on allocation failure.
+    let too_large = || {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "n_slices * n_energies is too large to allocate (n_slices={n_slices}, n_energies={n_e})"
+        ))
+    };
+    let mut out_xx: Vec<C> = Vec::new();
+    out_xx.try_reserve_exact(total).map_err(|_| too_large())?;
+    out_xx.resize(total, C::new(0.0, 0.0));
+    let mut out_zz: Vec<C> = Vec::new();
+    out_zz.try_reserve_exact(total).map_err(|_| too_large())?;
+    out_zz.resize(total, C::new(0.0, 0.0));
     core_peak_sum_molecular(&peaks, n_slices, &energies, &mut out_xx, &mut out_zz)
         .map_err(to_pyerr)?;
 

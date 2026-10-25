@@ -104,8 +104,13 @@ fn slice_value(values: &[f64], s: usize) -> f64 {
 /// every value is finite.
 fn check_slice_array(name: &str, values: &[f64], n_slices: usize) -> Result<()> {
     if values.len() != 1 && values.len() != n_slices {
+        let expected = if n_slices == 1 {
+            "1".to_string()
+        } else {
+            format!("1 or {n_slices}")
+        };
         return Err(RefloxideError::InvalidShape(format!(
-            "{name} has length {}, expected 1 or {n_slices}",
+            "{name} has length {}, expected {expected}",
             values.len()
         )));
     }
@@ -137,7 +142,7 @@ fn unit_model(kind: LineKind, shape: &[f64]) -> Result<Model> {
 ///
 /// Returns [`RefloxideError::InvalidParameter`] naming the lineshape when a shape
 /// parameter is non-finite, has width, gamma, sigma or fwhm `<= 0`, or has eta outside `[0, 1]`,
-/// and when a height or projection is non-finite. Returns
+/// and when a height, projection or energy is non-finite. Returns
 /// [`RefloxideError::InvalidShape`] on length mismatches.
 pub fn peak_sum_molecular(
     peaks: &[PeakSpec],
@@ -146,8 +151,17 @@ pub fn peak_sum_molecular(
     out_xx: &mut [Complex<f64>],
     out_zz: &mut [Complex<f64>],
 ) -> Result<()> {
+    for &e in energies {
+        if !e.is_finite() {
+            return Err(invalid_param("energy", e));
+        }
+    }
     let n_e = energies.len();
-    let expected = n_slices * n_e;
+    let expected = n_slices.checked_mul(n_e).ok_or_else(|| {
+        RefloxideError::InvalidShape(format!(
+            "n_slices * energies overflows (n_slices={n_slices}, energies={n_e})"
+        ))
+    })?;
     if out_xx.len() != expected || out_zz.len() != expected {
         return Err(RefloxideError::InvalidShape(format!(
             "output buffers have lengths {} and {}, expected {expected} (n_slices * energies)",

@@ -142,6 +142,18 @@ class Shape(ABC):
         values = np.asarray(levels, dtype=np.float64) @ weights
         return values.reshape(zz.shape)
 
+    def homogeneous_value(self, levels: NDArray[np.float64]) -> float:
+        """Single value for use outside a `DepthProfile` (no depth axis).
+
+        Shapes with a natural bulk level override this; the default raises.
+        """
+        del levels
+        msg = (
+            f"{type(self).__name__} has no homogeneous value; "
+            "use it inside a DepthProfile"
+        )
+        raise ValueError(msg)
+
 
 class LevelField(_FieldBase):
     """A `Shape` with this channel's own level values.
@@ -188,6 +200,13 @@ class LevelField(_FieldBase):
         if zz.ndim == 0:
             return float(out)
         return out
+
+    def homogeneous_value(self) -> float:
+        """Bulk value of this field, from the shape and the current levels."""
+        values = np.array(
+            [float(level.value or 0.0) for level in self.levels], dtype=np.float64
+        )
+        return float(self.shape.homogeneous_value(values))
 
     def plot(
         self,
@@ -299,6 +318,28 @@ class Derived(_FieldBase):
             return out.reshape(()).item()
         return out.reshape(zz.shape)
 
+    def homogeneous_value(self) -> float:
+        """Apply `fn` to each input's homogeneous value (bulk level for fields).
+
+        Raises ValueError when an input field has no homogeneous value.
+        """
+        scalars: dict[str, float] = {}
+        for key, channel in self.inputs.items():
+            if isinstance(channel, _FieldBase):
+                getter = getattr(channel, "homogeneous_value", None)
+                if not callable(getter):
+                    msg = (
+                        f"Derived input {key!r} ({type(channel).__name__}) has no "
+                        "homogeneous value; use it inside a DepthProfile"
+                    )
+                    raise ValueError(msg)
+                scalars[key] = float(getter())
+            elif isinstance(channel, Parameter):
+                scalars[key] = float(channel.value or 0.0)
+            else:
+                scalars[key] = float(channel)
+        return float(np.asarray(self.fn(**scalars)).reshape(()))
+
     def plot(
         self,
         ax: Axes | None = None,
@@ -375,6 +416,10 @@ class TransitionShape(Shape):
         e_bottom = np.exp(-(thickness - z) / tau_bottom)
         return np.stack([e_top, 1.0 - e_top - e_bottom, e_bottom])
 
+    def homogeneous_value(self, levels: NDArray[np.float64]) -> float:
+        """Bulk level (the plateau far from both interfaces)."""
+        return float(levels[1])
+
 
 class SplineShape(Shape):
     """Natural cubic spline through fixed `knots` (depths in Å).
@@ -392,6 +437,7 @@ class SplineShape(Shape):
         if not np.all(np.diff(knot_arr) > 0.0):
             msg = "SplineShape knots must be strictly increasing"
             raise ValueError(msg)
+        knot_arr.setflags(write=False)
         self.knots = knot_arr
         self.level_names = tuple(f"knot_{i}" for i in range(knot_arr.size))
 
@@ -434,6 +480,7 @@ class PolynomialShape(Shape):
         if len(set(pos.tolist())) != pos.size:
             msg = "PolynomialShape positions must be distinct"
             raise ValueError(msg)
+        pos.setflags(write=False)
         self.degree = int(degree)
         self.positions = pos
         self.level_names = tuple(f"value_{i}" for i in range(degree + 1))
@@ -479,6 +526,10 @@ class SinusoidShape(Shape):
         phase = float(self.phase.value or 0.0)
         return np.stack([np.ones_like(z), np.sin(2.0 * np.pi * z / wavelength + phase)])
 
+    def homogeneous_value(self, levels: NDArray[np.float64]) -> float:
+        """Offset level (the sinusoid's mean)."""
+        return float(levels[0])
+
 
 class LocalizedShape(Shape):
     """Gaussian bump ``base + amplitude*exp(-((z - center)/width)**2 / 2)``.
@@ -510,3 +561,7 @@ class LocalizedShape(Shape):
         width = max(float(self.width.value or _MIN_LENGTH), _MIN_LENGTH)
         bump = np.exp(-0.5 * ((z - center) / width) ** 2)
         return np.stack([np.ones_like(z), bump])
+
+    def homogeneous_value(self, levels: NDArray[np.float64]) -> float:
+        """Base level (the value away from the bump)."""
+        return float(levels[0])

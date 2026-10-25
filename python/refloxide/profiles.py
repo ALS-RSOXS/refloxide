@@ -741,8 +741,16 @@ class DepthProfile(MultiRowComponent):
                 values = _eval_field(carried, z, thickness=thickness)
                 if values is not None:
                     out[label] = values
+        depth_owner: dict[str, object] = {}
         for scatterer in (self.material, *materials):
             for key, field in _scatterer_depth_fields(scatterer).items():
+                if key in depth_owner and depth_owner[key] is not field:
+                    msg = (
+                        f"two depth fields share the address {key!r}; give each "
+                        "scatterer (for example each PeakSumSLD) a unique name"
+                    )
+                    raise ValueError(msg)
+                depth_owner[key] = field
                 values = _eval_field(field, z, thickness=thickness)
                 if values is not None:
                     out[key] = values
