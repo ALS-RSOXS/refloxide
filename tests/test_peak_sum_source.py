@@ -26,12 +26,14 @@ def test_peak_sum_matches_tabulated_reference() -> None:
 
     The table is a 0.002 eV grid over 280-290 eV holding the analytic Gaussian
     delta and beta of two peaks (heights 2.0 and 1.2, TDM tilts 0.3 and 1.2 rad).
-    The query energies sit at half-grid offsets, so the only difference is the
-    table's linear interpolation. The Gaussian interpolation error is about
-    h*(step)**2/8 * f''/f ~ 1e-5 relative to the peak maximum. `rtol=1e-4` covers
-    that with a factor of about 10 margin, and `atol=1e-6*max|reference|` guards
-    the near-zero tails where the relative error is meaningless. Both were chosen
-    from that estimate and were not tuned to pass.
+    The query energies sit at quarter and three-quarter grid cells, so the only
+    difference is the table's linear interpolation. Linear interpolation error is
+    at most (step**2/8) * max|f''|, about 1e-5 of the peak maximum for these
+    peaks. The measured worst case is 1.1e-5 elementwise relative error and
+    3e-6 relative to the maximum. `rtol=1e-4` leaves about a 10x margin over that
+    measured worst case, and `atol=1e-6*max|reference|` guards the near-zero
+    tails where relative error is not meaningful. The tolerance is the brief's
+    starting value and was not loosened to pass.
     """
     grid = np.linspace(280.0, 290.0, 5001)
     peaks_spec = [

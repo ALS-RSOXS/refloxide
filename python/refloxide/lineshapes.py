@@ -69,6 +69,15 @@ def tdm_fractions(theta: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.flo
     return f_xx, f_zz
 
 
+def _require_finite(values: NDArray[np.float64], channel: str) -> None:
+    """Raise `ValueError` naming `channel` if any value is non-finite."""
+    finite = np.isfinite(values)
+    if not np.all(finite):
+        bad = float(np.asarray(values, dtype=np.float64)[~finite].ravel()[0])
+        msg = f"{channel} must be finite, got {bad!r}"
+        raise ValueError(msg)
+
+
 class Peak:
     """One labeled lineshape peak with height and TDM polar angle.
 
@@ -126,6 +135,7 @@ class Peak:
         self.kind = kind
         self.label = label
         self._owned: set[str] = set()
+        self._owner: PeakSumSLD | None = None
         values: dict[str, Any] = {p: shape_params[p] for p in expected}
         values["height"] = height
         values["tdm_tilt"] = tdm_tilt
@@ -237,6 +247,14 @@ class PeakSumSLD(Scatterer):
             msg = f"peak labels must be unique, got {labels}"
             raise ValueError(msg)
         for peak in self.peaks:
+            if peak._owner is not None:
+                msg = (
+                    f"Peak {peak.label!r} is already attached to PeakSumSLD "
+                    f"{peak._owner.name!r}; create a separate Peak per source"
+                )
+                raise ValueError(msg)
+        for peak in self.peaks:
+            peak._owner = self
             for pname in peak._owned:
                 peak._items[pname].name = f"{name}_{peak.label}_{pname}"
         self.baseline = (
@@ -328,7 +346,9 @@ class PeakSumSLD(Scatterer):
             kinds.append(peak.kind)
             shapes.append(_shape_rows(cols, n_s))
             heights.append(_channel_values(items["height"], z, thickness))
-            fxx, fzz = tdm_fractions(_channel_values(items["tdm_tilt"], z, thickness))
+            tilt = _channel_values(items["tdm_tilt"], z, thickness)
+            _require_finite(tilt, f"peak {peak.label!r} tdm_tilt")
+            fxx, fzz = tdm_fractions(tilt)
             f_xx.append(fxx)
             f_zz.append(fzz)
         return optics.peak_sum_molecular(
@@ -352,11 +372,16 @@ class PeakSumSLD(Scatterer):
         if density is None:
             density = _channel_values(self.density, z, thickness)
         rho = np.asarray(density, dtype=np.float64).reshape(-1, 1)
+        _require_finite(rho, "density")
         if cos2 is None:
             if gamma is None:
                 gamma = _channel_values(self.rotation, z, thickness)
-            cos2 = np.cos(np.asarray(gamma, dtype=np.float64)) ** 2
-        cos2_col = np.asarray(cos2, dtype=np.float64).reshape(-1, 1)
+            gamma_arr = np.asarray(gamma, dtype=np.float64)
+            _require_finite(gamma_arr, "rotation (gamma)")
+            cos2 = np.cos(gamma_arr) ** 2
+        cos2_arr = np.asarray(cos2, dtype=np.float64)
+        _require_finite(cos2_arr, "cos2")
+        cos2_col = cos2_arr.reshape(-1, 1)
         if self.baseline is None:
             base_xx = np.zeros(eff_ev.shape[0], dtype=np.complex128)
             base_zz = np.zeros(eff_ev.shape[0], dtype=np.complex128)
@@ -372,9 +397,12 @@ class PeakSumSLD(Scatterer):
         )
 
     def _shifted(self, energies_ev: NDArray[np.float64]) -> NDArray[np.float64]:
-        return np.asarray(energies_ev, dtype=np.float64) + float(
-            self.energy_offset.value or 0.0
-        )
+        """Query energies plus the energy offset, after checking both are finite."""
+        energies = np.asarray(energies_ev, dtype=np.float64)
+        _require_finite(energies, "energy_ev")
+        offset = np.array([float(self.energy_offset.value or 0.0)])
+        _require_finite(offset, "energy_offset")
+        return energies + offset[0]
 
     def tensor_at(self, energy_ev: float) -> NDArray[np.complex128]:
         """Laboratory `(3, 3)` tensor at `energy_ev`, depth fields at their bulk pin."""
