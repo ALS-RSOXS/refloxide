@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Three-material film: frozen Alq3 and ZnPc fits, a shifted ZnPc, and depth gradients.
+"""Three-material film: frozen Alq3 and ZnPc fits, a scrambled ZnPc, and gradients.
 
 The materials come from the frozen lineshapes fits in
 ``examples/data/lineshapes_materials.json`` (written by
@@ -12,7 +12,9 @@ film on a native SiO2 layer and a silicon substrate: vacuum | film | oxide | Si.
 - ``znpc``: the full uniaxial ZnPc tensor. Each peak's height is the isotropic
   magic-angle strength, and its molecular TDM tilt reproduces the measured
   film-frame anisotropy at the measured molecular tilt `gamma_ref`.
-- ``znpc_shifted``: ZnPc with every peak height nudged by a fixed factor.
+- ``znpc_scrambled``: the ZnPc peak set with three height swaps, jittered heights
+  and small energy shifts, all from one seed. It is a synthetic variant for the
+  demo, not a measured material.
 
 One shared depth shape, a natural cubic `SplineShape` through four knots, drives
 every gradient: the volume fractions, the total density, the orientation gamma,
@@ -54,9 +56,15 @@ DATA_FILE = Path(__file__).resolve().parent / "data" / "lineshapes_materials.jso
 # Illustrative film densities (g/cm^3). The frozen tables are per unit density.
 DENSITY_ALQ3 = 1.31
 DENSITY_ZNPC = 1.60
-# Fixed seed for the shifted-ZnPc height factors.
-SHIFT_SEED = 12345
-SHIFT_RANGE = (0.85, 1.15)
+# Seeded scramble of the ZnPc peaks (one generator, drawn in this order).
+SCRAMBLE_SEED = 2025
+SCRAMBLE_PAIRS = 3  # disjoint height swaps
+SCRAMBLE_TOP = 8  # swap partners come from this many strongest peaks (by F_iso)
+SCRAMBLE_WINDOW = (283.5, 289.5)  # eV, swap candidates lie inside the demo window
+JITTER_SIGMA = 0.15  # lognormal sigma of each height factor
+JITTER_CLIP = (0.7, 1.4)  # height factors are clipped to this range
+SHIFT_SIGMA = 0.05  # eV, Gaussian energy shift of each peak
+SHIFT_CLIP = 0.10  # eV, energy shifts are clipped to +/- this
 
 THICKNESS = 200.0  # film thickness, Angstrom
 N_SLABS = 40
@@ -86,7 +94,7 @@ ALQ3_TILTS_DEG = {
 }
 # ZnPc gamma: interior fractions of the way from MAGIC_ANGLE to gamma_ref.
 ZNPC_GAMMA_FRACTIONS = (0.25, 0.72)
-SHIFTED_GAMMA_FRACTIONS = (0.12, 0.55)
+SCRAMBLED_GAMMA_FRACTIONS = (0.12, 0.55)
 
 
 def make_shape() -> SplineShape:
@@ -244,31 +252,64 @@ def alq3_peaks(shape: Shape, material: dict[str, Any]) -> list[Peak]:
     return peaks
 
 
-def znpc_peaks(
-    material: dict[str, Any], *, factors: NDArray[np.float64] | None = None
-) -> list[Peak]:
-    """ZnPc peaks: height `F_iso`, TDM tilt from `znpc_tilts`, all constant.
-
-    ``factors`` multiplies each height (used for the shifted ZnPc).
-    """
+def znpc_peaks(material: dict[str, Any]) -> list[Peak]:
+    """ZnPc peaks: height `F_iso`, TDM tilt from `znpc_tilts`, all constant."""
     records = material["peaks"]
     _, thetas, _ = znpc_tilts(records)
-    if factors is None:
-        factors = np.ones(len(records))
     return [
-        _gaussian(
-            f"p{i + 1}",
-            rec,
-            znpc_iso(rec) * float(factors[i]),
-            float(thetas[i]),
-        )
+        _gaussian(f"p{i + 1}", rec, znpc_iso(rec), float(thetas[i]))
         for i, rec in enumerate(records)
     ]
 
 
-def shifted_factors(n: int) -> NDArray[np.float64]:
-    """Fixed deterministic height factors in [0.85, 1.15] for the shifted ZnPc."""
-    return np.random.default_rng(SHIFT_SEED).uniform(*SHIFT_RANGE, n)
+def scramble_draw(
+    records: Sequence[dict[str, Any]],
+) -> tuple[list[tuple[int, int]], NDArray[np.float64], NDArray[np.float64]]:
+    """Seeded scramble of the ZnPc peaks: swap pairs, heights and energies.
+
+    Returns the swap pairs (indices into ``records``), the absolute heights
+    after the swaps and the height jitter, and the shifted energies (eV). The
+    swap candidates are the `SCRAMBLE_TOP` strongest peaks by `F_iso` whose
+    original energy lies in `SCRAMBLE_WINDOW`; the seeded generator draws the
+    disjoint pairs among them. Every peak gets a lognormal height factor and a
+    clipped Gaussian energy shift.
+    """
+    rng = np.random.default_rng(SCRAMBLE_SEED)
+    f_iso = np.array([znpc_iso(rec) for rec in records])
+    energy = np.array([float(rec["energy"]) for rec in records])
+    in_window = np.flatnonzero(
+        (energy >= SCRAMBLE_WINDOW[0]) & (energy <= SCRAMBLE_WINDOW[1])
+    )
+    strongest = in_window[np.argsort(-f_iso[in_window])][:SCRAMBLE_TOP]
+    chosen = rng.permutation(strongest)[: 2 * SCRAMBLE_PAIRS]
+    pairs = [(int(a), int(b)) for a, b in chosen.reshape(SCRAMBLE_PAIRS, 2)]
+    heights = f_iso.copy()
+    for a, b in pairs:
+        heights[[a, b]] = f_iso[[b, a]]
+    jitter = np.clip(rng.lognormal(0.0, JITTER_SIGMA, len(records)), *JITTER_CLIP)
+    shift = np.clip(rng.normal(0.0, SHIFT_SIGMA, len(records)), -SHIFT_CLIP, SHIFT_CLIP)
+    return pairs, heights * jitter, energy + shift
+
+
+def scrambled_peaks(material: dict[str, Any]) -> list[Peak]:
+    """ZnPc peaks of the scrambled variant: absolute heights, tilts from `znpc`.
+
+    Tilts and widths stay with their peaks. Only heights and energies change.
+    """
+    records = material["peaks"]
+    _, thetas, _ = znpc_tilts(records)
+    _, heights, energies = scramble_draw(records)
+    return [
+        Peak(
+            "gaussian",
+            label=f"p{i + 1}",
+            energy=float(energies[i]),
+            width=float(rec["width"]),
+            height=float(heights[i]),
+            tdm_tilt=float(thetas[i]),
+        )
+        for i, rec in enumerate(records)
+    ]
 
 
 def curved_gamma(gamma_ref: float, fractions: tuple[float, float]) -> list[float]:
@@ -283,7 +324,6 @@ def build_profile() -> DepthProfile:
     shape = make_shape()
     materials = load_materials()
     gamma_ref, _, _ = znpc_tilts(materials["znpc"]["peaks"])
-    factors = shifted_factors(len(materials["znpc"]["peaks"]))
 
     alq3 = PeakSumSLD(
         alq3_peaks(shape, materials["alq3"]),
@@ -297,14 +337,14 @@ def build_profile() -> DepthProfile:
         density=DENSITY_ZNPC,
         name="znpc",
     )
-    znpc_shifted = PeakSumSLD(
-        znpc_peaks(materials["znpc"], factors=factors),
+    znpc_scrambled = PeakSumSLD(
+        scrambled_peaks(materials["znpc"]),
         baseline=baseline_table(materials["znpc"]),
         density=DENSITY_ZNPC,
-        name="znpc_shifted",
+        name="znpc_scrambled",
     )
     return DepthProfile(
-        Mix([alq3, znpc, znpc_shifted], rule="linear"),
+        Mix([alq3, znpc, znpc_scrambled], rule="linear"),
         thickness=THICKNESS,
         n_slabs=N_SLABS,
         mesh="uniform",
@@ -314,7 +354,7 @@ def build_profile() -> DepthProfile:
         phi=[
             field(shape, "phi_alq3", (0.85, 0.55, 0.45, 0.40)),
             field(shape, "phi_znpc", (0.10, 0.33, 0.35, 0.35)),
-            field(shape, "phi_znpc_shifted", (0.05, 0.12, 0.20, 0.25)),
+            field(shape, "phi_znpc_scrambled", (0.05, 0.12, 0.20, 0.25)),
         ],
         # Orientation gamma (radians), one field per material. Alq3 has a
         # face-on surface (gamma = 0) and reaches the magic angle at the
@@ -328,8 +368,8 @@ def build_profile() -> DepthProfile:
             ),
             field(
                 shape,
-                "gamma_znpc_shifted",
-                curved_gamma(gamma_ref, SHIFTED_GAMMA_FRACTIONS),
+                "gamma_znpc_scrambled",
+                curved_gamma(gamma_ref, SCRAMBLED_GAMMA_FRACTIONS),
             ),
         ],
         # Total density, after mixing: changes mostly toward z = THICKNESS.
@@ -390,7 +430,7 @@ def save_channels(path: Path) -> None:
         (
             "volume fraction $\\phi$",
             1.0,
-            [("phi_0", "alq3"), ("phi_1", "znpc"), ("phi_2", "znpc_shifted")],
+            [("phi_0", "alq3"), ("phi_1", "znpc"), ("phi_2", "znpc_scrambled")],
         ),
         ("total density scale", 1.0, [("density_scale", "density_scale")]),
         (
@@ -399,7 +439,7 @@ def save_channels(path: Path) -> None:
             [
                 ("orientation_0", "alq3"),
                 ("orientation_1", "znpc"),
-                ("orientation_2", "znpc_shifted"),
+                ("orientation_2", "znpc_scrambled"),
             ],
         ),
         (
@@ -450,7 +490,7 @@ def _building_block(
 
 
 def save_materials(path: Path) -> None:
-    """Building blocks: unit-density beta(E) of each material, and the ZnPc shift."""
+    """Building blocks: unit-density beta(E) of each material, and the ZnPc scramble."""
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
 
@@ -458,7 +498,8 @@ def save_materials(path: Path) -> None:
     alq3_rec = materials["alq3"]
     znpc_rec = materials["znpc"]
     gamma_ref, _, _ = znpc_tilts(znpc_rec["peaks"])
-    factors = shifted_factors(len(znpc_rec["peaks"]))
+    _, scr_heights, _ = scramble_draw(znpc_rec["peaks"])
+    f_iso = np.array([znpc_iso(rec) for rec in znpc_rec["peaks"]])
 
     # Alq3: isotropic, fitted (substrate-end) heights, unit density.
     alq3_fitted = _const_alq3(alq3_rec)
@@ -473,12 +514,12 @@ def save_materials(path: Path) -> None:
         rotation=gamma_ref,
     )
     znpc_t = znpc_src.tensor_at_many(FINE)
-    shifted_src = _building_block(
-        znpc_peaks(znpc_rec, factors=factors),
+    scrambled_src = _building_block(
+        scrambled_peaks(znpc_rec),
         baseline_table(znpc_rec),
         rotation=gamma_ref,
     )
-    shifted_t = shifted_src.tensor_at_many(FINE)
+    scrambled_t = scrambled_src.tensor_at_many(FINE)
 
     fig = plt.figure(figsize=(9.2, 5.6), constrained_layout=True)
     grid = GridSpec(2, 3, figure=fig, height_ratios=[3.0, 1.0])
@@ -531,13 +572,13 @@ def save_materials(path: Path) -> None:
     )
     ax_s.plot(
         FINE,
-        shifted_t.imag.trace(axis1=1, axis2=2) / 3.0,
+        scrambled_t.imag.trace(axis1=1, axis2=2) / 3.0,
         color="C1",
         lw=1.6,
         ls="--",
-        label="znpc_shifted, isotropic",
+        label="znpc_scrambled, isotropic",
     )
-    ax_s.set_title("znpc vs znpc_shifted")
+    ax_s.set_title("znpc vs znpc_scrambled")
 
     for ax in (ax_a, ax_z, ax_s):
         ax.set_xlim(283.5, 289.0)
@@ -548,13 +589,21 @@ def save_materials(path: Path) -> None:
     ax_z.tick_params(labelleft=False)
     ax_s.tick_params(labelleft=False)
 
-    pct = 100.0 * (factors - 1.0)
-    centers = np.array([rec["energy"] for rec in znpc_rec["peaks"]])
+    # Only peaks inside the demo window are drawn; the others are left out.
+    centers = np.array([float(rec["energy"]) for rec in znpc_rec["peaks"]])
+    inside = (centers >= SCRAMBLE_WINDOW[0]) & (centers <= SCRAMBLE_WINDOW[1])
+    pct = (100.0 * (scr_heights / f_iso - 1.0))[inside]
+    centers = centers[inside]
     ax_strip.bar(centers, pct, width=0.12, color=np.where(pct >= 0, "C2", "C3"))
     ax_strip.axhline(0.0, color="0.4", lw=0.8)
-    ax_strip.set_xlim(283.5, 289.2)
+    span = float(np.abs(pct).max())
+    ax_strip.set_ylim(-1.25 * span, 1.25 * span)
+    ax_strip.set_xlim(*SCRAMBLE_WINDOW)
     ax_strip.set_ylabel("height change (%)")
-    ax_strip.set_xlabel("ZnPc peak energy (eV), znpc_shifted relative to znpc")
+    ax_strip.set_xlabel(
+        "ZnPc peak energy (eV, original), znpc_scrambled relative to znpc; "
+        "peaks inside the window only"
+    )
     ax_strip.grid(True, axis="y", alpha=0.25)
     fig.savefig(path, dpi=150)
     plt.close(fig)

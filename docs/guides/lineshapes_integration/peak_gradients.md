@@ -25,8 +25,8 @@ default path).
   the depth gradients.
 - **`znpc`** is the full uniaxial ZnPc tensor, with 19 peaks. Each peak's
   height and TDM tilt come from the ZnPc derivation below.
-- **`znpc_shifted`** is the same ZnPc peak set, with each height multiplied by
-  a fixed factor.
+- **`znpc_scrambled`** is a synthetic variant of the ZnPc peak set, with some
+  heights swapped, jittered heights and small energy shifts. See below.
 
 The density values are illustrative, not measured: Alq3 is 1.31 g/cm$^3$ and
 ZnPc is 1.60 g/cm$^3$. Each `PeakSumSLD` takes its density as an argument,
@@ -81,11 +81,21 @@ strong $\pi^*$ peaks. ZnPc runs from amorphous (`MAGIC_ANGLE`) at the surface
 to that ordered state at the substrate. Some peaks are clipped to the nearest
 reachable tilt, at 0 or $\pi/2$.
 
-### Shifted ZnPc
+### Scrambled ZnPc
 
-`znpc_shifted` has the same peak energies, widths, tilts and baseline as
-`znpc`. Each height is multiplied by a fixed factor between 0.85 and 1.15,
-drawn from `np.random.default_rng(12345).uniform(0.85, 1.15, 19)`.
+`znpc_scrambled` is a synthetic variant for the demo, not a measured material.
+It keeps the `znpc` baseline, widths and per-peak TDM tilts, and changes the
+heights and energies from one generator, `np.random.default_rng(2025)`: three
+disjoint height swaps among the 8 strongest peaks inside 283.5 to 289.5 eV,
+each height times a lognormal factor (sigma 0.15, clipped to 0.7 to 1.4), and
+each energy shifted by a Gaussian (sigma 0.05 eV, clipped to $\pm$0.10 eV).
+The swapped pairs, by original energy, are:
+
+| Swap | Peak energies (eV) |
+|---|---|
+| 1 | 285.06 and 284.40 |
+| 2 | 285.39 and 289.02 |
+| 3 | 284.03 and 287.23 |
 
 ### Construction code
 
@@ -136,14 +146,14 @@ Each channel follows this profile:
 - **Volume fractions.** Alq3 starts at 0.85 and falls fast over the top 60 Å
   to 0.55, then levels off near 0.40 at $z=T$. The two ZnPc layers enrich
   toward the substrate. ZnPc rises from 0.10 to about 0.36 near 90 Å, then
-  settles at 0.35. Shifted ZnPc rises from 0.05 to 0.25. The three fractions
+  settles at 0.35. Scrambled ZnPc rises from 0.05 to 0.25. The three fractions
   sum to 1 at every knot.
 - **Total density.** `density_scale` multiplies the mixed tensor after mixing.
   It runs from 0.85 at the surface to 1.15 at $z=T$. Most of the rise is in
   the lower half.
 - **Orientation.** Alq3 stays near face-on at the surface and reaches the
   magic angle at $z=T$. Both ZnPc layers start at the magic angle and order
-  toward $\gamma_{\rm ref}$, 73.5°, with shifted ZnPc ordering a little later
+  toward $\gamma_{\rm ref}$, 73.5°, with scrambled ZnPc ordering a little later
   in depth.
 - **Alq3 peaks.** The heights of p1 to p3 and the TDM tilts of p1, p2, p4 and
   p5 follow the outline table above.
@@ -159,7 +169,7 @@ Angles are shown in degrees.
 
 Unit-density $\beta(E)$ of alq3 (isotropic), of znpc (the $[0,0]$ and $[2,2]$
 diagonal at $\gamma_{\rm ref}$, and their average), and of znpc against
-znpc_shifted (isotropic average), with the shifted height changes below.
+znpc_scrambled (isotropic average). The strip below shows the per-peak height change of znpc_scrambled relative to znpc, for the peaks inside 283.5 to 289.5 eV only.
 
 ![Building blocks](../../assets/lineshape-gradient-materials.png)
 
