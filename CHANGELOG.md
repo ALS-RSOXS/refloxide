@@ -14,9 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0-rc.1] - 2026-10-25
-
-Release candidate. Install with `pip install --pre refloxide`.
+## [0.3.0] - 2026-10-25
 
 ### Features
 
@@ -38,8 +36,6 @@ Release candidate. Install with `pip install --pre refloxide`.
 - `PeakSumSLD` may be slower than the tabulated uniaxial tensor (about 1.2x
   for one uniform slab with five scalar peaks over 200 energies).
 - Lockfile bumped to `pillow` 13.0.0 and `gitpython` 3.2.1 (security scan).
-- Release tooling accepts pre-release versions (`X.Y.Z-rc.N`); the GitHub
-  release is marked as a pre-release for tags containing `-`.
 
 ## [0.2.0] - 2026-10-09
 
