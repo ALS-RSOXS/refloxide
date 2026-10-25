@@ -25,7 +25,7 @@ from refloxide.pxr.energy.bookended import adaptive_microslab_thicknesses
 from refloxide.sources import lab_diagonal_from_cos2
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     from matplotlib.axes import Axes
     from numpy.typing import NDArray
@@ -499,18 +499,24 @@ def _per_component(
     return [_as_channel(value)] * n
 
 
-def _iter_profile_parameters(value: object):
+def _profile_parameter_sources(value: object) -> Iterator[tuple[Parameter, bool]]:
+    """Parameters of one channel as `(parameter, via_field)` pairs.
+
+    `via_field` is True for Parameters reached through a `_FieldBase`, the only
+    source whose shared shape parameters are deduplicated by the caller.
+    """
     if value is None:
         return
     if isinstance(value, _FieldBase):
-        yield from value.parameters
+        for param in value.parameters:
+            yield param, True
         return
     if isinstance(value, Parameter):
-        yield value
+        yield value, False
         return
     if _is_component_sequence(value):
         for item in value:
-            yield from _iter_profile_parameters(item)
+            yield from _profile_parameter_sources(item)
 
 
 def _carried_field(value: object) -> _FieldBase | float | Parameter | None:
@@ -885,6 +891,15 @@ class DepthProfile(MultiRowComponent):
                 raise ValueError(msg)
             return self._mixed_component_tensors(energy_ev, z, thickness)
 
+        if free_optical and callable(
+            getattr(self.material, "lab_channels_at_depth", None)
+        ):
+            msg = (
+                "DepthProfile cannot combine free optical diagonals "
+                "with a peak-sum source"
+            )
+            raise ValueError(msg)
+
         # Free optical polynomial/spline path
         if free_optical:
             base = self.material.tensor_at(energy_ev)
@@ -987,8 +1002,13 @@ class DepthProfile(MultiRowComponent):
 
     @property
     def parameters(self) -> Parameters:
-        candidates: list[Parameter] = [self.thick, self.rough]
-        candidates.extend(self.material.parameters)
+        params = Parameters(name=self.name)
+        params.extend([self.thick, self.rough])
+        params.extend(list(self.material.parameters))
+        # Shared shapes (one TransitionShape under several LevelFields) yield
+        # the same Parameter objects through several fields; list those once.
+        # Directly supplied Parameters and material parameters are never deduped.
+        seen_via_field: set[int] = set()
         for field in (
             self.gamma,
             self.cos2_gamma,
@@ -1000,17 +1020,12 @@ class DepthProfile(MultiRowComponent):
             self.beta_o,
             self.beta_e,
         ):
-            candidates.extend(_iter_profile_parameters(field))
-        # Shared shapes (e.g. one TransitionShape under several LevelFields)
-        # yield the same Parameter objects more than once; keep the first.
-        seen: set[int] = set()
-        unique: list[Parameter] = []
-        for param in candidates:
-            if id(param) not in seen:
-                seen.add(id(param))
-                unique.append(param)
-        params = Parameters(name=self.name)
-        params.extend(unique)
+            for param, via_field in _profile_parameter_sources(field):
+                if via_field:
+                    if id(param) in seen_via_field:
+                        continue
+                    seen_via_field.add(id(param))
+                params.extend([param])
         return params
 
     def __repr__(self) -> str:
