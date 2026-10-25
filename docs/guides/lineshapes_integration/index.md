@@ -75,18 +75,6 @@ film, see the worked example.
 The [worked example](peak_gradients.md#conventions) lists the same conventions
 with more detail.
 
-## Cost
-
-From the benchmark record (macOS, one energy, median of 200 timed calls; the
-spread between runs was 2 to 5%):
-
-- A uniform slab costs about 1.18 times a tabulated lookup per energy, for five
-  scalar peaks.
-- At equal slice count (40 slabs), the all-scalar peak sum costs about 0.95
-  times a tabulated `DepthProfile`.
-- A depth-varying height adds about 7 to 10%, and a depth-varying width adds
-  about 22 to 26%, over the all-scalar profile.
-
 ## Limits
 
 - Maxwell-Garnett and Bruggeman mixing support only two components. For three
@@ -101,7 +89,7 @@ spread between runs was 2 to 5%):
 
 - [Peak gradients](peak_gradients.md): a three-material film (frozen Alq3 and
   ZnPc fits, a full ZnPc tensor and a shifted ZnPc) with depth-varying
-  composition, orientation and peaks, a dense energy set with NEXAFS, ridge and
-  peak-migration figures, spline and polynomial shapes, and the knot fit.
+  composition, orientation and peaks, a dense energy set with NEXAFS and ridge
+  figures, and the knot fit.
 - [Building structures](../building_structures/index.md): the other depth-law
   families, such as splines, polynomials, diffusion and phase transitions.
