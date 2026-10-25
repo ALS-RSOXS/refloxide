@@ -81,6 +81,13 @@ with more detail.
   or more, use `rule="linear"`.
 - A peak-only material has no continuum. Add a tabulated `baseline` for a
   background.
+- `PeakSumSLD` may be slower than the tabulated uniaxial tensor
+  (`UniTensorSLD`), because it evaluates the line shapes instead of
+  interpolating a table. In a benchmark of one uniform slab with five scalar
+  peaks over 200 energies it took about 1.2 times as long. Peak parameters that
+  are single numbers are evaluated once per energy. Parameters bound to a depth
+  field are evaluated per microslab, and a depth-varying width costs more than
+  a depth-varying height.
 - There is no Rust `OpticalSource` implementation yet. The Python protocol in
   `refloxide.sources` is the boundary that external sum-of-states code is meant
   to plug into.
@@ -91,5 +98,8 @@ with more detail.
   ZnPc fits, a full ZnPc tensor and a hydrocarbon contaminant) with depth-varying
   composition, orientation and peaks, a dense energy set with NEXAFS and ridge
   figures, and the knot fit.
+- [Surface diffusion](surface_diffusion.md): a single-slab film whose
+  orientation, density and peak strengths relax with one exponential diffusion
+  length, with NEXAFS, reflectivity and length-scan figures.
 - [Building structures](../building_structures/index.md): the other depth-law
   families, such as splines, polynomials, diffusion and phase transitions.

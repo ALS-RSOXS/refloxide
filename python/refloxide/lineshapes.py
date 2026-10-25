@@ -228,6 +228,16 @@ class PeakSumSLD(Scatterer):
     ------
     ValueError
         If two peaks share a label.
+
+    Notes
+    -----
+    Evaluating a sum of peaks costs more than interpolating a table, so a
+    `PeakSumSLD` may be slower than the tabulated uniaxial tensor
+    (`UniTensorSLD`). In a benchmark of one uniform slab with five scalar peaks
+    over 200 energies it took about 1.2 times as long as the tabulated slab. A
+    peak parameter that is a single number is evaluated once per energy.
+    Parameters bound to a depth field are evaluated per microslab, and a
+    depth-varying width costs more than a depth-varying height.
     """
 
     def __init__(
