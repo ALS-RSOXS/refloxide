@@ -588,8 +588,13 @@ fn peak_sum_molecular<'py>(
     f_xx: Vec<PyReadonlyArray1<'py, f64>>,
     f_zz: Vec<PyReadonlyArray1<'py, f64>>,
     energies_ev: PyReadonlyArray1<'py, f64>,
-    n_slices: usize,
+    n_slices: i64,
 ) -> PyResult<PeakSumPyArrays<'py>> {
+    let n_slices = usize::try_from(n_slices).map_err(|_| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "n_slices must be non-negative, got {n_slices}"
+        ))
+    })?;
     let n_peaks = kinds.len();
     let lengths = [shapes.len(), heights.len(), f_xx.len(), f_zz.len()];
     if lengths.iter().any(|&n| n != n_peaks) {
@@ -625,8 +630,13 @@ fn peak_sum_molecular<'py>(
         })
         .collect();
     let n_e = energies.len();
-    let mut out_xx = vec![C::new(0.0, 0.0); n_slices * n_e];
-    let mut out_zz = vec![C::new(0.0, 0.0); n_slices * n_e];
+    let total = n_slices.checked_mul(n_e).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "n_slices * n_energies overflows (n_slices={n_slices}, n_energies={n_e})"
+        ))
+    })?;
+    let mut out_xx = vec![C::new(0.0, 0.0); total];
+    let mut out_zz = vec![C::new(0.0, 0.0); total];
     core_peak_sum_molecular(&peaks, n_slices, &energies, &mut out_xx, &mut out_zz)
         .map_err(to_pyerr)?;
 
