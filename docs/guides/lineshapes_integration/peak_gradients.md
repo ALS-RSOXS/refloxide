@@ -111,27 +111,36 @@ The construction code below needs these imports:
 ```python
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 import numpy as np
-import polars as pl
-from numpy.typing import NDArray
-from scipy.optimize import brentq
 
-from refloxide.data import OpticalConstants
 from refloxide.fields import LevelField, Shape, SplineShape
-from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD, tdm_fractions
+from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD
 from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
 from refloxide.profiles import DepthProfile
+
+# examples/lineshape_materials.py, shared by the lineshapes examples
+from lineshape_materials import (
+    DENSITY_ALQ3,
+    DENSITY_ZNPC,
+    baseline_table,
+    contaminant_draw,
+    load_materials,
+    sorted_peak_records,
+    znpc_iso,
+    znpc_tilts,
+)
 ```
 
-The included block reads the frozen data file from the example's own path
-(`DATA_FILE`, from `__file__`). Run it as the example module, not pasted
-into a bare session. The shared depth shape is one `SplineShape`. Any shape
-family from the [overview](index.md) can be swapped in for it.
+The material helpers live in `examples/lineshape_materials.py`: the frozen-file
+loader (`DATA_FILE` is read from that file's own path), the unit-density baseline
+tables, the ZnPc tilt derivation and the seeded contaminant builder. The example
+puts its own directory on `sys.path` for that import. Run the block as the
+example module, not pasted into a bare session. The shared depth shape is one
+`SplineShape`. Any shape family from the [overview](index.md) can be swapped in
+for it.
 
 ```python
 --8<-- "examples/lineshape_three_material.py:construction"
