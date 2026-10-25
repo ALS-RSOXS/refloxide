@@ -439,21 +439,23 @@ def _checked_knots(knot_params: Sequence[Parameter]) -> NDArray[np.float64]:
 class SplineShape(Shape):
     """Natural cubic spline through knots at depths `knots` (in Å).
 
-    Levels are the knot values. Each knot is a refnx `Parameter` named
-    ``f"{name}_knot{i}"`` (a plain number is wrapped with ``vary=False``), so
-    knot positions can be fitted. The number of knots, and so the number of
-    levels, is fixed at construction. At least two knots are required.
+    Levels are the knot values. Each plain number is wrapped in a refnx
+    `Parameter` named ``f"{name}_knot{i}"`` with ``vary=False``. A
+    caller-supplied `Parameter` keeps its own name. Knot positions can then be
+    fitted. The number of knots, and so the number of levels, is fixed at
+    construction. At least two knots are required.
 
     Knot positions must stay finite and strictly increasing. Violations raise
     `ValueError` naming the knots; they are never clamped or reordered. To
     keep the knots ordered during a fit, open each interior knot with bounds
-    that do not overlap its neighbours' ranges, for example::
+    whose ranges do not overlap its neighbours' ranges, for example::
 
         shape = SplineShape([0.0, 60.0, 120.0, 200.0], name="depth")
-        shape.knot_parameters[1].setp(vary=True, bounds=(20.0, 55.0))
-        shape.knot_parameters[2].setp(vary=True, bounds=(65.0, 115.0))
+        shape.knot_parameters[1].setp(vary=True, bounds=(20.0, 75.0))
+        shape.knot_parameters[2].setp(vary=True, bounds=(80.0, 160.0))
 
-    Knot 1 stays in ``[20, 55]`` and knot 2 in ``[65, 115]``, so they cannot
+    Knot 1 stays in ``[20, 75]`` and knot 2 in ``[80, 160]``. Both starts lie
+    inside their bounds, and the ranges are disjoint, so the knots cannot
     cross. Bounds only restrict each knot to its own range, so pick ranges
     that are disjoint across neighbours. Set ``vary=True`` on a knot to fit it.
 
@@ -480,9 +482,16 @@ class SplineShape(Shape):
         self, knots: Sequence[float | Parameter], *, name: str = "spline"
     ) -> None:
         super().__init__(name=name)
-        if len(knots) < 2:
-            msg = "SplineShape needs at least two knots"
-            raise ValueError(msg)
+        bad_knots = (
+            "SplineShape knots must be a 1-D sequence of at least two numbers "
+            "or Parameters"
+        )
+        if isinstance(knots, (str, bytes)) or not hasattr(knots, "__len__"):
+            raise ValueError(bad_knots)
+        if len(knots) < 2 or any(
+            not isinstance(knot, Parameter) and np.ndim(knot) != 0 for knot in knots
+        ):
+            raise ValueError(bad_knots)
         self.knot_parameters: list[Parameter] = [
             _param(knot, f"{name}_knot{i}") for i, knot in enumerate(knots)
         ]

@@ -190,10 +190,11 @@ The knot positions of a `SplineShape` are fit parameters too. Each knot is a
 knots is fixed when the shape is built, so every level field on the shape
 keeps its level count.
 
-The snippet opens the two interior knots of a shared spline shape, at 50 Å
-and 150 Å. Each knot's bounds sit inside its own range, and the two ranges do
-not overlap, so the knots stay in order during a fit. The first and last knots
-stay at the surface and the substrate.
+The snippet opens the two interior knots of a shared spline shape, which start
+at 50 Å and 100 Å. Knot 1 is bounded to 20 to 75 Å and knot 2 to 80 to 140 Å.
+Those ranges do not overlap, so the knots stay in order during a fit: knot 1
+stays below knot 2, and knot 2 stays below the fixed knot 3 at 150 Å. Knot 1
+stays above the fixed knot 0 at 0 Å. Both starts lie inside their bounds.
 
 ```python
 import numpy as np
@@ -203,8 +204,8 @@ from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD
 from refloxide.profiles import DepthProfile
 
 shape = SplineShape(np.linspace(0.0, 200.0, 5), name="depth")
-shape.knot_parameters[1].setp(vary=True, bounds=(20.0, 90.0))
-shape.knot_parameters[2].setp(vary=True, bounds=(110.0, 180.0))
+shape.knot_parameters[1].setp(vary=True, bounds=(20.0, 75.0))
+shape.knot_parameters[2].setp(vary=True, bounds=(80.0, 140.0))
 
 film = PeakSumSLD(
     [
@@ -227,19 +228,34 @@ layer = DepthProfile(
     density_scale=LevelField(shape, [0.9, 0.95, 1.0, 1.05, 1.1], name="density_scale"),
 )
 
-knots = [p.name for p in layer.parameters.flattened(unique=True) if "depth_knot" in p.name]
+knots = [
+    p.name
+    for p in layer.parameters.flattened(unique=True)
+    if "depth_knot" in p.name
+]
 print(knots)
 print([p.name for p in layer.parameters.varying_parameters() if "depth_knot" in p.name])
 ```
 
-`layer.parameters` lists each knot once, even though the `gamma`,
-`density_scale`, and peak-height fields all use the same shape. The
-`varying_parameters()` list shows the two opened knots, `depth_knot1` and
-`depth_knot2`.
+The shape is shared by `gamma`, `density_scale`, and the peak height, so
+`layer.parameters.flattened()` repeats each knot once per channel that uses
+the shape. Pass `unique=True`, as above, to list each knot once. The
+`varying_parameters()` list is already unique and shows the two opened knots,
+`depth_knot1` and `depth_knot2`. Running the snippet prints:
 
-To keep one knot tied to another instead of bounded, use a refnx constraint.
-For example, `shape.knot_parameters[2].setp(vary=False, constraint=shape.knot_parameters[1] + 40.0)`
-keeps knot 2 40 Å above knot 1. Knot 2 is then not a free parameter.
+```text
+['depth_knot0', 'depth_knot1', 'depth_knot2', 'depth_knot3', 'depth_knot4']
+['depth_knot1', 'depth_knot2']
+```
+
+To tie one knot to another instead of bounding it, use a refnx constraint.
+This keeps knot 2 exactly 40 Å above knot 1, and knot 2 is then not a free
+parameter:
+
+```python
+knots = shape.knot_parameters
+knots[2].setp(vary=False, constraint=knots[1] + 40.0)
+```
 
 ## Conventions
 
