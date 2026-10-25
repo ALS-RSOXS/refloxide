@@ -2,11 +2,13 @@
 """Three-material film with depth-varying composition, orientation and peaks.
 
 Three synthetic five-peak materials (mat1, mat2, mat3) fill one 200 A film.
-A single spline shape with five knots (surface at z = 0, substrate at
-z = THICKNESS) drives every gradient: the volume fractions, the total
-density, the orientation gamma, and the heights and TDM angles of some
-mat1 peaks. Each gradient is a `LevelField` on that shape, so every effect
-follows the same depth profile.
+One shared depth shape drives every gradient: the volume fractions, the total
+density, the orientation gamma, and the heights and TDM tilts of some mat1
+peaks. By default the shape is a natural cubic `SplineShape` through four
+knots (surface at z = 0, substrate at z = THICKNESS). `build_structure` takes
+``shape="polynomial"`` to use a cubic `PolynomialShape` through the same four
+anchor positions and the same level values instead. Each gradient is a
+`LevelField` on that shape, so every effect follows the same depth profile.
 
 Regenerate the docs figures::
 
@@ -15,12 +17,13 @@ Regenerate the docs figures::
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from refloxide.fields import LevelField, SplineShape
+from refloxide.fields import LevelField, PolynomialShape, Shape, SplineShape
 from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD
 from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
 from refloxide.profiles import DepthProfile
@@ -32,45 +35,60 @@ if TYPE_CHECKING:
 # --8<-- [start:construction]
 THICKNESS = 200.0  # film thickness, Angstrom
 N_SLABS = 40
-KNOTS = np.linspace(0.0, THICKNESS, 5)  # five knots, surface to substrate
+SHAPE_KINDS = ("spline", "polynomial")
+# Knot and anchor positions as fractions of THICKNESS: surface, two interior
+# points, substrate. Both shapes use these positions, so they compare fairly.
+FRACTIONS = np.array([0.0, 0.3, 0.6, 1.0])
+KNOTS = THICKNESS * FRACTIONS  # spline knots, Angstrom
 Q = np.linspace(0.01, 0.27, 520)  # 1/Angstrom
-REFLECT_ENERGIES = np.array([285.9, 288.4])  # eV
-TENSOR_ENERGY = 285.9  # eV, for the n_o / n_e figure
+# Carbon K edge: below the first resonance, on mat1 peaks 1 to 3, and above.
+REFLECT_ENERGIES = np.array([283.5, 284.8, 285.9, 287.2, 289.6])  # eV
+TENSOR_ENERGIES = np.array([283.5, 284.8, 285.9, 287.2, 289.6])  # eV
 
 
-def ramp(shape: SplineShape, name: str, surface: float, substrate: float) -> LevelField:
-    """Field equal to `surface` at z = 0 and `substrate` at z = THICKNESS.
+def make_shape(kind: str = "spline") -> Shape:
+    """The shared depth shape: a 4-knot spline, or a cubic through the same 4 anchors."""
+    if kind == "spline":
+        return SplineShape(KNOTS, name="depth")
+    if kind == "polynomial":
+        return PolynomialShape(degree=3, positions=FRACTIONS, name="depth")
+    msg = f"shape must be one of {SHAPE_KINDS}, got {kind!r}"
+    raise ValueError(msg)
 
-    The five levels are evenly spaced between the two end values. Through
-    collinear knots the natural spline is that straight line.
-    """
-    levels = np.linspace(surface, substrate, KNOTS.size).tolist()
-    return LevelField(shape, levels, name=name)
+
+def field(shape: Shape, name: str, levels: Sequence[float]) -> LevelField:
+    """Level field with explicit values at the four anchors, surface to substrate."""
+    return LevelField(shape, list(levels), name=name)
 
 
-def mat1_peaks(shape: SplineShape) -> list[Peak]:
+def mat1_peaks(shape: Shape) -> list[Peak]:
     """mat1 is face-on at the surface. Peak heights are absolute values."""
-    h1, h2, h3 = 0.012, 0.010, 0.016  # substrate heights of peaks 1 to 3
     return [
         Peak(
             label="p1",
             energy=284.8,
             width=0.5,
-            height=ramp(shape, "mat1_p1_height", 1.5 * h1, h1),
-            tdm_tilt=ramp(shape, "mat1_p1_tilt", 0.0, np.deg2rad(20.0)),
+            # Falls fast near the surface, then changes little.
+            height=field(shape, "mat1_p1_height", (0.018, 0.014, 0.0125, 0.012)),
+            tdm_tilt=field(
+                shape, "mat1_p1_tilt", np.deg2rad([0.0, 12.0, 17.0, 20.0]).tolist()
+            ),
         ),
         Peak(
             label="p2",
             energy=285.9,
             width=0.5,
-            height=ramp(shape, "mat1_p2_height", 2.0 * h2, h2),
-            tdm_tilt=ramp(shape, "mat1_p2_tilt", 0.0, np.deg2rad(20.0)),
+            height=field(shape, "mat1_p2_height", (0.020, 0.013, 0.0105, 0.010)),
+            tdm_tilt=field(
+                shape, "mat1_p2_tilt", np.deg2rad([0.0, 14.0, 18.0, 20.0]).tolist()
+            ),
         ),
         Peak(
             label="p3",
             energy=287.2,
             width=0.5,
-            height=ramp(shape, "mat1_p3_height", 0.8 * h3, h3),
+            # Rises near the surface, then flat through the substrate.
+            height=field(shape, "mat1_p3_height", (0.0128, 0.0155, 0.0160, 0.0160)),
             tdm_tilt=MAGIC_ANGLE,
         ),
         Peak(
@@ -78,14 +96,19 @@ def mat1_peaks(shape: SplineShape) -> list[Peak]:
             energy=288.4,
             width=0.5,
             height=0.008,
-            tdm_tilt=ramp(shape, "mat1_p4_tilt", np.deg2rad(90.0), np.deg2rad(80.0)),
+            tdm_tilt=field(
+                shape, "mat1_p4_tilt", np.deg2rad([90.0, 85.0, 82.0, 80.0]).tolist()
+            ),
         ),
         Peak(
             label="p5",
             energy=289.6,
             width=0.5,
             height=0.006,
-            tdm_tilt=ramp(shape, "mat1_p5_tilt", np.deg2rad(90.0), np.deg2rad(80.0)),
+            # Holds near 90 degrees, then tilts in the lower half.
+            tdm_tilt=field(
+                shape, "mat1_p5_tilt", np.deg2rad([90.0, 89.0, 85.0, 80.0]).tolist()
+            ),
         ),
     ]
 
@@ -124,9 +147,9 @@ def mat3_peaks() -> list[Peak]:
     ]
 
 
-def build_profile() -> DepthProfile:
-    """The film: a linear `Mix` of three peak-sum sources on one spline shape."""
-    shape = SplineShape(KNOTS, name="depth")
+def build_profile(kind: str = "spline") -> DepthProfile:
+    """The film: a linear `Mix` of three peak-sum sources on one shared shape."""
+    shape = make_shape(kind)
     mat1 = PeakSumSLD(mat1_peaks(shape), name="mat1")
     mat2 = PeakSumSLD(mat2_peaks(), name="mat2")
     mat3 = PeakSumSLD(mat3_peaks(), name="mat3")
@@ -135,30 +158,39 @@ def build_profile() -> DepthProfile:
         thickness=THICKNESS,
         n_slabs=N_SLABS,
         mesh="uniform",
-        # Volume fractions: mostly mat1 at the surface; mat2 and mat3 enrich
-        # toward the substrate. The three ramps sum to 1 at every depth.
+        # Volume fractions, at the four anchors. The three columns sum to 1 at
+        # every anchor. mat1 falls fast in the top 60 A and then levels off.
+        # mat2 is taken up near the surface. mat3 enriches mostly in the lower
+        # half.
         phi=[
-            ramp(shape, "phi_mat1", 0.85, 0.40),
-            ramp(shape, "phi_mat2", 0.10, 0.35),
-            ramp(shape, "phi_mat3", 0.05, 0.25),
+            field(shape, "phi_mat1", (0.85, 0.55, 0.45, 0.40)),
+            field(shape, "phi_mat2", (0.10, 0.33, 0.35, 0.35)),
+            field(shape, "phi_mat3", (0.05, 0.12, 0.20, 0.25)),
         ],
-        # Orientation: gamma in radians, one field per material.
+        # Orientation: gamma in radians, one field per material. mat1 stays
+        # near face-on at the surface and reaches the magic angle at the
+        # substrate. mat2 tilts fast near the top and saturates edge-on. mat3
+        # stays near amorphous until the lower half, then tilts toward edge-on.
         gamma=[
-            ramp(shape, "gamma_mat1", 0.0, MAGIC_ANGLE),
-            ramp(shape, "gamma_mat2", MAGIC_ANGLE, np.pi / 2),
-            ramp(shape, "gamma_mat3", MAGIC_ANGLE, np.pi / 2),
+            field(shape, "gamma_mat1", (0.0, 0.10, 0.50, MAGIC_ANGLE)),
+            field(shape, "gamma_mat2", (MAGIC_ANGLE, 1.10, 1.40, np.pi / 2)),
+            field(shape, "gamma_mat3", (MAGIC_ANGLE, 1.02, 1.30, np.pi / 2)),
         ],
-        # Total density, after mixing: denser at the substrate.
-        density_scale=ramp(shape, "density_scale", 0.85, 1.15),
+        # Total density, after mixing: changes mostly toward the substrate.
+        density_scale=field(shape, "density_scale", (0.85, 0.87, 0.97, 1.15)),
         name="film",
     )
 
 
-def build_structure() -> Structure:
-    """Vacuum | three-material film | silicon substrate."""
+def build_structure(shape: str = "spline") -> Structure:
+    """Vacuum | three-material film | silicon substrate.
+
+    ``shape="polynomial"`` swaps the shared spline for a cubic `PolynomialShape`
+    on the same anchors and levels. Only the shape object changes.
+    """
     vacuum = MaterialSLD("", 0, name="vacuum")(0, 0)
     substrate = MaterialSLD("Si", density=2.33, name="si")(0, 3)
-    return vacuum | build_profile() | substrate
+    return vacuum | build_profile(shape) | substrate
 
 
 # --8<-- [end:construction]
@@ -168,7 +200,7 @@ ASSETS = ROOT / "docs" / "assets"
 
 
 def channel_profiles(
-    n: int = 401,
+    n: int = 401, shape: str = "spline"
 ) -> dict[str, tuple[NDArray[np.float64], NDArray[np.float64]]]:
     """Every channel and depth-field peak parameter as `(z, values)`.
 
@@ -177,7 +209,7 @@ def channel_profiles(
     `mat1.p1.tdm_tilt`, ...). Angles are in radians.
     """
     z = np.linspace(0.0, THICKNESS, n)
-    values = build_profile().named_values_at(z)
+    values = build_profile(shape).named_values_at(z)
     return {key: (z, value) for key, value in values.items()}
 
 
@@ -211,6 +243,13 @@ def _curves(
     ax.set_xlabel(r"depth $z$ ($\mathrm{\AA}$)")
     ax.grid(True, alpha=0.25)
     ax.legend(frameon=False, fontsize=8)
+
+
+def _energy_colors(n: int) -> NDArray[np.float64]:
+    """Sequential viridis colors, one per energy in ascending order."""
+    import matplotlib.pyplot as plt
+
+    return plt.get_cmap("viridis")(np.linspace(0.05, 0.9, n))
 
 
 def save_channels(path: Path) -> None:
@@ -264,17 +303,37 @@ def save_channels(path: Path) -> None:
     plt.close(fig)
 
 
-def save_tensors(path: Path) -> None:
-    """Ordinary and extraordinary delta and beta versus depth at one energy."""
+def save_shapes(path: Path) -> None:
+    """Four channels: 4-knot spline (solid) against cubic polynomial (dashed)."""
     import matplotlib.pyplot as plt
 
-    z, tensors = tensors_at_energy(TENSOR_ENERGY)
-    n_o, n_e = tensors[:, 0, 0], tensors[:, 2, 2]
-    fig, (ax_d, ax_b) = plt.subplots(1, 2, figsize=(8.8, 3.4), constrained_layout=True)
-    for ax, part, title in ((ax_d, np.real, r"$\delta$"), (ax_b, np.imag, r"$\beta$")):
-        ax.plot(z, part(n_o), color="C0", lw=1.8, label=r"$o$ (ordinary)")
-        ax.plot(z, part(n_e), color="C1", lw=1.8, ls="--", label=r"$e$ (extraordinary)")
-        ax.set_title(f"{title} at {TENSOR_ENERGY:.1f} eV")
+    spline = channel_profiles(shape="spline")
+    poly = channel_profiles(shape="polynomial")
+    at_knots = build_profile("spline").named_values_at(KNOTS)
+    deg = 180.0 / np.pi
+    panels = [
+        ("mat1 volume fraction $\\phi$", 1.0, "phi_0"),
+        ("mat1 orientation $\\gamma$ (deg)", deg, "orientation_0"),
+        ("mat1 peak 1 height", 1.0, "mat1.p1.height"),
+        ("total density scale", 1.0, "density_scale"),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(7.6, 5.6), constrained_layout=True)
+    for ax, (title, scale, key) in zip(axes.flat, panels, strict=True):
+        z, y_spline = spline[key]
+        _, y_poly = poly[key]
+        for knot in KNOTS:
+            ax.axvline(knot, color="0.6", lw=0.8, ls=":")
+        ax.plot(z, scale * y_spline, color="C0", lw=1.8, label="spline (4 knots)")
+        ax.plot(
+            z,
+            scale * y_poly,
+            color="C1",
+            lw=1.8,
+            ls="--",
+            label="cubic polynomial (4 anchors)",
+        )
+        ax.plot(KNOTS, scale * at_knots[key], "o", color="C0", ms=4)
+        ax.set_title(title)
         ax.set_xlabel(r"depth $z$ ($\mathrm{\AA}$)")
         ax.grid(True, alpha=0.25)
         ax.legend(frameon=False, fontsize=8)
@@ -282,32 +341,60 @@ def save_tensors(path: Path) -> None:
     plt.close(fig)
 
 
-def save_reflectivity(path: Path) -> None:
-    """R_ss and R_pp versus q at each reflectivity energy."""
+def save_tensors(path: Path) -> None:
+    """Ordinary and extraordinary delta and beta versus depth at each energy."""
     import matplotlib.pyplot as plt
 
+    colors = _energy_colors(TENSOR_ENERGIES.size)
+    fig, axes = plt.subplots(
+        2, 2, figsize=(8.8, 5.6), sharex=True, constrained_layout=True
+    )
+    for j, energy in enumerate(TENSOR_ENERGIES):
+        z, tensors = tensors_at_energy(float(energy))
+        n_o, n_e = tensors[:, 0, 0], tensors[:, 2, 2]
+        for row, part in enumerate((np.real, np.imag)):
+            for col, comp in enumerate((n_o, n_e)):
+                axes[row, col].plot(
+                    z, part(comp), color=colors[j], lw=1.6, label=f"{energy:.1f} eV"
+                )
+    titles = (
+        (r"$\delta$, ordinary $o$", r"$\delta$, extraordinary $e$"),
+        (r"$\beta$, ordinary $o$", r"$\beta$, extraordinary $e$"),
+    )
+    for row in range(2):
+        for col in range(2):
+            ax = axes[row, col]
+            ax.set_title(titles[row][col])
+            ax.grid(True, alpha=0.25)
+            ax.set_xlabel(r"depth $z$ ($\mathrm{\AA}$)")
+    axes[0, 0].legend(frameon=False, fontsize=8, title="energy")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def save_reflectivity(path: Path) -> None:
+    """R_ss (solid) and R_pp (dashed) versus q at each reflectivity energy."""
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
     refl = reflectivity()
-    fig, ax = plt.subplots(figsize=(7.2, 3.6), constrained_layout=True)
+    colors = _energy_colors(REFLECT_ENERGIES.size)
+    fig, ax = plt.subplots(figsize=(7.2, 4.0), constrained_layout=True)
     for j, energy in enumerate(REFLECT_ENERGIES):
-        ax.semilogy(
-            Q,
-            refl[0, :, j],
-            color=f"C{j}",
-            lw=1.8,
-            label=rf"$R_{{ss}}$ {energy:.1f} eV",
-        )
-        ax.semilogy(
-            Q,
-            refl[1, :, j],
-            color=f"C{j}",
-            lw=1.4,
-            ls="--",
-            label=rf"$R_{{pp}}$ {energy:.1f} eV",
-        )
+        ax.semilogy(Q, refl[0, :, j], color=colors[j], lw=1.8)
+        ax.semilogy(Q, refl[1, :, j], color=colors[j], lw=1.4, ls="--")
+    handles = [
+        Line2D([], [], color=colors[j], lw=1.8, label=f"{energy:.1f} eV")
+        for j, energy in enumerate(REFLECT_ENERGIES)
+    ]
+    handles += [
+        Line2D([], [], color="0.25", lw=1.8, label=r"$R_{ss}$"),
+        Line2D([], [], color="0.25", lw=1.4, ls="--", label=r"$R_{pp}$"),
+    ]
+    ax.legend(handles=handles, frameon=False, fontsize=8, ncol=2)
     ax.set_xlabel(r"$q$ ($\mathrm{\AA}^{-1}$)")
     ax.set_ylabel("reflectivity")
     ax.grid(True, which="both", alpha=0.25)
-    ax.legend(frameon=False, fontsize=8)
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
@@ -317,6 +404,7 @@ def main() -> None:
     save_channels(ASSETS / "lineshape-gradient-channels.png")
     save_tensors(ASSETS / "lineshape-gradient-tensors.png")
     save_reflectivity(ASSETS / "lineshape-gradient-reflectivity.png")
+    save_shapes(ASSETS / "lineshape-gradient-shapes.png")
     print(f"wrote figures to {ASSETS}")
 
 

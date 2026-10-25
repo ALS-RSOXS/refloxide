@@ -12,47 +12,65 @@ same depth profile.
 Three synthetic five-peak materials fill one 200 Å film, with linear mixing
 and 40 microslabs. The values are illustrative, not fitted to ZnPc or Alq3.
 The peak energies (about 284.5 to 290.4 eV) sit near the carbon K edge.
-One `SplineShape` with five knots spans the film, from the surface at $z=0$
-to the substrate at $z=T$. Every gradient is a `LevelField` with five levels
-on that one shared shape; the intermediate levels interpolate the surface and
-substrate values linearly. The gradients are the volume fractions, the total
-density, the per-material $\gamma$, the mat1 peak 1, 2 and 3 heights, and the
-mat1 TDM tilts of peaks 1, 2, 4 and 5. Everything else is a constant: the
-mat2 and mat3 peak parameters, the mat1 peak 3 tilt, and the mat1 peak 4 and 5
-heights.
+
+One `SplineShape` with four knots spans the film, at 0, 60, 120 and 200 Å
+(fractions 0, 0.3, 0.6 and 1 of the thickness $T$). The surface is at $z=0$
+and the substrate at $z=T$. Every gradient is a `LevelField` with four levels
+on that one shared shape. The surface and substrate levels are fixed by the
+film. The two interior levels are chosen so each profile curves, rather than
+following the straight line between the endpoints. The gradients are the
+volume fractions, the total density, the per-material $\gamma$, the mat1 peak
+1, 2 and 3 heights, and the mat1 TDM tilts of peaks 1, 2, 4 and 5. Everything
+else is a constant: the mat2 and mat3 peak parameters, the mat1 peak 3 tilt,
+and the mat1 peak 4 and 5 heights.
 
 Maxwell-Garnett and Bruggeman mixing support only two components, so for
 three materials the linear rule is the only choice.
 
---8<-- "examples/lineshape_three_material.py:construction"
-
-The film is `vacuum | build_profile() | substrate`. Building the structure
-needs the imports used above:
+The construction code below needs these imports:
 
 ```python
+from collections.abc import Sequence
+
 import numpy as np
 
-from refloxide.fields import LevelField, SplineShape
+from refloxide.fields import LevelField, PolynomialShape, Shape, SplineShape
 from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD
-from refloxide.model import MaterialSLD, Mix, Structure
+from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
 from refloxide.profiles import DepthProfile
 ```
 
-The film follows the values set out in the example:
+The film is `vacuum | build_profile() | substrate`:
 
-- **Volume fractions.** Mostly mat1 at the surface, with little mat2 and
-  mat3. Mat2 and mat3 enrich toward the substrate.
+```python
+--8<-- "examples/lineshape_three_material.py:construction"
+```
+
+The example sets each channel's four levels explicitly. In words, each
+channel follows this profile:
+
+- **Volume fractions.** mat1 starts at 0.85 and falls fast over the top 60 Å
+  to 0.55. It then levels off near 0.40 at the substrate. mat2 is taken up
+  near the surface, rising from 0.10 to about 0.35 by 120 Å, and then stays
+  flat. mat3 enriches mostly in the lower half, from 0.05 to 0.25. The three
+  fractions sum to 1 at every knot.
 - **Total density.** `density_scale` multiplies the mixed tensor after mixing.
-  It is larger at the substrate than at the surface.
-- **Orientation.** Mat1 is face-on at the surface ($\gamma=0$) and amorphous
-  at the substrate (the magic angle). Mat2 and mat3 start at the magic angle
-  and end edge-on ($\gamma=\pi/2$).
+  It runs from 0.85 at the surface to 1.15 at the substrate, and most of the
+  rise is in the lower half.
+- **Orientation.** Mat1 stays near face-on at the surface ($\gamma\approx
+  6^\circ$ at 60 Å). It tilts through the lower half and reaches the magic
+  angle only at the substrate. Mat2 tilts quickly near the top and saturates
+  close to edge-on. Mat3 stays near the magic angle until the lower half, then
+  tilts toward edge-on.
 - **Electronic effects in mat1.** Peak 1 and peak 2 heights are 1.5 and 2.0
-  times their substrate values at the surface. Peak 3 is 0.8 times its
-  substrate value at the surface. The heights are written out as absolute
+  times their substrate values at the surface, and both fall fast near the
+  surface. Peak 3 rises from 0.8 times its substrate value to the substrate
+  value, mostly in the top 100 Å. The heights are written out as absolute
   values, not multipliers. The TDM tilt of peaks 1 and 2 goes from $0$ at the
-  surface to $20^\circ$ at the substrate. The tilt of peaks 4 and 5 goes from
-  $90^\circ$ to $80^\circ$.
+  surface to $20^\circ$ at the substrate, changing fastest near the surface.
+  The tilt of peak 4 goes from $90^\circ$ to $80^\circ$, changing fastest near
+  the surface. The tilt of peak 5 stays near $90^\circ$ until the lower half,
+  then drops to $80^\circ$ at the substrate.
 
 ### Channels versus depth
 
@@ -63,16 +81,48 @@ Angles are shown in degrees here, but the values are radians.
 
 ### Lab tensor versus depth
 
-Ordinary and extraordinary $\delta$ and $\beta$ at 285.9 eV, one value per
-microslab.
+Ordinary and extraordinary $\delta$ and $\beta$ at five energies, 283.5 to
+289.6 eV, one value per microslab. Each color is one energy. The lowest
+energy, 283.5 eV, sits below the first mat1 peak. The energies 284.8, 285.9
+and 287.2 eV sit on mat1 peaks 1 to 3, and 289.6 eV sits on mat1 peak 5.
 
 ![Lab tensor versus depth](../../assets/lineshape-gradient-tensors.png)
 
 ### Reflectivity
 
-$R_{ss}$ and $R_{pp}$ over $q$ at 285.9 and 288.4 eV.
+$R_{ss}$ (solid) and $R_{pp}$ (dashed) over $q$ at the same five energies.
+Each color is one energy.
 
 ![Reflectivity](../../assets/lineshape-gradient-reflectivity.png)
+
+### Swapping the profile shape
+
+Only the shape object changes. The example builds the film with
+`build_structure(shape="polynomial")` to use a cubic `PolynomialShape`
+instead of the spline:
+
+```python
+from refloxide.fields import PolynomialShape
+
+shape = PolynomialShape(degree=3, positions=[0.0, 0.3, 0.6, 1.0], name="depth")
+```
+
+The positions are fractions of the thickness, the same as the spline knots
+above. The four levels of every channel stay the same, so both shapes agree
+at the surface and substrate, and the rest of the film is unchanged. In the
+polynomial version, each channel is a single cubic through the four anchors.
+
+Prefer the spline when you need local control. Moving one level changes only
+the nearby part of the profile, and the curve does not ring. Prefer the
+polynomial when you want a smooth global trend with few parameters. A cubic
+can overshoot between anchors, as the figure shows for mat1 $\gamma$ near
+15 Å, where it dips slightly below zero.
+
+![Spline and cubic polynomial shapes](../../assets/lineshape-gradient-shapes.png)
+
+The figure compares four channels with the spline (solid) and the cubic
+polynomial (dashed) on the same four anchors. The dots mark the spline knot
+values, and the dotted lines mark the knot and anchor positions.
 
 ## Single-material film
 
@@ -190,11 +240,13 @@ The knot positions of a `SplineShape` are fit parameters too. Each knot is a
 knots is fixed when the shape is built, so every level field on the shape
 keeps its level count.
 
-The snippet opens the two interior knots of a shared spline shape, which start
-at 50 Å and 100 Å. Knot 1 is bounded to 20 to 75 Å and knot 2 to 80 to 140 Å.
-Those ranges do not overlap, so the knots stay in order during a fit: knot 1
-stays below knot 2, and knot 2 stays below the fixed knot 3 at 150 Å. Knot 1
-stays above the fixed knot 0 at 0 Å. Both starts lie inside their bounds.
+The snippet builds its own five-knot shape at 0, 50, 100, 150 and 200 Å. It
+is separate from the four-knot shape of the example film. It opens the two
+interior knots, which start at 50 Å and 100 Å. Knot 1 is bounded to 20 to
+75 Å and knot 2 to 80 to 140 Å. Those ranges do not overlap, so the knots
+stay in order during a fit: knot 1 stays below knot 2, and knot 2 stays below
+the fixed knot 3 at 150 Å. Knot 1 stays above the fixed knot 0 at 0 Å. Both
+starts lie inside their bounds.
 
 ```python
 import numpy as np
