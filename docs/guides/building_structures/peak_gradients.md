@@ -31,6 +31,7 @@ The construction code below needs these imports:
 
 ```python
 from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
 
@@ -51,8 +52,9 @@ channel follows this profile:
 
 - **Volume fractions.** mat1 starts at 0.85 and falls fast over the top 60 Å
   to 0.55. It then levels off near 0.40 at the substrate. mat2 is taken up
-  near the surface, rising from 0.10 to about 0.35 by 120 Å, and then stays
-  flat. mat3 enriches mostly in the lower half, from 0.05 to 0.25. The three
+  near the surface, rising from 0.10 to about 0.35 by 120 Å. It peaks at
+  0.358 near 92 Å, a slight overshoot, and then settles at 0.35. mat3 rises
+  steadily from 0.05 to 0.25, steepest between 60 and 120 Å. The three
   fractions sum to 1 at every knot.
 - **Total density.** `density_scale` multiplies the mixed tensor after mixing.
   It runs from 0.85 at the surface to 1.15 at the substrate, and most of the
@@ -60,8 +62,8 @@ channel follows this profile:
 - **Orientation.** Mat1 stays near face-on at the surface ($\gamma\approx
   6^\circ$ at 60 Å). It tilts through the lower half and reaches the magic
   angle only at the substrate. Mat2 tilts quickly near the top and saturates
-  close to edge-on. Mat3 stays near the magic angle until the lower half, then
-  tilts toward edge-on.
+  close to edge-on. Mat3 starts at the magic angle and tilts steadily toward
+  edge-on: about 58° at 60 Å, 75° at 120 Å, and edge-on at the substrate.
 - **Electronic effects in mat1.** Peak 1 and peak 2 heights are 1.5 and 2.0
   times their substrate values at the surface, and both fall fast near the
   surface. Peak 3 rises from 0.8 times its substrate value to the substrate
@@ -112,11 +114,20 @@ above. The four levels of every channel stay the same, so both shapes agree
 at the surface and substrate, and the rest of the film is unchanged. In the
 polynomial version, each channel is a single cubic through the four anchors.
 
-Prefer the spline when you need local control. Moving one level changes only
-the nearby part of the profile, and the curve does not ring. Prefer the
-polynomial when you want a smooth global trend with few parameters. A cubic
-can overshoot between anchors, as the figure shows for mat1 $\gamma$ near
-15 Å, where it dips slightly below zero.
+The two shapes spread a level's effect differently. The spline is a natural
+cubic spline. Changing one level moves the profile mainly near its knot, and
+the effect falls off with distance, but it is not zero far away. Both shapes
+can overshoot between anchors. The spline overshoots too: the mat2 volume
+fraction peaks at 0.358 near 92 Å. The cubic polynomial is one global cubic
+through the four anchors, so every level moves the whole curve. Here it dips
+below zero for mat1 $\gamma$, to about $-0.02$ rad near 16 Å, while the
+spline keeps $\gamma$ in $[0, \pi/2]$. The cubic also overshoots elsewhere:
+mat2 $\gamma$ goes slightly past $\pi/2$ near 185 Å, mat3 $\gamma$ dips below
+the magic angle near 18 Å, and `density_scale` dips to about 0.845 near 18 Å.
+
+Choose the spline when you want each level's influence kept near its knot.
+Choose the polynomial when you want one smooth curve through the anchors, and
+accept that every level moves the whole profile.
 
 ![Spline and cubic polynomial shapes](../../assets/lineshape-gradient-shapes.png)
 

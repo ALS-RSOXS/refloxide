@@ -17,9 +17,8 @@ Regenerate the docs figures::
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -29,30 +28,30 @@ from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
 from refloxide.profiles import DepthProfile
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import matplotlib.pyplot as plt
     from numpy.typing import NDArray
 
 # --8<-- [start:construction]
 THICKNESS = 200.0  # film thickness, Angstrom
 N_SLABS = 40
-SHAPE_KINDS = ("spline", "polynomial")
 # Knot and anchor positions as fractions of THICKNESS: surface, two interior
 # points, substrate. Both shapes use these positions, so they compare fairly.
 FRACTIONS = np.array([0.0, 0.3, 0.6, 1.0])
 KNOTS = THICKNESS * FRACTIONS  # spline knots, Angstrom
 Q = np.linspace(0.01, 0.27, 520)  # 1/Angstrom
-# Carbon K edge: below the first resonance, on mat1 peaks 1 to 3, and above.
-REFLECT_ENERGIES = np.array([283.5, 284.8, 285.9, 287.2, 289.6])  # eV
-TENSOR_ENERGIES = np.array([283.5, 284.8, 285.9, 287.2, 289.6])  # eV
+# Carbon K edge: below the first resonance, on mat1 peaks 1 to 3, and on peak 5.
+ENERGIES = np.array([283.5, 284.8, 285.9, 287.2, 289.6])  # eV
 
 
-def make_shape(kind: str = "spline") -> Shape:
-    """The shared depth shape: a 4-knot spline, or a cubic through the same 4 anchors."""
+def make_shape(kind: Literal["spline", "polynomial"] = "spline") -> Shape:
+    """Shared depth shape: a 4-knot spline, or a cubic on the same anchors."""
     if kind == "spline":
         return SplineShape(KNOTS, name="depth")
     if kind == "polynomial":
         return PolynomialShape(degree=3, positions=FRACTIONS, name="depth")
-    msg = f"shape must be one of {SHAPE_KINDS}, got {kind!r}"
+    msg = f"shape must be 'spline' or 'polynomial', got {kind!r}"
     raise ValueError(msg)
 
 
@@ -147,7 +146,7 @@ def mat3_peaks() -> list[Peak]:
     ]
 
 
-def build_profile(kind: str = "spline") -> DepthProfile:
+def build_profile(kind: Literal["spline", "polynomial"] = "spline") -> DepthProfile:
     """The film: a linear `Mix` of three peak-sum sources on one shared shape."""
     shape = make_shape(kind)
     mat1 = PeakSumSLD(mat1_peaks(shape), name="mat1")
@@ -160,8 +159,8 @@ def build_profile(kind: str = "spline") -> DepthProfile:
         mesh="uniform",
         # Volume fractions, at the four anchors. The three columns sum to 1 at
         # every anchor. mat1 falls fast in the top 60 A and then levels off.
-        # mat2 is taken up near the surface. mat3 enriches mostly in the lower
-        # half.
+        # mat2 is taken up near the surface. mat3 rises steadily, steepest
+        # between 60 and 120 A.
         phi=[
             field(shape, "phi_mat1", (0.85, 0.55, 0.45, 0.40)),
             field(shape, "phi_mat2", (0.10, 0.33, 0.35, 0.35)),
@@ -170,7 +169,7 @@ def build_profile(kind: str = "spline") -> DepthProfile:
         # Orientation: gamma in radians, one field per material. mat1 stays
         # near face-on at the surface and reaches the magic angle at the
         # substrate. mat2 tilts fast near the top and saturates edge-on. mat3
-        # stays near amorphous until the lower half, then tilts toward edge-on.
+        # starts at the magic angle and tilts steadily toward edge-on.
         gamma=[
             field(shape, "gamma_mat1", (0.0, 0.10, 0.50, MAGIC_ANGLE)),
             field(shape, "gamma_mat2", (MAGIC_ANGLE, 1.10, 1.40, np.pi / 2)),
@@ -182,7 +181,7 @@ def build_profile(kind: str = "spline") -> DepthProfile:
     )
 
 
-def build_structure(shape: str = "spline") -> Structure:
+def build_structure(shape: Literal["spline", "polynomial"] = "spline") -> Structure:
     """Vacuum | three-material film | silicon substrate.
 
     ``shape="polynomial"`` swaps the shared spline for a cubic `PolynomialShape`
@@ -200,7 +199,7 @@ ASSETS = ROOT / "docs" / "assets"
 
 
 def channel_profiles(
-    n: int = 401, shape: str = "spline"
+    n: int = 401, shape: Literal["spline", "polynomial"] = "spline"
 ) -> dict[str, tuple[NDArray[np.float64], NDArray[np.float64]]]:
     """Every channel and depth-field peak parameter as `(z, values)`.
 
@@ -222,11 +221,11 @@ def tensors_at_energy(
 
 
 def reflectivity() -> NDArray[np.float64]:
-    """Reflectivity over `Q` at `REFLECT_ENERGIES`, shape `(2, len(Q), n_E)`.
+    """Reflectivity over `Q` at `ENERGIES`, shape `(2, len(Q), n_E)`.
 
     Index 0 is R_ss (s-polarized) and index 1 is R_pp (p-polarized).
     """
-    result = ReflectModel(build_structure())(Q, REFLECT_ENERGIES)
+    result = ReflectModel(build_structure())(Q, ENERGIES)
     return np.stack([result.s, result.p])
 
 
@@ -345,11 +344,11 @@ def save_tensors(path: Path) -> None:
     """Ordinary and extraordinary delta and beta versus depth at each energy."""
     import matplotlib.pyplot as plt
 
-    colors = _energy_colors(TENSOR_ENERGIES.size)
+    colors = _energy_colors(ENERGIES.size)
     fig, axes = plt.subplots(
         2, 2, figsize=(8.8, 5.6), sharex=True, constrained_layout=True
     )
-    for j, energy in enumerate(TENSOR_ENERGIES):
+    for j, energy in enumerate(ENERGIES):
         z, tensors = tensors_at_energy(float(energy))
         n_o, n_e = tensors[:, 0, 0], tensors[:, 2, 2]
         for row, part in enumerate((np.real, np.imag)):
@@ -378,14 +377,14 @@ def save_reflectivity(path: Path) -> None:
     from matplotlib.lines import Line2D
 
     refl = reflectivity()
-    colors = _energy_colors(REFLECT_ENERGIES.size)
+    colors = _energy_colors(ENERGIES.size)
     fig, ax = plt.subplots(figsize=(7.2, 4.0), constrained_layout=True)
-    for j, energy in enumerate(REFLECT_ENERGIES):
+    for j in range(ENERGIES.size):
         ax.semilogy(Q, refl[0, :, j], color=colors[j], lw=1.8)
         ax.semilogy(Q, refl[1, :, j], color=colors[j], lw=1.4, ls="--")
     handles = [
         Line2D([], [], color=colors[j], lw=1.8, label=f"{energy:.1f} eV")
-        for j, energy in enumerate(REFLECT_ENERGIES)
+        for j, energy in enumerate(ENERGIES)
     ]
     handles += [
         Line2D([], [], color="0.25", lw=1.8, label=r"$R_{ss}$"),
