@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "refloxide"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 description = "A blazingly fast 4x4 transfer matrix method for simulating reflection though stratified media"
 readme = "README.md"
 license = "GPL-3.0"

@@ -23,10 +23,13 @@ INIT = ROOT / "python" / "refloxide" / "__init__.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
 
 VERSION_RE = re.compile(
-    r"^version\s*=\s*\"(\d+)\.(\d+)\.(\d+)\"\s*$",
+    r"^version\s*=\s*\"(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.]+)?\"\s*$",
     re.MULTILINE,
 )
-INIT_RE = re.compile(r'^__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"\s*$', re.MULTILINE)
+INIT_RE = re.compile(
+    r'^__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.]+)?"\s*$',
+    re.MULTILINE,
+)
 
 
 def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -52,11 +55,13 @@ def read_pyproject_version() -> str:
     match = VERSION_RE.search(text)
     if match is None:
         raise SystemExit(f"could not find version in {PYPROJECT}")
-    return ".".join(match.groups())
+    major, minor, patch, pre = match.groups()
+    return f"{major}.{minor}.{patch}{pre or ''}"
 
 
 def parse_semver(version: str) -> tuple[int, int, int]:
-    parts = version.removeprefix("v").split(".")
+    """Parse ``X.Y.Z`` (any ``-rc.N`` style pre-release suffix is ignored)."""
+    parts = version.removeprefix("v").split("-", 1)[0].split(".")
     if len(parts) != 3 or not all(p.isdigit() for p in parts):
         raise SystemExit(f"invalid semver: {version!r}")
     return int(parts[0]), int(parts[1]), int(parts[2])
@@ -205,7 +210,11 @@ def main() -> None:
         new_version = bump_semver(current, args.bump)
         reason = f"manual {args.bump} from {current}"
 
-    if parse_semver(new_version) <= parse_semver(current):
+    # A pre-release (``X.Y.Z-rc.N``) is promoted to its final ``X.Y.Z``.
+    promoting = "-" in current and "-" not in new_version
+    if promoting and parse_semver(new_version) == parse_semver(current):
+        pass
+    elif parse_semver(new_version) <= parse_semver(current):
         # Allow equal only when already bumped in-tree ahead of tags and
         # cliff wants the same version; otherwise require a forward bump.
         if new_version != current:

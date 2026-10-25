@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "refloxide-core"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "approx",
  "nalgebra",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "refloxide-gpu"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "bytemuck",
  "naga",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "refloxide-optics"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "approx",
  "lineshapes",
@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "refloxide-py"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "nalgebra",
  "num-complex",
@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "refloxide-tmm"
-version = "0.2.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "approx",
  "nalgebra",
