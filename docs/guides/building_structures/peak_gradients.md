@@ -182,6 +182,65 @@ film = PeakSumSLD(
 layer = DepthProfile(film, thickness=200.0, n_slabs=40, gamma=0.0, density=1.0)
 ```
 
+## Fitting knot positions
+
+The knot positions of a `SplineShape` are fit parameters too. Each knot is a
+`Parameter` named `depth_knot0`, `depth_knot1`, and so on for the shape named
+`depth`. Knots are fixed at `vary=False` until you open them. The number of
+knots is fixed when the shape is built, so every level field on the shape
+keeps its level count.
+
+The snippet opens the two interior knots of a shared spline shape, at 50 Å
+and 150 Å. Each knot's bounds sit inside its own range, and the two ranges do
+not overlap, so the knots stay in order during a fit. The first and last knots
+stay at the surface and the substrate.
+
+```python
+import numpy as np
+
+from refloxide.fields import LevelField, SplineShape
+from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD
+from refloxide.profiles import DepthProfile
+
+shape = SplineShape(np.linspace(0.0, 200.0, 5), name="depth")
+shape.knot_parameters[1].setp(vary=True, bounds=(20.0, 90.0))
+shape.knot_parameters[2].setp(vary=True, bounds=(110.0, 180.0))
+
+film = PeakSumSLD(
+    [
+        Peak(
+            label="p1",
+            energy=285.9,
+            width=0.5,
+            height=LevelField(
+                shape, [0.018, 0.016, 0.014, 0.012, 0.010], name="p1_height"
+            ),
+        )
+    ],
+    name="film",
+)
+layer = DepthProfile(
+    film,
+    thickness=200.0,
+    n_slabs=40,
+    gamma=LevelField(shape, [0.0, 0.3, 0.6, 0.8, MAGIC_ANGLE], name="gamma"),
+    density_scale=LevelField(shape, [0.9, 0.95, 1.0, 1.05, 1.1], name="density_scale"),
+)
+
+knots = [p.name for p in layer.parameters.flattened(unique=True) if "depth_knot" in p.name]
+print(knots)
+print([p.name for p in layer.parameters.varying_parameters() if "depth_knot" in p.name])
+```
+
+`layer.parameters` lists each knot once, even though the `gamma`,
+`density_scale`, and peak-height fields all use the same shape. The
+`varying_parameters()` list shows the two opened knots, `depth_knot1` and
+`depth_knot2`.
+
+To keep one knot tied to another instead of bounded, use a refnx constraint.
+For example, `shape.knot_parameters[2].setp(vary=False, constraint=shape.knot_parameters[1] + 40.0)`
+keeps knot 2 40 Å above knot 1. Knot 2 is then not a free parameter.
+
 ## Conventions
 
 - **Radians in code.** Every angle in the API is in radians. The example

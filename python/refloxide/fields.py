@@ -421,32 +421,93 @@ class TransitionShape(Shape):
         return float(levels[1])
 
 
-class SplineShape(Shape):
-    """Natural cubic spline through fixed `knots` (depths in Å).
+def _checked_knots(knot_params: Sequence[Parameter]) -> NDArray[np.float64]:
+    """Current knot values, which must be finite and strictly increasing."""
+    values = np.array([float(p.value or 0.0) for p in knot_params], dtype=np.float64)
+    if not np.all(np.isfinite(values)):
+        msg = f"SplineShape knots must be finite, got {values.tolist()}"
+        raise ValueError(msg)
+    if not np.all(np.diff(values) > 0.0):
+        msg = (
+            "SplineShape knots must be strictly increasing (keep each knot below "
+            f"the next), got {values.tolist()}"
+        )
+        raise ValueError(msg)
+    return values
 
-    Levels are the knot values.
+
+class SplineShape(Shape):
+    """Natural cubic spline through knots at depths `knots` (in Å).
+
+    Levels are the knot values. Each knot is a refnx `Parameter` named
+    ``f"{name}_knot{i}"`` (a plain number is wrapped with ``vary=False``), so
+    knot positions can be fitted. The number of knots, and so the number of
+    levels, is fixed at construction. At least two knots are required.
+
+    Knot positions must stay finite and strictly increasing. Violations raise
+    `ValueError` naming the knots; they are never clamped or reordered. To
+    keep the knots ordered during a fit, open each interior knot with bounds
+    that do not overlap its neighbours' ranges, for example::
+
+        shape = SplineShape([0.0, 60.0, 120.0, 200.0], name="depth")
+        shape.knot_parameters[1].setp(vary=True, bounds=(20.0, 55.0))
+        shape.knot_parameters[2].setp(vary=True, bounds=(65.0, 115.0))
+
+    Knot 1 stays in ``[20, 55]`` and knot 2 in ``[65, 115]``, so they cannot
+    cross. Bounds only restrict each knot to its own range, so pick ranges
+    that are disjoint across neighbours. Set ``vary=True`` on a knot to fit it.
+
+    A refnx constraint ties a knot to another one instead. For example::
+
+        knots = shape.knot_parameters
+        knots[2].setp(vary=False, constraint=knots[1] + 40.0)
+
+    keeps knot 2 exactly 40 Å above knot 1, and it moves with knot 1 during a
+    fit. Knot 2 is then no longer a free parameter.
+
+    The number of knots is fixed at construction. Changing it means building a
+    new shape and new levels.
+
+    Parameters
+    ----------
+    knots
+        Knot depths in Å, as numbers or `Parameter` objects.
+    name
+        Prefix for the knot `Parameter` names.
     """
 
-    def __init__(self, knots: Sequence[float], *, name: str = "spline") -> None:
+    def __init__(
+        self, knots: Sequence[float | Parameter], *, name: str = "spline"
+    ) -> None:
         super().__init__(name=name)
-        # Copy: a caller's array mutated later must not change this shape.
-        knot_arr = np.array(knots, dtype=np.float64)
-        if knot_arr.ndim != 1 or knot_arr.size < 2:
+        if len(knots) < 2:
             msg = "SplineShape needs at least two knots"
             raise ValueError(msg)
-        if not np.all(np.diff(knot_arr) > 0.0):
-            msg = "SplineShape knots must be strictly increasing"
-            raise ValueError(msg)
-        knot_arr.setflags(write=False)
-        self.knots = knot_arr
-        self.level_names = tuple(f"knot_{i}" for i in range(knot_arr.size))
+        self.knot_parameters: list[Parameter] = [
+            _param(knot, f"{name}_knot{i}") for i, knot in enumerate(knots)
+        ]
+        self.level_names = tuple(f"knot_{i}" for i in range(len(knots)))
+        _checked_knots(self.knot_parameters)
+
+    @property
+    def knots(self) -> NDArray[np.float64]:
+        """Current knot positions (Å) as a read-only float64 copy."""
+        values = np.array(
+            [float(p.value or 0.0) for p in self.knot_parameters], dtype=np.float64
+        )
+        values.setflags(write=False)
+        return values
+
+    def _shape_parameters(self) -> list[Parameter]:
+        return list(self.knot_parameters)
 
     def _build_basis(
         self, z: NDArray[np.float64], thickness: float
     ) -> NDArray[np.float64]:
         del thickness
-        k = self.knots.size
-        spline = CubicSpline(self.knots, np.eye(k), axis=0, bc_type="natural")
+        knots = _checked_knots(self.knot_parameters)
+        k = knots.size
+        spline = CubicSpline(knots, np.eye(k), axis=0, bc_type="natural")
         return np.asarray(spline(z), dtype=np.float64).T
 
 
