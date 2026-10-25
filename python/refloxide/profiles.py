@@ -522,6 +522,14 @@ def _carried_field(value: object) -> _FieldBase | float | Parameter | None:
     return None
 
 
+def _scatterer_depth_fields(material: object) -> dict[str, _FieldBase]:
+    """Depth-field-bound peak parameters a scatterer exposes via `depth_fields()`."""
+    method = getattr(material, "depth_fields", None)
+    if not callable(method):
+        return {}
+    return dict(method())
+
+
 def _lab_diagonals(
     n_xx: complex | NDArray[np.complex128],
     n_zz: complex | NDArray[np.complex128],
@@ -553,6 +561,12 @@ def _component_lab_channels(
     density = _eval_field(density_field, z, thickness=thickness)
     gamma = _eval_field(gamma_field, z, thickness=thickness)
     cos2 = _eval_field(cos2_field, z, thickness=thickness)
+    hook = getattr(material, "lab_channels_at_depth", None)
+    if callable(hook):
+        return cast(
+            "tuple[NDArray[np.complex128], NDArray[np.complex128]]",
+            hook(energy_ev, z, thickness, density=density, gamma=gamma, cos2=cos2),
+        )
     if isinstance(material, UniTensorSLD) and (
         density is not None or gamma is not None or cos2 is not None
     ):
@@ -597,6 +611,12 @@ class DepthProfile(MultiRowComponent):
     weight profile per component, clipped at 0 and renormalized to sum to 1.
     Attaching `phi` freezes `Mix.vf`, because those homogeneous fractions
     are not the evaluated composition.
+
+    `density_scale` multiplies the final tensors of every slice after mixing
+    (the mix-level total density). A scatterer with `lab_channels_at_depth`
+    (such as `PeakSumSLD`) receives this profile's `density`, `gamma` and
+    `cos2_gamma` per slice, and its depth-field peak parameters are evaluated
+    at each slice.
     """
 
     def __init__(
@@ -632,6 +652,7 @@ class DepthProfile(MultiRowComponent):
         delta_e: _FieldBase | float | Parameter | None = None,
         beta_o: _FieldBase | float | Parameter | None = None,
         beta_e: _FieldBase | float | Parameter | None = None,
+        density_scale: _FieldBase | float | Parameter | None = None,
         name: str = "",
     ) -> None:
         super().__init__(name=name or getattr(material, "name", "depth_profile"))
@@ -648,6 +669,7 @@ class DepthProfile(MultiRowComponent):
         self.gamma = gamma
         self.cos2_gamma = cos2_gamma
         self.density = density
+        self.density_scale = _as_channel(density_scale)
         self.phi = phi
         self.delta_o = delta_o
         self.delta_e = delta_e
@@ -682,6 +704,7 @@ class DepthProfile(MultiRowComponent):
         out: dict[str, NDArray[np.float64]] = {}
         mapping = (
             ("density", self.density),
+            ("density_scale", self.density_scale),
             ("orientation", self.gamma),
             ("cos2_gamma", self.cos2_gamma),
             ("phi", self.phi),
@@ -712,6 +735,11 @@ class DepthProfile(MultiRowComponent):
                 values = _eval_field(carried, z, thickness=thickness)
                 if values is not None:
                     out[label] = values
+        for scatterer in (self.material, *materials):
+            for key, field in _scatterer_depth_fields(scatterer).items():
+                values = _eval_field(field, z, thickness=thickness)
+                if values is not None:
+                    out[key] = values
         return out
 
     def _thicknesses(self) -> NDArray[np.float64]:
@@ -721,6 +749,8 @@ class DepthProfile(MultiRowComponent):
 
     def _components_carry_depth_fields(self) -> bool:
         materials = getattr(self.material, "materials", ())
+        if any(_scatterer_depth_fields(material) for material in materials):
+            return True
         return any(
             _carried_field(getattr(material, attr, None)) is not None
             for material in materials
@@ -825,6 +855,18 @@ class DepthProfile(MultiRowComponent):
         z: NDArray[np.float64],
         thickness: float,
     ) -> NDArray[np.complex128]:
+        tensors = self._tensors_at_z_unscaled(energy_ev, z, thickness)
+        scale = _eval_shared_channel(self.density_scale, z, thickness=thickness)
+        if scale is None:
+            return tensors
+        return tensors * scale[:, None, None]
+
+    def _tensors_at_z_unscaled(
+        self,
+        energy_ev: float,
+        z: NDArray[np.float64],
+        thickness: float,
+    ) -> NDArray[np.complex128]:
         gamma = _eval_shared_channel(self.gamma, z, thickness=thickness)
         cos2 = _eval_shared_channel(self.cos2_gamma, z, thickness=thickness)
         density = _eval_shared_channel(self.density, z, thickness=thickness)
@@ -872,6 +914,13 @@ class DepthProfile(MultiRowComponent):
         mix_fn = getattr(self.material, "mix_tensors_at", None)
         if phi is not None and callable(mix_fn):
             return cast("NDArray[np.complex128]", mix_fn(energy_ev, phi))
+
+        hook = getattr(self.material, "lab_channels_at_depth", None)
+        if callable(hook):
+            n_o, n_e = hook(
+                energy_ev, z, thickness, density=density, gamma=gamma, cos2=cos2
+            )
+            return pack_lab_diagonal(n_o, n_e)
 
         if isinstance(self.material, UniTensorSLD):
             uni = self.material
@@ -938,20 +987,30 @@ class DepthProfile(MultiRowComponent):
 
     @property
     def parameters(self) -> Parameters:
-        params = Parameters(name=self.name)
-        params.extend([self.thick, self.rough])
-        params.extend(list(self.material.parameters))
+        candidates: list[Parameter] = [self.thick, self.rough]
+        candidates.extend(self.material.parameters)
         for field in (
             self.gamma,
             self.cos2_gamma,
             self.density,
+            self.density_scale,
             self.phi,
             self.delta_o,
             self.delta_e,
             self.beta_o,
             self.beta_e,
         ):
-            params.extend(list(_iter_profile_parameters(field)))
+            candidates.extend(_iter_profile_parameters(field))
+        # Shared shapes (e.g. one TransitionShape under several LevelFields)
+        # yield the same Parameter objects more than once; keep the first.
+        seen: set[int] = set()
+        unique: list[Parameter] = []
+        for param in candidates:
+            if id(param) not in seen:
+                seen.add(id(param))
+                unique.append(param)
+        params = Parameters(name=self.name)
+        params.extend(unique)
         return params
 
     def __repr__(self) -> str:
