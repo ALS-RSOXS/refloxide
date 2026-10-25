@@ -16,7 +16,7 @@ doctest = false
 
 [dependencies]
 refloxide-core = { workspace = true }
-refloxide-optics = { workspace = true }
+refloxide-optics = { workspace = true, features = ["lineshapes"] }
 refloxide-tmm = { workspace = true }
 refloxide-gpu = { workspace = true }
 nalgebra = { workspace = true }

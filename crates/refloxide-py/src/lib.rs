@@ -25,6 +25,7 @@ use refloxide_optics::sld::{
     molecular_index_at_ooc as core_molecular_index_at_ooc,
     tensor_to_slab_row as core_tensor_to_slab_row, uniaxial_lab_tensor as core_uniaxial_lab_tensor,
 };
+use refloxide_optics::{peak_sum_molecular as core_peak_sum_molecular, LineKind, PeakSpec};
 use refloxide_tmm::general_stack::general_reflectivity as core_general_solve;
 use refloxide_tmm::uniaxial::{
     uniaxial_reflectivity as core_solve, uniaxial_reflectivity_batch as core_solve_batch, Layer,
@@ -53,6 +54,8 @@ type UniaxialPyArrays<'py> = (Bound<'py, PyArray3<f64>>, Bound<'py, PyArray3<C>>
 type UniaxialBatchPyArrays<'py> = (Bound<'py, PyArray4<f64>>, Bound<'py, PyArray4<C>>);
 
 type PointsJvpPyArrays<'py> = (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray3<f64>>);
+
+type PeakSumPyArrays<'py> = (Bound<'py, PyArray2<C>>, Bound<'py, PyArray2<C>>);
 
 type UnpackedInputs = (Vec<f64>, Vec<Layer>, Vec<Matrix3<C>>);
 
@@ -569,6 +572,72 @@ fn molecular_index_at_ooc<'py>(
     )
 }
 
+/// Molecular `(n_xx, n_zz)` peak sums, each `(n_slices, n_E)` complex, from lineshapes.
+///
+/// `kinds[i]` names peak `i`: `"gaussian"`, `"lorentzian"`, `"voigt"` or `"pseudo_voigt"`.
+/// `shapes[i]` is 1-D: one row broadcast to every slice, or `n_slices` rows in
+/// row-major `(slice, parameter)` order. `heights[i]`, `f_xx[i]` and `f_zz[i]` have
+/// length 1 or `n_slices`.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn peak_sum_molecular<'py>(
+    py: Python<'py>,
+    kinds: Vec<String>,
+    shapes: Vec<PyReadonlyArray1<'py, f64>>,
+    heights: Vec<PyReadonlyArray1<'py, f64>>,
+    f_xx: Vec<PyReadonlyArray1<'py, f64>>,
+    f_zz: Vec<PyReadonlyArray1<'py, f64>>,
+    energies_ev: PyReadonlyArray1<'py, f64>,
+    n_slices: usize,
+) -> PyResult<PeakSumPyArrays<'py>> {
+    let n_peaks = kinds.len();
+    let lengths = [shapes.len(), heights.len(), f_xx.len(), f_zz.len()];
+    if lengths.iter().any(|&n| n != n_peaks) {
+        return Err(to_pyerr(RefloxideError::InvalidShape(format!(
+            "kinds, shapes, heights, f_xx and f_zz must have equal length, got {n_peaks} kinds \
+             and {lengths:?} for the other sequences"
+        ))));
+    }
+    let kinds: Vec<LineKind> = kinds
+        .iter()
+        .map(|name| {
+            LineKind::parse(name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown peak kind {name:?}; expected 'gaussian', 'lorentzian', \
+                     'voigt' or 'pseudo_voigt'"
+                ))
+            })
+        })
+        .collect::<PyResult<_>>()?;
+    let shapes: Vec<Vec<f64>> = shapes.iter().map(|a| a.as_array().to_vec()).collect();
+    let heights: Vec<Vec<f64>> = heights.iter().map(|a| a.as_array().to_vec()).collect();
+    let f_xx: Vec<Vec<f64>> = f_xx.iter().map(|a| a.as_array().to_vec()).collect();
+    let f_zz: Vec<Vec<f64>> = f_zz.iter().map(|a| a.as_array().to_vec()).collect();
+    let energies = energies_ev.as_array().to_vec();
+
+    let peaks: Vec<PeakSpec> = (0..n_peaks)
+        .map(|i| PeakSpec {
+            kind: kinds[i],
+            shape: &shapes[i],
+            height: &heights[i],
+            f_xx: &f_xx[i],
+            f_zz: &f_zz[i],
+        })
+        .collect();
+    let n_e = energies.len();
+    let mut out_xx = vec![C::new(0.0, 0.0); n_slices * n_e];
+    let mut out_zz = vec![C::new(0.0, 0.0); n_slices * n_e];
+    core_peak_sum_molecular(&peaks, n_slices, &energies, &mut out_xx, &mut out_zz)
+        .map_err(to_pyerr)?;
+
+    let to_array = |data: Vec<C>| {
+        Array2::from_shape_vec((n_slices, n_e), data)
+            .map(|arr| arr.into_pyarray(py))
+            .map_err(|err| to_pyerr(RefloxideError::InvalidShape(err.to_string())))
+    };
+    Ok((to_array(out_xx)?, to_array(out_zz)?))
+}
+
 /// Laboratory `(3, 3)` tensor for one uniaxial orientation (radians).
 #[pyfunction]
 fn uniaxial_lab_tensor(n_mol_xx: C, n_mol_zz: C, orientation_rad: f64) -> [[C; 3]; 3] {
@@ -800,6 +869,7 @@ pub fn rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(lab_tensor_diagonals_batch, m)?)?;
     m.add_function(wrap_pyfunction!(isotropic_lab_tensor, m)?)?;
     m.add_function(wrap_pyfunction!(molecular_index_at_ooc, m)?)?;
+    m.add_function(wrap_pyfunction!(peak_sum_molecular, m)?)?;
     m.add_function(wrap_pyfunction!(uniaxial_lab_tensor, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_to_slab_row, m)?)?;
     Ok(())

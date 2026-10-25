@@ -8,6 +8,7 @@ can be exchanged without changing call sites.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -205,6 +206,43 @@ def molecular_index_at_ooc(
     density: float,
 ) -> tuple[complex, complex]:
     """Linear OOC lookup and density scaling to molecular ``(n_xx, n_zz)``."""
+    ...
+
+def peak_sum_molecular(
+    kinds: Sequence[str],
+    shapes: Sequence[NDArray[np.float64]],
+    heights: Sequence[NDArray[np.float64]],
+    f_xx: Sequence[NDArray[np.float64]],
+    f_zz: Sequence[NDArray[np.float64]],
+    energies_ev: NDArray[np.float64],
+    n_slices: int,
+) -> tuple[NDArray[np.complex128], NDArray[np.complex128]]:
+    """Molecular ``(n_xx, n_zz)`` peak sums, each ``(n_slices, n_E)``.
+
+    Parameters
+    ----------
+    kinds
+        Lineshape per peak: ``"gaussian"``, ``"lorentzian"``, ``"voigt"`` or
+        ``"pseudo_voigt"``. Unknown names raise ``ValueError``.
+    shapes
+        Per peak, a 1-D shape array: one row ``[e0, ...]`` broadcast to every
+        slice, or ``n_slices`` rows flattened in (slice, parameter) order.
+    heights
+        Per peak, length 1 or ``n_slices``.
+    f_xx, f_zz
+        Per peak, molecular projections; length 1 or ``n_slices``.
+    energies_ev
+        Photon energies in eV.
+    n_slices
+        Number of slices in the depth profile.
+
+    Returns
+    -------
+    tuple of ndarray
+        ``(n_xx, n_zz)`` complex arrays of shape ``(n_slices, n_E)``, each
+        ``delta + i beta`` per slice. Invalid shape parameters (for example
+        width ``<= 0``) raise ``ValueError`` naming the parameter.
+    """
     ...
 
 def uniaxial_lab_tensor(

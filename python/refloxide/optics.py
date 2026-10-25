@@ -19,6 +19,7 @@ from refloxide.rust import (
     isotropic_lab_tensor,
     lab_tensor_diagonals_batch,
     molecular_index_at_ooc,
+    peak_sum_molecular,
     tensor_to_slab_row,
     uniaxial_lab_tensor,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "isotropic_lab_tensor",
     "lab_tensor_diagonals_batch",
     "molecular_index_at_ooc",
+    "peak_sum_molecular",
     "tensor_to_slab_row",
     "uniaxial_lab_tensor",
 ]
