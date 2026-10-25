@@ -38,3 +38,6 @@ Shared preamble used on every child page:
 | [Phase transitions](phase_transitions.md) | `SecondOrderTransition` on $\gamma$, $\phi$, $\langle\cos^2\gamma\rangle$, and composed $\phi$/density/orientation |
 | [Diffusion](diffusion.md) | Couple vs exponential diffusion kinds |
 | [Stacking examples](stacking.md) | Multi-layer stacks, incl. free-optical Poly/Spline/$\cos$ stack |
+
+Peak-sum optical sources and depth-varying lineshape parameters are covered in
+[Lineshapes integration](../lineshapes_integration/index.md).

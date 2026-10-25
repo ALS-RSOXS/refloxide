@@ -85,7 +85,6 @@ nav:
       - Overview: guides/building_structures/index.md
       - Homogeneous slabs: guides/building_structures/homogeneous.md
       - Mixed slabs: guides/building_structures/mixed.md
-      - Peak gradients: guides/building_structures/peak_gradients.md
       - Functional forms:
           - Overview: guides/building_structures/functional_forms.md
           - Splines: guides/building_structures/splines.md
@@ -94,6 +93,9 @@ nav:
       - Phase transitions: guides/building_structures/phase_transitions.md
       - Diffusion: guides/building_structures/diffusion.md
       - Stacking examples: guides/building_structures/stacking.md
+  - Lineshapes integration:
+      - Overview: guides/lineshapes_integration/index.md
+      - Peak gradients: guides/lineshapes_integration/peak_gradients.md
   - Theory:
       - Overview: theory/overview.md
       - Narrative context:

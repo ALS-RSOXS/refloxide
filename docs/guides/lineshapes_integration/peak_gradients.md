@@ -5,6 +5,9 @@ peak-sum materials (`PeakSumSLD`) and mixed in a `DepthProfile`. Every
 gradient is a `LevelField` on one shared shape, so every effect follows the
 same depth profile.
 
+For the pieces and their conventions in brief, see the
+[Lineshapes integration overview](index.md).
+
 ## Three-material film
 
 **Example:** `examples/lineshape_three_material.py`
