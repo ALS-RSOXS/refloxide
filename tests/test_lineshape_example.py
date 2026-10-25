@@ -32,12 +32,19 @@ def test_three_material_example_runs_and_gradients_hold():
     refl = example.reflectivity()
     assert np.all(np.isfinite(refl))
     assert np.all(refl >= 0.0)
+    slice_refl = example.reflectivity(example.ENERGIES[::14])
+    assert np.all(np.isfinite(slice_refl))
+    assert np.all(slice_refl >= 0.0)
+
+    gamma_ref, thetas, _ = example.znpc_tilts()
+    assert np.deg2rad(60.0) < gamma_ref < np.deg2rad(85.0)
+    assert np.all((thetas >= 0.0) & (thetas <= np.pi / 2))
 
     profiles = example.channel_profiles()
     _, gamma = profiles["orientation_0"]
     assert abs(gamma[0]) < 1e-6
     assert abs(gamma[-1] - MAGIC_ANGLE) < 1e-6
 
-    _, tilt = profiles["mat1.p1.tdm_tilt"]
+    _, tilt = profiles["alq3.p1.tdm_tilt"]
     assert abs(tilt[0]) < 1e-6
     assert abs(tilt[-1] - np.deg2rad(20.0)) < 1e-6

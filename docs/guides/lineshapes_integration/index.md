@@ -99,8 +99,9 @@ spread between runs was 2 to 5%):
 
 ## Next
 
-- [Peak gradients](peak_gradients.md): a three-material film with depth-varying
-  composition, orientation and peaks, five energies, spline and polynomial
-  shapes, and the knot fit.
+- [Peak gradients](peak_gradients.md): a three-material film (frozen Alq3 and
+  ZnPc fits, a full ZnPc tensor and a shifted ZnPc) with depth-varying
+  composition, orientation and peaks, a dense energy set with NEXAFS, ridge and
+  peak-migration figures, spline and polynomial shapes, and the knot fit.
 - [Building structures](../building_structures/index.md): the other depth-law
   families, such as splines, polynomials, diffusion and phase transitions.
