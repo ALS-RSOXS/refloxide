@@ -31,6 +31,7 @@ pollster = "1"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 approx = "0.5"
 naga = { version = "30", features = ["wgsl-in", "spv-out", "glsl-out", "hlsl-out"] }
+lineshapes = { version = "0.1.0", default-features = false }
 
 # Single-codegen-unit optimized profile for benchmarks and precision studies.
 [profile.perf]

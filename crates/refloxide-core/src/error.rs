@@ -48,6 +48,12 @@ pub enum RefloxideError {
     #[error("invalid input shape: {0}")]
     InvalidShape(String),
 
+    /// A peak parameter is outside its valid domain: non-finite; Gaussian `width <= 0`;
+    /// Lorentzian `gamma <= 0`; Voigt `sigma <= 0` or `gamma < 0`; pseudo-Voigt
+    /// `fwhm <= 0` or `eta` outside `[0, 1]`.
+    #[error("invalid peak parameter: {0}")]
+    InvalidParameter(String),
+
     /// The GPU backend could not acquire a device or failed during dispatch.
     #[error("gpu backend error: {0}")]
     Gpu(String),

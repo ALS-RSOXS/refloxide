@@ -1750,7 +1750,10 @@ def _is_depth_field(value: object) -> bool:
 
 
 def _depth_field_scalar(field: Any) -> float:
-    """Homogeneous stand-in for a depth field: bulk pin, else midpoint."""
+    """Homogeneous stand-in for a depth field: its bulk value, else the midpoint."""
+    homogeneous = getattr(field, "homogeneous_value", None)
+    if callable(homogeneous):
+        return float(homogeneous())
     bulk = getattr(field, "bulk", None)
     if isinstance(bulk, Parameter):
         return float(bulk.value or 0.0)

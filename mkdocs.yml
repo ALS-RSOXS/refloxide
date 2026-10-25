@@ -93,6 +93,10 @@ nav:
       - Phase transitions: guides/building_structures/phase_transitions.md
       - Diffusion: guides/building_structures/diffusion.md
       - Stacking examples: guides/building_structures/stacking.md
+  - Lineshapes integration:
+      - Overview: guides/lineshapes_integration/index.md
+      - Peak gradients: guides/lineshapes_integration/peak_gradients.md
+      - Surface diffusion: guides/lineshapes_integration/surface_diffusion.md
   - Theory:
       - Overview: theory/overview.md
       - Narrative context:

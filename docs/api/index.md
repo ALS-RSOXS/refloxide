@@ -5,6 +5,7 @@ Python API pages are generated from source with mkdocstrings. The PyO3 extension
 ## Guides
 
 - [GPU backend](../guides/gpu.md) — `device="gpu"`, accuracy contracts, fitting guidance, benchmarks
+- [Lineshapes integration](../guides/lineshapes_integration/index.md) — peak-sum sources and depth-varying lineshape parameters
 
 ## Python
 

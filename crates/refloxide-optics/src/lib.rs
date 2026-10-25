@@ -10,8 +10,12 @@
 //! the GPU.
 
 pub mod optics;
+#[cfg(feature = "lineshapes")]
+pub mod peaks;
 pub mod sld;
 
+#[cfg(feature = "lineshapes")]
+pub use peaks::{peak_sum_molecular, LineKind, PeakSpec};
 pub use sld::{
     isotropic_lab_tensor, molecular_index, molecular_index_at_ooc, tensor_to_slab_row,
     uniaxial_lab_tensor,
