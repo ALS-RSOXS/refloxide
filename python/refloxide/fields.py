@@ -19,6 +19,7 @@ from abc import ABC
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
+import matplotlib.pyplot as plt
 import numpy as np
 from refnx.analysis import Parameter, Parameters
 from scipy.interpolate import CubicSpline
@@ -28,6 +29,7 @@ from refloxide.profiles import _FieldBase, _param
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from matplotlib.axes import Axes
     from numpy.typing import NDArray
 
 __all__ = [
@@ -187,12 +189,51 @@ class LevelField(_FieldBase):
             return float(out)
         return out
 
+    def plot(
+        self,
+        ax: Axes | None = None,
+        *,
+        n: int = 400,
+        thickness: float | None = None,
+        **kwargs: Any,
+    ) -> Axes:
+        """Plot vs depth on `[0, thickness]`; `thickness` must be given.
+
+        Remaining keyword arguments go to `Axes.plot`.
+        """
+        return _plot_depth_field(self, ax, n=n, thickness=thickness, **kwargs)
+
     @property
     def parameters(self) -> Parameters:
         params = Parameters(name=self.name)
         params.extend(self.levels)
         params.extend(self.shape.parameters.flattened())
         return params
+
+
+def _plot_depth_field(
+    field: _FieldBase,
+    ax: Axes | None,
+    *,
+    n: int,
+    thickness: float | None,
+    **kwargs: Any,
+) -> Axes:
+    """Plot `field` on `[0, thickness]`; `thickness` is required (no silent default)."""
+    if thickness is None:
+        msg = f"{type(field).__name__}.plot needs thickness=... (the depth range)"
+        raise ValueError(msg)
+    if isinstance(thickness, Parameter):
+        thickness = float(thickness.value or 0.0)
+    depth = float(thickness)
+    z = np.linspace(0.0, depth, n)
+    y = np.asarray(field.evaluate(z, thickness=depth), dtype=np.float64)
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.plot(z, y, **kwargs)
+    ax.set_xlabel(r"depth $z$ ($\mathrm{\AA}$)")
+    ax.set_ylabel(field.name or "field")
+    return ax
 
 
 def _channel_values(
@@ -257,6 +298,20 @@ class Derived(_FieldBase):
         if zz.ndim == 0:
             return out.reshape(()).item()
         return out.reshape(zz.shape)
+
+    def plot(
+        self,
+        ax: Axes | None = None,
+        *,
+        n: int = 400,
+        thickness: float | None = None,
+        **kwargs: Any,
+    ) -> Axes:
+        """Plot vs depth on `[0, thickness]`; `thickness` must be given.
+
+        Remaining keyword arguments go to `Axes.plot`.
+        """
+        return _plot_depth_field(self, ax, n=n, thickness=thickness, **kwargs)
 
     @property
     def parameters(self) -> Parameters:
@@ -329,7 +384,8 @@ class SplineShape(Shape):
 
     def __init__(self, knots: Sequence[float], *, name: str = "spline") -> None:
         super().__init__(name=name)
-        knot_arr = np.asarray(knots, dtype=np.float64)
+        # Copy: a caller's array mutated later must not change this shape.
+        knot_arr = np.array(knots, dtype=np.float64)
         if knot_arr.ndim != 1 or knot_arr.size < 2:
             msg = "SplineShape needs at least two knots"
             raise ValueError(msg)
@@ -370,7 +426,7 @@ class PolynomialShape(Shape):
         pos = (
             np.linspace(0.0, 1.0, degree + 1)
             if positions is None
-            else np.asarray(positions, dtype=np.float64)
+            else np.array(positions, dtype=np.float64)
         )
         if pos.shape != (degree + 1,):
             msg = f"PolynomialShape of degree {degree} needs {degree + 1} positions"
