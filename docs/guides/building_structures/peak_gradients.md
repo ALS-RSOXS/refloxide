@@ -10,10 +10,19 @@ same depth profile.
 **Example:** `examples/lineshape_three_material.py`
 
 Three synthetic five-peak materials fill one 200 Å film, with linear mixing
-and 40 microslabs. One `SplineShape` with five knots spans the film, from the
-surface at $z=0$ to the substrate at $z=T$. Each channel is a `LevelField`
-with five levels on that shape; the intermediate levels interpolate the
-surface and substrate values linearly.
+and 40 microslabs. The values are illustrative, not fitted to ZnPc or Alq3.
+The peak energies (about 284.5 to 290.4 eV) sit near the carbon K edge.
+One `SplineShape` with five knots spans the film, from the surface at $z=0$
+to the substrate at $z=T$. Every gradient is a `LevelField` with five levels
+on that one shared shape; the intermediate levels interpolate the surface and
+substrate values linearly. The gradients are the volume fractions, the total
+density, the per-material $\gamma$, the mat1 peak 1, 2 and 3 heights, and the
+mat1 TDM tilts of peaks 1, 2, 4 and 5. Everything else is a constant: the
+mat2 and mat3 peak parameters, the mat1 peak 3 tilt, and the mat1 peak 4 and 5
+heights.
+
+Maxwell-Garnett and Bruggeman mixing support only two components, so for
+three materials the linear rule is the only choice.
 
 --8<-- "examples/lineshape_three_material.py:construction"
 
@@ -21,9 +30,11 @@ The film is `vacuum | build_profile() | substrate`. Building the structure
 needs the imports used above:
 
 ```python
+import numpy as np
+
 from refloxide.fields import LevelField, SplineShape
 from refloxide.lineshapes import MAGIC_ANGLE, Peak, PeakSumSLD
-from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
+from refloxide.model import MaterialSLD, Mix, Structure
 from refloxide.profiles import DepthProfile
 ```
 
@@ -136,7 +147,8 @@ layer = DepthProfile(
 
 A plain Python function can be a channel too. `CallableField` calls
 `fn(z, thickness=..., **params)` at each microslab. Here it is a ripple on the
-total density of the single-material film.
+total density of the film from the previous snippet (the one with the
+`Derived` peak height).
 
 ```python
 from refloxide.profiles import CallableField

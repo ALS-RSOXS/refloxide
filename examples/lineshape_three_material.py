@@ -18,7 +18,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from refloxide.fields import LevelField, SplineShape
@@ -27,6 +26,7 @@ from refloxide.model import MaterialSLD, Mix, ReflectModel, Structure
 from refloxide.profiles import DepthProfile
 
 if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
     from numpy.typing import NDArray
 
 # --8<-- [start:construction]
@@ -215,6 +215,8 @@ def _curves(
 
 def save_channels(path: Path) -> None:
     """Every channel versus depth (angles in degrees for display)."""
+    import matplotlib.pyplot as plt
+
     values = channel_profiles()
     fig, axes = plt.subplots(2, 3, figsize=(8.8, 5.4), constrained_layout=True)
     deg = 180.0 / np.pi
@@ -264,6 +266,8 @@ def save_channels(path: Path) -> None:
 
 def save_tensors(path: Path) -> None:
     """Ordinary and extraordinary delta and beta versus depth at one energy."""
+    import matplotlib.pyplot as plt
+
     z, tensors = tensors_at_energy(TENSOR_ENERGY)
     n_o, n_e = tensors[:, 0, 0], tensors[:, 2, 2]
     fig, (ax_d, ax_b) = plt.subplots(1, 2, figsize=(8.8, 3.4), constrained_layout=True)
@@ -280,6 +284,8 @@ def save_tensors(path: Path) -> None:
 
 def save_reflectivity(path: Path) -> None:
     """R_ss and R_pp versus q at each reflectivity energy."""
+    import matplotlib.pyplot as plt
+
     refl = reflectivity()
     fig, ax = plt.subplots(figsize=(7.2, 3.6), constrained_layout=True)
     for j, energy in enumerate(REFLECT_ENERGIES):
