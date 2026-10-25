@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Compute the next semver and rewrite package version files for a release PR.
 
+Run locally with ``make release-prep``, commit the result, and open a normal PR;
+merging it to ``main`` triggers the Release workflow.
+
 Uses git-cliff (Commitizen / conventional-commits rules via ``cliff.toml``)
 to derive the bump from commits since the latest ``v*`` tag, unless an
 explicit bump level is supplied.
